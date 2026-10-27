@@ -11,7 +11,7 @@ from typing import Literal, get_args
 
 from pydantic import AwareDatetime, Field
 
-from restaurantos.contracts.common import Allergen, Channel, DialogueState, Lang, Model, SpeakLang
+from restaurantos.contracts.common import Allergen, Channel, Code, DialogueState, Lang, Model, SpeakLang, UtcTime
 
 CartOpKind = Literal["add", "remove", "set_qty", "add_modifiers", "remove_modifiers"]
 RejectReason = Literal[
@@ -48,15 +48,17 @@ class CartOp(Model):
     ``remove`` needs line_ref; ``set_qty`` needs line_ref and qty; ``add_modifiers``/``remove_modifiers`` need
     line_ref and modifiers.
 
-    Fields are deliberately unconstrained: a model or a client may send an incomplete op, and the domain
-    (``cart.apply_ops``) drops or rejects it instead of the whole turn failing validation.
+    Fields may be missing: a model or a client may send an incomplete op, and the domain (``cart.apply_ops``) drops
+    or rejects it instead of the whole turn failing validation. Codes must still look like codes (UPPER_SNAKE, ≤16
+    characters, CONTRACTS §1.1): a rejected op is persisted in ``cart.updated``, so no guest free text or phone
+    number may fit in one (CONTRACTS §5).
     """
 
     op: CartOpKind
     line_ref: int | None = None  # L-number from the cart (CartLine.line_no)
-    item_code: str | None = None
+    item_code: Code | None = None
     qty: int | None = None
-    modifiers: list[str] = Field(default_factory=list)
+    modifiers: list[Code] = Field(default_factory=list)
 
 
 class CartLine(Model):
@@ -162,8 +164,9 @@ class Order(Model):
     ready_biz: AwareDatetime | None = None
     caller_last4: str | None = None
     ai_cost_micros: int
-    created_at: AwareDatetime
+    created_at: UtcTime
     placed_biz: AwareDatetime
+    flags: list[str] = Field(default_factory=list)  # orders.flags: qty_flagged (staff confirm), injection_suspected
 
 
 class Reply(Model):

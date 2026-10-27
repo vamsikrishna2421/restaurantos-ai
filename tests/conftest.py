@@ -6,11 +6,15 @@ The environment defaults are set at import time, before any ``restaurantos`` imp
 fresh data dir. Outside a rerecord run, ``pytest_configure`` refuses any AI mode other than mock or
 replay and any ``RESTOS_KEY_FILES`` other than off.
 
-The network block patches the socket module for the whole session. Any AF_INET/AF_INET6 connect
-and any lookup of a non-local name raises ``NetworkBlocked`` before DNS; AF_UNIX sockets and
-``socket.socketpair`` keep working (asyncio needs them). Localhost TCP is allowed only with
-``RESTOS_ALLOW_LOCALHOST=1``, read at call time so a test can opt in with ``monkeypatch.setenv``.
-The block is skipped only for a rerecord run (``RESTOS_ALLOW_NETWORK=1`` and ``RESTOS_AI_MODE=record``).
+The network block patches the socket module from ``pytest_configure`` to ``pytest_unconfigure``, so
+it also covers collection (test modules importing). Any AF_INET/AF_INET6 connect or datagram
+``sendto``/``sendmsg`` raises ``NetworkBlocked``, and so does any name or address lookup
+(``getaddrinfo``, ``gethostbyname[_ex]``, ``gethostbyaddr`` and so ``getfqdn``, ``getnameinfo``
+unless numeric) of anything but localhost, a loopback or unspecified address, or this machine's own
+hostname, before the resolver is asked. AF_UNIX sockets and ``socket.socketpair`` keep working (asyncio
+needs them). Localhost TCP and UDP are allowed only with ``RESTOS_ALLOW_LOCALHOST=1``, read at call time
+so a test can opt in with ``monkeypatch.setenv``. The block is skipped only for a rerecord run
+(``RESTOS_ALLOW_NETWORK=1`` and ``RESTOS_AI_MODE=record``).
 """
 
 from __future__ import annotations
@@ -54,9 +58,11 @@ def pytest_configure(config: pytest.Config) -> None:
         )
     if os.environ["RESTOS_KEY_FILES"].strip().lower() not in _FALSE:
         raise pytest.UsageError("RESTOS_KEY_FILES must be off in tests: Settings never reads repo-root key files")
+    install_block()  # before collection, so test modules importing are covered too
 
 
 def pytest_unconfigure(config: pytest.Config) -> None:
+    remove_block()
     if _OWN_DATA_DIR is not None:
         shutil.rmtree(_OWN_DATA_DIR, ignore_errors=True)
 
@@ -72,8 +78,14 @@ _INET = (socket.AF_INET, socket.AF_INET6)
 _SOCKET_CLASS = socket.socket  # the real class; plugins may swap the module attribute during a test
 _real_connect = _SOCKET_CLASS.connect
 _real_connect_ex = _SOCKET_CLASS.connect_ex
+_real_sendto = _SOCKET_CLASS.sendto
+_real_sendmsg = getattr(_SOCKET_CLASS, "sendmsg", None)  # absent on Windows
 _real_create_connection = socket.create_connection
 _real_getaddrinfo = socket.getaddrinfo
+_real_gethostbyname = socket.gethostbyname
+_real_gethostbyname_ex = socket.gethostbyname_ex
+_real_gethostbyaddr = socket.gethostbyaddr
+_real_getnameinfo = socket.getnameinfo
 
 
 def _is_local(host: object) -> bool:
@@ -112,25 +124,78 @@ def _guarded_connect_ex(self: socket.socket, address: Any) -> int:
     return _real_connect_ex(self, address)
 
 
+def _guarded_sendto(self: socket.socket, data: Any, *args: Any) -> int:
+    if self.family in _INET and args:  # sendto(data, address) or sendto(data, flags, address)
+        _check_connect(args[-1])
+    return _real_sendto(self, data, *args)
+
+
+def _guarded_sendmsg(self: socket.socket, *args: Any) -> int:
+    if self.family in _INET and len(args) > 3 and args[3] is not None:  # sendmsg(buffers, ancdata, flags, address)
+        _check_connect(args[3])
+    return _real_sendmsg(self, *args)  # type: ignore[misc]
+
+
 def _guarded_create_connection(address: Any, *args: Any, **kwargs: Any) -> socket.socket:
     _check_connect(address)
     return _real_create_connection(address, *args, **kwargs)
 
 
+def _lookup_allowed(host: object) -> bool:
+    """Lookups may name localhost, a loopback or unspecified address, or this machine (``getfqdn()``)."""
+    if _is_local(host):
+        return True
+    name = host.decode("ascii", "replace") if isinstance(host, bytes | bytearray) else str(host)
+    return name.strip().rstrip(".").lower() == socket.gethostname().lower()  # gethostname is a syscall, no DNS
+
+
+def _check_lookup(host: object, what: str) -> None:
+    if not _lookup_allowed(host):
+        raise NetworkBlocked(f"{what} of {host!r} blocked in tests")
+
+
 def _guarded_getaddrinfo(host: Any, port: Any, *args: Any, **kwargs: Any) -> list:
-    if not _is_local(host):
-        raise NetworkBlocked(f"name lookup of {host!r} blocked in tests")
+    _check_lookup(host, "name lookup")
     return _real_getaddrinfo(host, port, *args, **kwargs)
+
+
+def _guarded_gethostbyname(host: Any) -> str:
+    _check_lookup(host, "name lookup")
+    return _real_gethostbyname(host)
+
+
+def _guarded_gethostbyname_ex(host: Any) -> tuple[str, list[str], list[str]]:
+    _check_lookup(host, "name lookup")
+    return _real_gethostbyname_ex(host)
+
+
+def _guarded_gethostbyaddr(host: Any) -> tuple[str, list[str], list[str]]:
+    _check_lookup(host, "address lookup")
+    return _real_gethostbyaddr(host)
+
+
+def _guarded_getnameinfo(sockaddr: Any, flags: int) -> tuple[str, str]:
+    if not flags & socket.NI_NUMERICHOST:  # numeric output needs no reverse lookup
+        _check_lookup(sockaddr[0] if isinstance(sockaddr, tuple) and sockaddr else sockaddr, "address lookup")
+    return _real_getnameinfo(sockaddr, flags)
 
 
 _PATCHES: tuple[tuple[Any, str, Any], ...] = (
     (_SOCKET_CLASS, "connect", _guarded_connect),
     (_SOCKET_CLASS, "connect_ex", _guarded_connect_ex),
+    (_SOCKET_CLASS, "sendto", _guarded_sendto),
+    *(((_SOCKET_CLASS, "sendmsg", _guarded_sendmsg),) if _real_sendmsg is not None else ()),
     (socket, "create_connection", _guarded_create_connection),
     (socket, "getaddrinfo", _guarded_getaddrinfo),
+    (socket, "gethostbyname", _guarded_gethostbyname),
+    (socket, "gethostbyname_ex", _guarded_gethostbyname_ex),
+    (socket, "gethostbyaddr", _guarded_gethostbyaddr),
+    (socket, "getnameinfo", _guarded_getnameinfo),
 )
 _MISSING = object()
 _active = False
+_saved: list[tuple[Any, str, Any]] = []
+_saved_plugin_connect: Any = None
 
 
 def network_blocked() -> bool:
@@ -155,28 +220,39 @@ def _swap_pytest_socket_connect(value: Any) -> Any:
     return previous
 
 
-@pytest.fixture(scope="session", autouse=True)
-def no_network() -> Iterator[None]:
-    """Block outbound network for the whole session; skipped only for a rerecord run."""
-    global _active
-    if RERECORD:
-        yield
+def install_block() -> None:
+    """Install every guard (``pytest_configure``); a no-op when already active or in a rerecord run."""
+    global _active, _saved_plugin_connect
+    if _active or RERECORD:
         return
-    saved = [(owner, name, vars(owner).get(name, _MISSING)) for owner, name, _ in _PATCHES]
-    plugin_connect = _swap_pytest_socket_connect(_guarded_connect)
+    _saved[:] = [(owner, name, vars(owner).get(name, _MISSING)) for owner, name, _ in _PATCHES]
+    _saved_plugin_connect = _swap_pytest_socket_connect(_guarded_connect)
     _install()
     _active = True
-    try:
-        yield
-    finally:
-        _active = False
-        for owner, name, original in saved:
-            if original is not _MISSING:
-                setattr(owner, name, original)
-            elif name in vars(owner):
-                delattr(owner, name)  # socket.socket inherits connect/connect_ex from _socket.socket
-        if plugin_connect is not None:
-            _swap_pytest_socket_connect(plugin_connect)
+
+
+def remove_block() -> None:
+    """Restore the socket module (``pytest_unconfigure``)."""
+    global _active, _saved_plugin_connect
+    if not _active:
+        return
+    _active = False
+    for owner, name, original in _saved:
+        if original is not _MISSING:
+            setattr(owner, name, original)
+        elif name in vars(owner):
+            delattr(owner, name)  # socket.socket inherits connect, connect_ex, sendto and sendmsg from _socket.socket
+    if _saved_plugin_connect is not None:
+        _swap_pytest_socket_connect(_saved_plugin_connect)
+        _saved_plugin_connect = None
+
+
+@pytest.fixture(scope="session", autouse=True)
+def no_network() -> Iterator[None]:
+    """The block is installed in ``pytest_configure``; this session fixture only re-asserts it (kept by name)."""
+    if _active and not network_blocked():
+        _install()
+    yield
 
 
 @pytest.hookimpl(tryfirst=True)

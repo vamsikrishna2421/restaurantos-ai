@@ -15,8 +15,8 @@ from zoneinfo import ZoneInfo
 import pytest
 from pydantic import ValidationError
 
+from restaurantos.contracts import common, kitchen, menu, orders
 from restaurantos.contracts import inventory as inv
-from restaurantos.contracts import kitchen, menu, orders
 from restaurantos.contracts.common import ALLERGENS, Model
 
 BIZ = datetime(2026, 11, 7, 18, 42, tzinfo=ZoneInfo("America/New_York"))  # dinner_rush anchor
@@ -111,7 +111,7 @@ SAMPLES: dict[type[Model], Model] = {
         channel="phone", status="in_progress", language="te-en", session_id=CART.session_id, cart_id=CART.cart_id,
         lines=[orders.OrderLine(**CART_LINE.model_dump())], subtotal_cents=1699, tax_cents=119, total_cents=1818,
         pickup_quote_min=25, ready_biz=BIZ + 25 * MIN, caller_last4="1234", ai_cost_micros=1200, created_at=REAL,
-        placed_biz=BIZ),
+        placed_biz=BIZ, flags=["qty_flagged"]),
     orders.Reply: REPLY,
     orders.TurnSpans: SPANS,
     orders.TurnResult: orders.TurnResult(
@@ -213,6 +213,32 @@ def test_menu_item_spice_level_and_code_rules():
     assert menu.MenuItem.model_validate({**base, "code": "CHK_TIKKA_MASALA"}).code == "CHK_TIKKA_MASALA"  # 16 chars
     with pytest.raises(ValidationError):
         menu.Modifier(code="no onion", labels=NO_ONION_LABEL)
+
+
+def test_cart_op_codes_must_look_like_codes():
+    """A rejected op is persisted in cart.updated, so a code field can't carry guest text or a phone number (§5)."""
+    assert orders.CartOp(op="add", item_code="CHK_TIKKA_MASALA", qty=1, modifiers=["NO_ONION"]).item_code
+    assert orders.CartOp(op="add").item_code is None  # incomplete ops still parse; the domain drops them
+    for bad in ({"item_code": "my number is +1 917 555 0142, call me back"}, {"item_code": "chk_biry"},
+                {"item_code": "CHK_TIKKA_MASALAX"}, {"modifiers": ["NO_ONION", "call me at 9175550142"]},
+                {"modifiers": ["no onion"]}):
+        with pytest.raises(ValidationError):
+            orders.CartOp.model_validate({"op": "add", "qty": 1, **bad})
+    assert menu.Code is common.Code and menu.CODE_PATTERN == common.CODE_PATTERN  # menu re-exports them
+
+
+def test_real_time_fields_serialize_as_utc_ms_z():
+    """CONTRACTS §1.3: real time is UTC ISO-8601 with milliseconds and Z; business time keeps the tenant offset."""
+    whole = datetime(2026, 11, 7, 18, 44, 5, tzinfo=ZoneInfo("America/New_York"))  # a whole second, not UTC
+    task = SAMPLES[kitchen.StaffTask].model_copy(update={"created_at": whole})
+    assert task.model_dump(mode="json")["created_at"] == "2026-11-07T23:44:05.000Z"
+    assert task.model_dump()["created_at"] == whole  # python mode keeps the datetime
+    ticket = SAMPLES[kitchen.Ticket].model_dump(mode="json")
+    assert ticket["undo_until"] == "2026-11-07T23:44:15.250Z" and ticket["created_biz"] == "2026-11-07T18:42:00-05:00"
+    order = SAMPLES[orders.Order].model_dump(mode="json")
+    assert order["created_at"] == "2026-11-07T23:44:05.250Z" and order["placed_biz"] == "2026-11-07T18:42:00-05:00"
+    assert order["flags"] == ["qty_flagged"]
+    assert orders.Order.model_validate({**order, "flags": []}).flags == []
 
 
 def test_supplier_note_text_limit_and_seed_source_only():

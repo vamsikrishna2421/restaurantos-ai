@@ -1,0 +1,12 @@
+# Spice Route (CONTRACTS_SEED §2). A SAMPLE restaurant: the menu, staff, suppliers, address and phone number are
+# fictional, and every surface shows the SampleBadge. Owned by P05; validated by seed/validate.py (TenantFile).
+name: Spice Route (sample)
+timezone: America/New_York
+hours:                    # daily
+  open_local: "11:00"
+  close_local: "22:00"
+tax_bp: 700               # a sample rate, labelled as such
+pack_min: 3               # added to every pickup quote
+min_quote_min: 15
+phone_display: null       # the Twilio number, filled at deploy
+address: "Sample address — not a real restaurant"

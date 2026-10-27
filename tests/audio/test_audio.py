@@ -1,3 +1,5 @@
+import struct
+
 import numpy as np
 import pytest
 
@@ -68,3 +70,28 @@ def test_wav_round_trip():
     x = np.round(tone(440, 16000, 0.1)).astype(np.int16)
     pcm, rate = read_wav(write_wav(x, 16000))
     assert rate == 16000 and np.array_equal(pcm, x)
+
+
+def _float_wav(samples: np.ndarray, rate: int, channels: int = 1, extensible: bool = False) -> bytes:
+    payload = samples.astype("<f4").tobytes()
+    tag = 0xFFFE if extensible else 3
+    fmt = struct.pack("<HHIIHH", tag, channels, rate, rate * 4 * channels, 4 * channels, 32)
+    if extensible:  # cbSize, valid bits, channel mask, then the subformat GUID whose first 2 bytes are the real tag
+        fmt += struct.pack("<HHIH", 22, 32, 0, 3) + bytes(14)
+    chunks = b"fmt " + struct.pack("<I", len(fmt)) + fmt + b"data" + struct.pack("<I", len(payload)) + payload
+    return b"RIFF" + struct.pack("<I", 4 + len(chunks)) + b"WAVE" + chunks
+
+
+@pytest.mark.parametrize("extensible", [False, True])
+def test_float_wav_read_as_int16(extensible):
+    x = tone(440, 16000, 0.1) / 32768.0  # float samples in [-1, 1]
+    pcm, rate = read_wav(_float_wav(x, 16000, extensible=extensible))
+    assert rate == 16000 and pcm.dtype == np.int16
+    assert np.max(np.abs(pcm.astype(np.float64) - np.round(x * 32767))) <= 1
+
+
+def test_float_wav_stereo_downmixed():
+    x = tone(440, 16000, 0.05) / 32768.0
+    stereo = np.stack([x, x], axis=1).reshape(-1)
+    pcm, _ = read_wav(_float_wav(stereo, 16000, channels=2))
+    assert len(pcm) == len(x)

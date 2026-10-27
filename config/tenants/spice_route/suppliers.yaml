@@ -1,0 +1,64 @@
+# Spice Route suppliers (CONTRACTS_SEED §9). All suppliers are labelled samples; POs go to the in-app sandbox
+# supplier inbox only, never to a real business.
+#
+# lead_min is the same-day lead when ordered before cutoff_local (business time); next_day_local is the next-day
+# delivery time, null for the staff pickup. Catalog: pack_qty in the ingredient's unit -> pack_price_cents.
+# notes stay empty here: a scenario may add supplier_seed notes (dinner_rush adds one to SUP_PATEL).
+suppliers:
+  - id: SUP_PATEL
+    name: Patel Cash & Carry (sample, staff pickup)
+    kind: pickup
+    lead_min: 40
+    cutoff_local: "21:00"
+    next_day_local: null
+    min_order_cents: 0
+    catalog:
+      - {ingredient_id: ING_PANEER, pack_qty: 1000, pack_price_cents: 1100}
+      - {ingredient_id: ING_CASHEW, pack_qty: 500, pack_price_cents: 900}
+      - {ingredient_id: ING_YOGURT, pack_qty: 2000, pack_price_cents: 650}
+      - {ingredient_id: ING_MIXED_VEG, pack_qty: 2000, pack_price_cents: 700}
+      - {ingredient_id: ING_ONION, pack_qty: 5000, pack_price_cents: 600}
+    notes: []
+  - id: SUP_FRESHDAIRY
+    name: Fresh Dairy Co. (sample)
+    kind: delivery
+    lead_min: 90
+    cutoff_local: "19:30"
+    next_day_local: "07:00"
+    min_order_cents: 2500
+    catalog:
+      - {ingredient_id: ING_PANEER, pack_qty: 1000, pack_price_cents: 950}
+      - {ingredient_id: ING_YOGURT, pack_qty: 2000, pack_price_cents: 520}
+      - {ingredient_id: ING_BUTTER, pack_qty: 1000, pack_price_cents: 800}
+      - {ingredient_id: ING_CREAM, pack_qty: 1000, pack_price_cents: 600}
+      - {ingredient_id: ING_MILK, pack_qty: 4000, pack_price_cents: 500}
+    notes: []
+  - id: SUP_METRO
+    name: Metro Produce (sample)
+    kind: delivery
+    lead_min: 180
+    cutoff_local: "16:00"
+    next_day_local: "07:00"
+    min_order_cents: 4000
+    catalog:
+      - {ingredient_id: ING_ONION, pack_qty: 5000, pack_price_cents: 550}
+      - {ingredient_id: ING_POTATO, pack_qty: 5000, pack_price_cents: 550}
+      - {ingredient_id: ING_SPINACH, pack_qty: 1000, pack_price_cents: 400}
+      - {ingredient_id: ING_CAULIFLOWER, pack_qty: 2000, pack_price_cents: 500}
+      - {ingredient_id: ING_MIXED_VEG, pack_qty: 2000, pack_price_cents: 600}
+      - {ingredient_id: ING_GONGURA, pack_qty: 500, pack_price_cents: 350}
+      - {ingredient_id: ING_GARLIC, pack_qty: 500, pack_price_cents: 350}
+      - {ingredient_id: ING_COCONUT, pack_qty: 500, pack_price_cents: 350}
+    notes: []
+  - id: SUP_HALAL
+    name: Crescent Halal Meats (sample)
+    kind: delivery
+    lead_min: 120
+    cutoff_local: "17:00"
+    next_day_local: "07:00"
+    min_order_cents: 5000
+    catalog:
+      - {ingredient_id: ING_CHICKEN, pack_qty: 5000, pack_price_cents: 2750}
+      - {ingredient_id: ING_GOAT, pack_qty: 5000, pack_price_cents: 5200}
+      - {ingredient_id: ING_EGG, pack_qty: 30, pack_price_cents: 900}
+    notes: []

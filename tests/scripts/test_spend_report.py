@@ -33,8 +33,15 @@ def _ts(*parts: int) -> float:
 
 
 def _line(purpose: str, cost: float, latency: int, *, tag: str | None = "P13", ts: float | None = None, **extra):
-    rec = {"purpose": purpose, "model": "muse-spark-1.3", "endpoint": "chat", "status": "ok", "cost_usd": cost,
-           "latency_ms": latency, "ts": ts if ts is not None else _ts(2026, 10, 27, 12, 0)}
+    rec = {
+        "purpose": purpose,
+        "model": "muse-spark-1.3",
+        "endpoint": "chat",
+        "status": "ok",
+        "cost_usd": cost,
+        "latency_ms": latency,
+        "ts": ts if ts is not None else _ts(2026, 10, 27, 12, 0),
+    }
     if tag is not None:
         rec["live_tag"] = tag
     return {**rec, **extra}
@@ -48,16 +55,19 @@ def _write(path: Path, lines: list) -> Path:
 @pytest.fixture
 def ledger(tmp_path):
     old = {k: v for k, v in _line("order", 0.0005, 0, tag=None).items() if k != "live_tag"}  # pre-delta line
-    return _write(tmp_path / "ai_calls.jsonl", [
-        _line("order", 0.001, 100, spend_scope="dev:P13"),
-        _line("order", 0.002, 300, spend_scope="dev:P13"),
-        _line("order", 0.003, 200, spend_scope="dev:P13", ts=_ts(2026, 10, 28, 3, 59)),  # still budget day Oct 27
-        _line("gm", 0.010, 1000, pool="admin", ts=_ts(2026, 10, 28, 4, 0)),  # budget day Oct 28
-        old,
-        "",
-        "{not json",
-        "[1, 2]",
-    ])
+    return _write(
+        tmp_path / "ai_calls.jsonl",
+        [
+            _line("order", 0.001, 100, spend_scope="dev:P13"),
+            _line("order", 0.002, 300, spend_scope="dev:P13"),
+            _line("order", 0.003, 200, spend_scope="dev:P13", ts=_ts(2026, 10, 28, 3, 59)),  # still budget day Oct 27
+            _line("gm", 0.010, 1000, pool="admin", ts=_ts(2026, 10, 28, 4, 0)),  # budget day Oct 28
+            old,
+            "",
+            "{not json",
+            "[1, 2]",
+        ],
+    )
 
 
 def test_budget_day_runs_0400_to_0400_et():
@@ -90,11 +100,13 @@ def test_group_by_tag_and_purpose_math(ledger):
 
 def test_group_by_day_scope_pool(ledger):
     records, _ = sr.read_ledger(ledger)
-    by_day = sr.summarize(records, ["day"])["groups"]
-    assert [(g["day"], g["calls"], g["cost_usd"]) for g in by_day] == [("2026-10-27", 4, 0.0065), ("2026-10-28", 1, 0.01)]
+    by_day = [(g["day"], g["calls"], g["cost_usd"]) for g in sr.summarize(records, ["day"])["groups"]]
+    assert by_day == [("2026-10-27", 4, 0.0065), ("2026-10-28", 1, 0.01)]
     by_scope_pool = sr.summarize(records, ["scope", "pool"])["groups"]
     assert [(g["scope"], g["pool"], g["calls"]) for g in by_scope_pool] == [
-        (None, None, 1), (None, "admin", 1), ("dev:P13", None, 3)
+        (None, None, 1),
+        (None, "admin", 1),
+        ("dev:P13", None, 3),
     ]
 
 
@@ -118,8 +130,23 @@ def test_percentile_nearest_rank():
 def test_parse_args_defaults_and_repeatable_by():
     args = sr.parse_args([])
     assert (args.ledger, args.tag, args.since, args.by, args.json) == (None, None, None, ["tag", "purpose"], False)
-    args = sr.parse_args(["--ledger", "x.jsonl", "--tag", "P13", "--since", "2026-10-27",
-                          "--by", "day", "--by", "model", "--by", "day", "--json"])
+    args = sr.parse_args(
+        [
+            "--ledger",
+            "x.jsonl",
+            "--tag",
+            "P13",
+            "--since",
+            "2026-10-27",
+            "--by",
+            "day",
+            "--by",
+            "model",
+            "--by",
+            "day",
+            "--json",
+        ]
+    )
     assert args.ledger == Path("x.jsonl")
     assert (args.tag, args.since, args.by, args.json) == ("P13", date(2026, 10, 27), ["day", "model"], True)
 
@@ -156,6 +183,7 @@ def test_main_missing_ledger(tmp_path, capsys):
 
 
 def test_default_ledger_from_settings(monkeypatch, tmp_path):
-    monkeypatch.setenv("MODEL_API_KEY", "test-key-not-real")  # Settings never looks for a key file
+    monkeypatch.setenv("RESTOS_KEY_FILES", "0")  # Settings never reads the repo-root credential files
+    monkeypatch.setenv("MODEL_API_KEY", "test-key-not-real")
     monkeypatch.setenv("RESTOS_DATA_DIR", str(tmp_path))
     assert sr.default_ledger() == tmp_path / "ai_calls.jsonl"

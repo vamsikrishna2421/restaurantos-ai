@@ -6,4 +6,4 @@ never redefine them. After CP0 only the lead edits these modules; changes are ad
 ``contracts/ext_<pkg>.py``.
 """
 
-CONTRACTS_VERSION = "2.0.0"
+CONTRACTS_VERSION = "2.2.0"

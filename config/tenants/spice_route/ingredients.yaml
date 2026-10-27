@@ -1,0 +1,66 @@
+# Spice Route ingredients (CONTRACTS_SEED §7). SAMPLE data.
+#
+# Quantities are ints in the unit (g, ml, ea, portion). par is the weekend par: the template (and so live, demo and
+# every sandbox before its scenario) starts with on_hand = par and nothing reserved. reorder_point and pack_size are
+# in the same unit. Batch items (biryani rice, makhani gravy, dosa batter, sambar) are counted in portions.
+# names.en is the id in title case; only paneer carries te/ta/es names.
+#
+# UNREVIEWED: the paneer te/ta/es names have not been checked by a fluent speaker yet.
+review_status: unreviewed
+reviewer: null
+
+ingredients:
+  - {id: ING_PANEER, unit: g, allergens: [dairy], par: 6000, reorder_point: 2000, pack_size: 1000,
+     names: {en: Paneer, te: పనీర్, ta: பனீர், es: paneer (queso fresco)}}
+  - {id: ING_CHICKEN, unit: g, allergens: [], par: 15000, reorder_point: 5000, pack_size: 5000, names: {en: Chicken}}
+  - {id: ING_GOAT, unit: g, allergens: [], par: 8000, reorder_point: 3000, pack_size: 5000, names: {en: Goat}}
+  - {id: ING_EGG, unit: ea, allergens: [egg], par: 90, reorder_point: 30, pack_size: 30, names: {en: Egg}}
+  # batch: the biryani handi
+  - {id: ING_BIRY_RICE, unit: portion, allergens: [], par: 40, reorder_point: 12, pack_size: 20,
+     names: {en: Biry Rice}}
+  # batch: makhani gravy
+  - {id: ING_MAKHANI_BASE, unit: portion, allergens: [dairy, tree_nuts], par: 30, reorder_point: 10, pack_size: 15,
+     names: {en: Makhani Base}}
+  - {id: ING_DOSA_BATTER, unit: portion, allergens: [], par: 50, reorder_point: 15, pack_size: 25,
+     names: {en: Dosa Batter}}
+  - {id: ING_SAMBAR, unit: portion, allergens: [mustard], par: 60, reorder_point: 20, pack_size: 30,
+     names: {en: Sambar}}
+  - {id: ING_MIXED_VEG, unit: g, allergens: [], par: 8000, reorder_point: 2500, pack_size: 2000,
+     names: {en: Mixed Veg}}
+  - {id: ING_SPINACH, unit: g, allergens: [], par: 4000, reorder_point: 1200, pack_size: 1000, names: {en: Spinach}}
+  - {id: ING_CAULIFLOWER, unit: g, allergens: [], par: 5000, reorder_point: 1500, pack_size: 2000,
+     names: {en: Cauliflower}}
+  - {id: ING_POTATO, unit: g, allergens: [], par: 8000, reorder_point: 2500, pack_size: 5000, names: {en: Potato}}
+  - {id: ING_ONION, unit: g, allergens: [], par: 10000, reorder_point: 3000, pack_size: 5000, names: {en: Onion}}
+  - {id: ING_GARLIC, unit: g, allergens: [], par: 1500, reorder_point: 500, pack_size: 500, names: {en: Garlic}}
+  - {id: ING_GONGURA, unit: g, allergens: [], par: 1500, reorder_point: 500, pack_size: 500, names: {en: Gongura}}
+  - {id: ING_COCONUT, unit: g, allergens: [tree_nuts], par: 1500, reorder_point: 500, pack_size: 500,
+     names: {en: Coconut}}
+  - {id: ING_YOGURT, unit: g, allergens: [dairy], par: 8000, reorder_point: 2500, pack_size: 2000,
+     names: {en: Yogurt}}
+  - {id: ING_BUTTER, unit: g, allergens: [dairy], par: 3000, reorder_point: 1000, pack_size: 1000,
+     names: {en: Butter}}
+  - {id: ING_CREAM, unit: g, allergens: [dairy], par: 3000, reorder_point: 1000, pack_size: 1000, names: {en: Cream}}
+  - {id: ING_MILK, unit: ml, allergens: [dairy], par: 8000, reorder_point: 2500, pack_size: 4000, names: {en: Milk}}
+  - {id: ING_CASHEW, unit: g, allergens: [tree_nuts], par: 2000, reorder_point: 600, pack_size: 500,
+     names: {en: Cashew}}
+  - {id: ING_FLOUR, unit: g, allergens: [gluten], par: 15000, reorder_point: 5000, pack_size: 10000,
+     names: {en: Flour}}
+  - {id: ING_LENTIL, unit: g, allergens: [], par: 6000, reorder_point: 2000, pack_size: 5000, names: {en: Lentil}}
+  - {id: ING_CHICKPEA, unit: g, allergens: [], par: 4000, reorder_point: 1200, pack_size: 2000,
+     names: {en: Chickpea}}
+  - {id: ING_MOONG, unit: g, allergens: [], par: 3000, reorder_point: 1000, pack_size: 2000, names: {en: Moong}}
+  - {id: ING_RICE, unit: g, allergens: [], par: 6000, reorder_point: 2000, pack_size: 5000, names: {en: Rice}}
+  - {id: ING_SOY_SAUCE, unit: ml, allergens: [soy, gluten], par: 1000, reorder_point: 300, pack_size: 1000,
+     names: {en: Soy Sauce}}
+  - {id: ING_MUSTARD, unit: g, allergens: [mustard], par: 500, reorder_point: 150, pack_size: 250,
+     names: {en: Mustard}}
+  - {id: ING_MANGO_PULP, unit: ml, allergens: [], par: 4000, reorder_point: 1200, pack_size: 3000,
+     names: {en: Mango Pulp}}
+  - {id: ING_TEA, unit: g, allergens: [], par: 500, reorder_point: 150, pack_size: 250, names: {en: Tea}}
+  - {id: ING_COFFEE, unit: g, allergens: [], par: 1000, reorder_point: 300, pack_size: 500, names: {en: Coffee}}
+  # prepared in house
+  - {id: ING_GULAB_JAMUN, unit: ea, allergens: [dairy, gluten], par: 60, reorder_point: 20, pack_size: 30,
+     names: {en: Gulab Jamun}}
+  - {id: ING_WATER_BOTTLE, unit: ea, allergens: [], par: 96, reorder_point: 24, pack_size: 24,
+     names: {en: Water Bottle}}

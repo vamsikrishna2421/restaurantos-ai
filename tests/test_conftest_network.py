@@ -8,9 +8,15 @@ import socket
 
 import pytest
 
+from tests import conftest
 from tests.conftest import RERECORD, NetworkBlocked, is_rerecord_env, network_blocked
 
 pytestmark = pytest.mark.skipif(RERECORD, reason="a rerecord run lifts the network block")
+BLOCKED_AT_IMPORT = network_blocked()  # this module is imported while pytest collects
+
+
+def test_block_covers_collection():
+    assert BLOCKED_AT_IMPORT
 
 
 def test_conftest_blocks_network():
@@ -51,6 +57,44 @@ def test_inet_connect_blocked_before_dns():
         sock.connect(("example.com", 80))  # a name: refused before the C-level lookup
 
 
+def test_resolver_and_datagrams_blocked(monkeypatch):
+    assert network_blocked()
+    monkeypatch.delenv("RESTOS_ALLOW_LOCALHOST", raising=False)
+    lookups = (lambda: socket.gethostbyname("example.com"), lambda: socket.gethostbyname_ex("example.com"),
+               lambda: socket.gethostbyaddr("192.0.2.1"), lambda: socket.getnameinfo(("192.0.2.1", 80), 0),
+               lambda: socket.getfqdn("example.com"))
+    for lookup in lookups:
+        with pytest.raises(NetworkBlocked):
+            lookup()
+    numeric = socket.NI_NUMERICHOST | socket.NI_NUMERICSERV
+    assert socket.getnameinfo(("192.0.2.1", 80), numeric) == ("192.0.2.1", "80")  # numeric: no lookup
+    assert socket.gethostbyname("127.0.0.1") == "127.0.0.1"
+    assert conftest._lookup_allowed(socket.gethostname())  # getfqdn() of this machine keeps working
+    assert not conftest._lookup_allowed("example.com") and conftest._lookup_allowed(b"localhost")
+    with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as udp:
+        with pytest.raises(NetworkBlocked):
+            udp.sendto(b"x", ("192.0.2.1", 53))
+        with pytest.raises(NetworkBlocked):
+            udp.sendto(b"x", 0, ("192.0.2.1", 53))
+        if hasattr(udp, "sendmsg"):
+            with pytest.raises(NetworkBlocked):
+                udp.sendmsg([b"x"], [], 0, ("192.0.2.1", 53))
+
+
+def test_block_install_and_remove_restore_the_socket_module():
+    assert network_blocked()
+    conftest.remove_block()
+    try:
+        assert not network_blocked()
+        assert socket.getaddrinfo is conftest._real_getaddrinfo
+        assert socket.gethostbyaddr is conftest._real_gethostbyaddr
+    finally:
+        conftest.install_block()
+    assert network_blocked()
+    conftest.install_block()  # idempotent
+    assert network_blocked()
+
+
 def test_localhost_tcp_needs_opt_in(monkeypatch):
     assert network_blocked()
     monkeypatch.delenv("RESTOS_ALLOW_LOCALHOST", raising=False)
@@ -68,6 +112,16 @@ def test_localhost_tcp_needs_opt_in(monkeypatch):
             conn.close()
         with pytest.raises(NetworkBlocked):  # the localhost opt-in never opens the internet
             socket.getaddrinfo("example.com", 443)
+
+    monkeypatch.delenv("RESTOS_ALLOW_LOCALHOST")
+    with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as rx, socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as tx:
+        rx.bind(("127.0.0.1", 0))
+        rx.settimeout(2)
+        with pytest.raises(NetworkBlocked):
+            tx.sendto(b"ping", rx.getsockname())
+        monkeypatch.setenv("RESTOS_ALLOW_LOCALHOST", "1")
+        tx.sendto(b"ping", rx.getsockname())  # local UDP with the same opt-in as TCP
+        assert rx.recv(4) == b"ping"
 
 
 def test_rerecord_is_the_only_way_out():

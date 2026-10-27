@@ -8,10 +8,10 @@ iteration.
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from typing import Any, Literal, get_args
+from typing import Annotated, Any, Literal, get_args
 from zoneinfo import ZoneInfo
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, PlainSerializer, StringConstraints
 
 
 class Model(BaseModel):
@@ -28,7 +28,9 @@ Lang = Literal["en", "te", "ta", "es", "hi", "te-en", "ta-en", "es-en", "hi-en",
 SpeakLang = Literal["en", "te", "ta", "es"]
 AsrLanguage = Literal["English", "Telugu", "Tamil", "Spanish", "Hindi"]
 Channel = Literal["phone", "kiosk", "counter", "typed", "sim"]
-DataClass = Literal["synthetic", "customer", "judge", "staff", "founder_voice"]
+# public_dataset: real speech from a public, licensed corpus (e.g. FLEURS). Not synthetic, so contributor models
+# never see it.
+DataClass = Literal["synthetic", "customer", "judge", "staff", "founder_voice", "public_dataset"]
 Role = Literal["guest", "cook", "foh", "manager", "owner", "judge", "admin", "system"]
 SpendPool = Literal["public", "judge", "admin"]
 PhoneLane = Literal["judge", "public"]
@@ -68,6 +70,10 @@ TEMPLATE_TENANT = "spice_route"  # template rows, never served
 LIVE_TENANT = "live"  # public shared board
 DEMO_TENANT = "demo"  # founders: filming, finals, consented calls
 SANDBOX_PREFIX = "sbx_"
+
+# Menu item and modifier codes: UPPER_SNAKE, at most 16 characters (CONTRACTS §1.1).
+CODE_PATTERN = r"^[A-Z][A-Z0-9_]{0,15}$"
+Code = Annotated[str, StringConstraints(pattern=CODE_PATTERN)]
 
 
 class TenantClockSpec(Model):
@@ -161,6 +167,22 @@ def ms_from_dt(dt: datetime) -> int:
     if dt.tzinfo is None:
         raise ValueError("naive datetime: attach a timezone first")
     return round(dt.timestamp() * 1000)
+
+
+def utc_iso(dt: datetime) -> str:
+    """Real time on the wire and in every hash: UTC ISO-8601 with milliseconds and ``Z``, e.g.
+    ``2026-11-08T00:02:30.125Z`` (CONTRACTS §1.3 and §1.5)."""
+    if dt.tzinfo is None:
+        raise ValueError("naive datetime: attach a timezone first")
+    return dt.astimezone(UTC).isoformat(timespec="milliseconds").replace("+00:00", "Z")
+
+
+# A real-time model field (`*_at`, `ts`, `undo_until`): JSON is `utc_iso`, python mode keeps the datetime. Business
+# time (`*_biz`, `biz_time`) stays a plain AwareDatetime and keeps the tenant zone's offset on the wire.
+UtcTime = Annotated[AwareDatetime, PlainSerializer(utc_iso, return_type=str, when_used="json")]
+
+# A dollar amount set through the API (caps, baselines): finite and not negative, so a bad request is a 422.
+Usd = Annotated[float, Field(ge=0, allow_inf_nan=False)]
 
 
 JSONDict = dict[str, Any]

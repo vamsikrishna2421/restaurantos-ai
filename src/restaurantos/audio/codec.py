@@ -65,15 +65,46 @@ def pcm16_to_ulaw_b64(pcm: np.ndarray) -> str:
 
 
 def read_wav(data: bytes) -> tuple[np.ndarray, int]:
-    """Mono or stereo 16-bit WAV → (mono int16 samples, sample rate)."""
-    with wave.open(io.BytesIO(data), "rb") as w:
-        if w.getsampwidth() != 2:
-            raise ValueError("only 16-bit PCM WAV is supported")
-        rate, channels = w.getframerate(), w.getnchannels()
-        pcm = np.frombuffer(w.readframes(w.getnframes()), dtype="<i2")
+    """16-bit PCM or 32-bit float WAV, mono or multichannel → (mono int16 samples, sample rate)."""
+    try:
+        with wave.open(io.BytesIO(data), "rb") as w:
+            if w.getsampwidth() != 2:
+                raise ValueError("only 16-bit PCM or 32-bit float WAV is supported")
+            rate, channels = w.getframerate(), w.getnchannels()
+            pcm = np.frombuffer(w.readframes(w.getnframes()), dtype="<i2")
+    except wave.Error:
+        # The wave module only knows integer PCM; datasets such as FLEURS ship IEEE float (format tag 3).
+        return _read_float_wav(data)
     if channels > 1:
         pcm = pcm.reshape(-1, channels).mean(axis=1).astype(np.int16)
     return pcm, rate
+
+
+def _read_float_wav(data: bytes) -> tuple[np.ndarray, int]:
+    if data[:4] != b"RIFF" or data[8:12] != b"WAVE":
+        raise ValueError("not a RIFF/WAVE file")
+    pos, fmt, samples = 12, None, None
+    while pos + 8 <= len(data):
+        cid, size = data[pos : pos + 4], int.from_bytes(data[pos + 4 : pos + 8], "little")
+        body = data[pos + 8 : pos + 8 + size]
+        if cid == b"fmt ":
+            tag, channels, rate = (int.from_bytes(body[i : i + n], "little") for i, n in ((0, 2), (2, 2), (4, 4)))
+            bits = int.from_bytes(body[14:16], "little")
+            if tag == 0xFFFE and len(body) >= 26:  # WAVE_FORMAT_EXTENSIBLE: the real tag opens the subformat GUID
+                tag = int.from_bytes(body[24:26], "little")
+            fmt = (tag, channels, rate, bits)
+        elif cid == b"data":
+            samples = body
+        pos += 8 + size + (size & 1)  # chunks are word-aligned
+    if fmt is None or samples is None:
+        raise ValueError("WAV is missing its fmt or data chunk")
+    tag, channels, rate, bits = fmt
+    if tag != 3 or bits != 32:
+        raise ValueError(f"unsupported WAV format tag {tag} with {bits}-bit samples")
+    x = np.frombuffer(samples[: len(samples) // 4 * 4], dtype="<f4").astype(np.float64)
+    if channels > 1:
+        x = x[: len(x) // channels * channels].reshape(-1, channels).mean(axis=1)
+    return np.clip(np.round(x * 32767.0), -32768, 32767).astype(np.int16), rate
 
 
 def write_wav(pcm: np.ndarray, rate: int) -> bytes:

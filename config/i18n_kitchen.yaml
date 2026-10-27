@@ -1,0 +1,28 @@
+# Kitchen labels (CONTRACTS_SEED §14): the fixed KDS words in {en, te, ta, es}, plus every station name (keyed by
+# station id, the same names as config/tenants/spice_route/stations.yaml). Owned by P05; rendered by P08
+# (domain/i18n_kitchen.py) from MenuSnapshot.kitchen_labels. English and Spanish are written in KDS caps; Telugu and
+# Tamil have no case.
+#
+# UNREVIEWED: only "eighty_six" comes from the spec; the other te/ta/es words are drafts that no fluent speaker has
+# checked yet (founders review Oct 27-28).
+review_status: unreviewed
+reviewer: null
+
+labels:
+  new: {en: NEW, te: కొత్తది, ta: புதியது, es: NUEVO}
+  changed: {en: CHANGED, te: మార్పు, ta: மாற்றம், es: CAMBIADO}
+  eighty_six: {en: "86 — SOLD OUT", te: అయిపోయింది, ta: தீர்ந்துவிட்டது, es: AGOTADO}
+  bump: {en: BUMP, te: అయింది, ta: முடிந்தது, es: LISTO}
+  recall: {en: RECALL, te: వెనక్కి, ta: திரும்ப, es: REGRESAR}
+  undo: {en: UNDO, te: రద్దు చేయి, ta: செயல்தவிர், es: DESHACER}
+  seen: {en: SEEN, te: చూశాను, ta: பார்த்தேன், es: VISTO}
+  notice: {en: NOTICE, te: సూచన, ta: அறிவிப்பு, es: AVISO}
+  quote: {en: QUOTE, te: అంచనా సమయం, ta: காத்திருப்பு நேரம், es: TIEMPO ESTIMADO}
+  minutes: {en: MIN, te: నిమిషాలు, ta: நிமிடங்கள், es: MIN}
+  # station names (CONTRACTS_SEED §3)
+  STN_BIRYANI: {en: Biryani, te: బిర్యానీ, ta: பிரியாணி, es: Biryani}
+  STN_CURRY: {en: Curry, te: కూర, ta: கறி, es: Curry}
+  STN_TANDOOR: {en: Tandoor, te: తందూర్, ta: தந்தூர், es: Tandoor}
+  STN_TIFFIN: {en: Tiffin (dosa/idli), te: టిఫిన్, ta: டிபன், es: Tiffin (dosa/idli)}
+  STN_FRY: {en: Fry, te: ఫ్రై, ta: பொரியல், es: Freidora}
+  STN_BAR: {en: Drinks & desserts, te: పానీయాలు, ta: பானங்கள், es: Bebidas y postres}

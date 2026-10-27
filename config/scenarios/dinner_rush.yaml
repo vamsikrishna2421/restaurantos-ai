@@ -1,0 +1,177 @@
+# dinner_rush (CONTRACTS_SEED §11): judge sandboxes; the video and finals load it on demo. SAMPLE data: every order
+# here is simulated (channel sim). Owned by P05 until Oct 28 08:00, then by the lead (tuned against I4-I8).
+#
+# seed/scenario.py writes the precomputed start state (open orders with their tickets, on_hand, the supplier note
+# and the paused clock); reserved stock is derived from the open tickets x recipes. The rush script below is played
+# by judge/rush.py (P30b) through the normal order path; seed code never places those orders.
+#
+# Paneer story (ARCHITECTURE §8 forecast, prior 1,021 g/h on a Saturday dinner; ACT when ETA <= Patel 40 + 15):
+#   load (18:42)        free 1,130 = 1,610 - 480; burn 804 g/h  (0.6x660 + 0.4x1,021)    ETA 84  watch  (I1: 75-95)
+#   after pre_call (+5) free   950 = 1,610 - 660; burn 1,020 g/h (0.6x1,020 + 0.4x1,021) ETA 56  watch  (I2: 55 < ETA <= 65)
+#   canonical (+6..+9)  free   800 = 1,610 - 810; burn 1,200 g/h (0.6x1,320 + 0.4x1,021) ETA 40  ACT    (I3: 35-50)
+# I2 sits one minute above the ACT threshold by design: any paneer dish at +5:30..+9 flips it (I3b).
+#
+# Kitchen at load (domain/load.py: a ticket's prep is its longest line; cooking tickets drain since started):
+#   CURRY   (3 slots) 2 + 4 + 10 + 8 + 12 = 36 -> queue 12;  TANDOOR (2 slots) 5 + 7 + 14 + 4 = 30 -> queue 15
+#   so the canonical order (CHK_BIRY x2 + PNR_BM) quotes "CURRY queue 12 + prep 10 + pack 3 -> 25 min".
+name: dinner_rush
+label: Saturday dinner rush   # may read "Diwali weekend" only if the founders agree
+
+clock:
+  mode: sim
+  anchor_local: "2026-11-07T18:42"   # Saturday, America/New_York (EST: DST ended Nov 1)
+  speed: 0                           # created paused: business time stands still until "Start rush"
+
+# on_hand at load; reserved is derived from the open tickets. Paneer is the story; the others sit at 60-90% of par,
+# high enough that none reaches WATCH (ETA <= 120 min) through the rush.
+inventory:
+  ING_PANEER: 1610
+  ING_CHICKEN: 11000
+  ING_GOAT: 5600
+  ING_EGG: 63
+  ING_BIRY_RICE: 36
+  ING_MAKHANI_BASE: 24
+  ING_DOSA_BATTER: 38
+  ING_SAMBAR: 45
+  ING_MIXED_VEG: 6000
+  ING_SPINACH: 3000
+  ING_CAULIFLOWER: 3500
+  ING_POTATO: 6000
+  ING_ONION: 7000
+  ING_GARLIC: 1100
+  ING_GONGURA: 1000
+  ING_COCONUT: 1100
+  ING_YOGURT: 6000
+  ING_BUTTER: 2200
+  ING_CREAM: 2100
+  ING_MILK: 6000
+  ING_CASHEW: 1500
+  ING_FLOUR: 11000
+  ING_LENTIL: 4500
+  ING_CHICKPEA: 3000
+  ING_MOONG: 2200
+  ING_RICE: 4500
+  ING_SOY_SAUCE: 750
+  ING_MUSTARD: 400
+  ING_MANGO_PULP: 3000
+  ING_TEA: 380
+  ING_COFFEE: 750
+  ING_GULAB_JAMUN: 45
+  ING_WATER_BOTTLE: 72
+
+# The only free text a situation report may carry. Code never reads it: the playbook still orders Patel 4 kg, and
+# the GM can see that a 4 kg pickup would come back short and choose the 3 kg bridge.
+supplier_notes:
+  - supplier_id: SUP_PATEL
+    text: "Patel (sample): only 3 packs of paneer left today, first come first served."
+    lang: en
+    source: supplier_seed
+
+# Open at 18:42: 14 tickets. Paneer: #1031 PNR_BM, #1033 PALAK_PNR, #1036 PNR_TIKKA (480 g reserved); the other 11
+# tickets are non-paneer. Times are business-local on the anchor date. started_local marks a station's ticket as
+# cooking since that time; every other ticket is queued.
+open_orders:
+  - order_no: 1031
+    placed_local: "18:05"
+    quote_min: 20
+    lines: [{item_code: PNR_BM}]
+    started_local: {STN_CURRY: "18:34"}
+  - order_no: 1032
+    placed_local: "18:16"
+    quote_min: 25
+    lines: [{item_code: CHK_TIKKA_MASALA}, {item_code: GARLIC_NAAN}]
+    started_local: {STN_CURRY: "18:36"}
+  - order_no: 1033
+    placed_local: "18:21"
+    quote_min: 25
+    lines: [{item_code: PALAK_PNR}]
+  - order_no: 1034
+    placed_local: "18:27"
+    quote_min: 25
+    lines: [{item_code: CHK_BIRY}, {item_code: MANGO_LASSI}]
+    started_local: {STN_BIRYANI: "18:31"}
+  - order_no: 1035
+    placed_local: "18:29"
+    quote_min: 25
+    lines: [{item_code: CHK_TIKKA}]
+    started_local: {STN_TANDOOR: "18:35"}
+  - order_no: 1036
+    placed_local: "18:30"
+    quote_min: 25
+    lines: [{item_code: PNR_TIKKA}]
+  - order_no: 1037
+    placed_local: "18:33"
+    quote_min: 25
+    lines: [{item_code: DAL_TADKA}, {item_code: ROTI}]
+  - order_no: 1038
+    placed_local: "18:35"
+    quote_min: 20
+    lines: [{item_code: GOBI_MAN}]
+    started_local: {STN_FRY: "18:38"}
+  - order_no: 1039
+    placed_local: "18:37"
+    quote_min: 20
+    lines: [{item_code: IDLI}]
+    started_local: {STN_TIFFIN: "18:39"}
+  - order_no: 1040
+    placed_local: "18:40"
+    quote_min: 20
+    lines: [{item_code: MASALA_DOSA}]
+  - order_no: 1041
+    placed_local: "18:41"
+    quote_min: 25
+    lines: [{item_code: GONGURA_MUTTON}]
+
+# Played by judge/rush.py (P30b). Offsets are business minutes after "Start rush"; every order is a labelled
+# simulated walk-in (channel sim, no LLM).
+rush:
+  ingredient_id: ING_PANEER
+  pre_call:                  # 10x for about 30 s of real time
+    speed: 10
+    channel: sim
+    label: simulated walk-in orders
+    orders:
+      - {at_biz_min: 1, lines: [{item_code: GARLIC_NAAN, qty: 2}, {item_code: CHK_65}]}
+      - {at_biz_min: 2, lines: [{item_code: MANGO_LASSI, qty: 2}]}
+      - {at_biz_min: 3, lines: [{item_code: PNR_TIKKA}, {item_code: BUTTER_NAAN}]}
+      - {at_biz_min: 4, lines: [{item_code: MASALA_DOSA}]}
+      - {at_biz_min: 5, lines: [{item_code: GOAT_BIRY}]}
+  await_order:               # 1x for 45 s of real time (until about +5:45) for the judge's own order
+    speed: 1
+    window_real_s: 45
+    injection:               # only if paneer is not act at the end of the window; never after a judge's tipping order
+      channel: sim
+      label: simulated walk-in
+      lines: [{item_code: PNR_BM}]
+      recheck_after_biz_min: 2    # still not act 2 business minutes later: inject once more
+      max_injections: 2
+  post_call:                 # one non-paneer order every 2 business minutes for 30 minutes, cycling this list
+    speed: 1
+    channel: sim
+    label: simulated walk-in orders
+    every_biz_min: 2
+    duration_biz_min: 30
+    auto_cook: true          # simulated tickets are bumped after their prep_min
+    orders:
+      - {lines: [{item_code: CHK_BIRY}, {item_code: MANGO_LASSI}]}
+      - {lines: [{item_code: MASALA_DOSA}]}
+      - {lines: [{item_code: CHK_65}]}
+      - {lines: [{item_code: DAL_TADKA}, {item_code: GARLIC_NAAN}]}
+      - {lines: [{item_code: GOBI_MAN}]}
+      - {lines: [{item_code: IDLI}, {item_code: FILTER_COFFEE}]}
+      - {lines: [{item_code: CHK_TIKKA_MASALA}, {item_code: BUTTER_NAAN}]}
+      - {lines: [{item_code: SAMOSA, qty: 2}]}
+      - {lines: [{item_code: EGG_BIRY}]}
+      - {lines: [{item_code: VEG_KORMA}, {item_code: ROTI, qty: 2}]}
+      - {lines: [{item_code: SAMBAR_VADA}, {item_code: MASALA_CHAI}]}
+      - {lines: [{item_code: CHK_CHETTINAD}, {item_code: GARLIC_NAAN}]}
+      - {lines: [{item_code: PESARATTU}]}
+      - {lines: [{item_code: CURD_RICE}, {item_code: GULAB_JAMUN}]}
+      - {lines: [{item_code: GOAT_BIRY}, {item_code: WATER}]}
+  # The canonical order, placed at about +6 by a real voice or typed turn, or by the "Run the full story live" clip.
+  canonical_order:
+    at_biz_min: 6
+    lines:
+      - {item_code: CHK_BIRY}
+      - {item_code: CHK_BIRY, modifiers: [NO_ONION]}
+      - {item_code: PNR_BM}

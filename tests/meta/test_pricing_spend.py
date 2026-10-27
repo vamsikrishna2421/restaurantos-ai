@@ -37,53 +37,67 @@ def test_other_unit_costs():
     assert pricing.image_cost_usd(3) == pytest.approx(0.03)
 
 
+def test_wav_seconds_reads_header_or_assumes_the_worst():
+    import io
+    import wave
+
+    buf = io.BytesIO()
+    with wave.open(buf, "wb") as w:
+        w.setnchannels(1)
+        w.setsampwidth(2)
+        w.setframerate(16_000)
+        w.writeframes(b"\0" * 32_000 * 2)
+    assert pricing.wav_seconds(buf.getvalue()) == pytest.approx(2.0)
+    assert pricing.wav_seconds(b"RIFFnot-a-wav" + b"\0" * 7987) == pytest.approx(1.0)  # 8 kHz 8-bit worst case
+
+
 def _guard(tmp_path, **kw):
-    caps = {"daily_cap": 1.0, "total_cap": 2.0, "session_cap": 0.1} | kw
+    caps = {"daily_cap": 1.0, "total_cap": 2.0, "call_cap": 0.1} | kw
     return SpendGuard(tmp_path / "ledger.jsonl", **caps)
 
 
-def _rec(cost, session=None, purpose="order"):
+def _rec(cost, scope=None, purpose="order"):
     return CallRecord(purpose=purpose, model="muse-spark-1.3", endpoint="chat", status="ok",
-                      cost_usd=cost, session_id=session)
+                      cost_usd=cost, spend_scope=scope)
 
 
 def test_hold_settle_and_snapshot(tmp_path):
     g = _guard(tmp_path)
-    h = g.hold(0.05, session_id="s1")
+    h = g.hold(0.05, scope="vs_s1", pool=None)
     assert g.snapshot()["pending_usd"] == pytest.approx(0.05)
-    h.settle(_rec(0.01, "s1"))
-    h.settle(_rec(0.99, "s1"))  # second settle is ignored
+    h.settle(_rec(0.01, "vs_s1"))
+    h.settle(_rec(0.99, "vs_s1"))  # second settle is ignored
     snap = g.snapshot()
     assert snap["pending_usd"] == 0
     assert snap["today_usd"] == pytest.approx(0.01)
     assert snap["by_purpose"] == {"order": pytest.approx(0.01)}
-    assert g.session_spent("s1") == pytest.approx(0.01)
+    assert g.scope_spent("vs_s1") == pytest.approx(0.01)
 
 
 def test_caps_enforced_including_pending(tmp_path):
     g = _guard(tmp_path)
-    g.hold(0.06, session_id="s1")
+    g.hold(0.06, scope="call_1", pool=None)
     with pytest.raises(BudgetExceeded) as exc:
-        g.hold(0.06, session_id="s1")  # session cap counts the pending hold
-    assert exc.value.scope == "session"
-    g.hold(0.9)
+        g.hold(0.06, scope="call_1", pool=None)  # the call cap counts the pending hold
+    assert exc.value.scope == "scope" and exc.value.spend_scope == "call_1"
+    g.hold(0.9, scope="dev:P00", pool=None)
     with pytest.raises(BudgetExceeded) as exc:
-        g.hold(0.1)
+        g.hold(0.1, scope="dev:P00", pool=None)
     assert exc.value.scope == "daily"
 
 
 def test_kill_switch(tmp_path):
     g = _guard(tmp_path)
     g.set_kill_switch(True)
-    with pytest.raises(BudgetExceeded):
-        g.hold(0.0001)
+    with pytest.raises(BudgetExceeded) as exc:
+        g.hold(0.0001, scope="dev:P00", pool=None)
+    assert exc.value.scope == "kill_switch"
 
 
 def test_release_frees_pending(tmp_path):
     g = _guard(tmp_path)
-    with g.hold(0.09, session_id="s"):
-        pass
-    g.hold(0.09, session_id="s")  # would fail if the first hold leaked
+    g.hold(0.09, scope="call_s", pool=None).release()  # only when nothing was sent
+    g.hold(0.09, scope="call_s", pool=None)  # would fail if the first hold leaked
 
 
 def test_ledger_survives_restart(tmp_path):
@@ -94,8 +108,17 @@ def test_ledger_survives_restart(tmp_path):
     g2 = _guard(tmp_path)
     assert g2.snapshot()["total_usd"] == pytest.approx(1.5)
     with pytest.raises(BudgetExceeded) as exc:
-        g2.hold(0.6)
+        g2.hold(0.6, scope="dev:P00", pool=None)
     assert exc.value.scope in {"daily", "total"}
+
+
+def test_ledger_tolerates_old_and_malformed_lines(tmp_path):
+    ledger = tmp_path / "ledger.jsonl"
+    old = {"purpose": "order", "model": "muse-spark-1.3", "endpoint": "chat", "status": "aborted", "cost_usd": 0.25,
+           "session_id": "s1", "ts": 1_793_000_000.0, "unknown_future_field": 1}
+    ledger.write_text(json.dumps(old) + "\n" + "not json\n" + "[1, 2]\n")
+    g = _guard(tmp_path)
+    assert g.snapshot(last=0)["total_usd"] == pytest.approx(0.25)
 
 
 def test_subscriber_errors_do_not_break_recording(tmp_path):

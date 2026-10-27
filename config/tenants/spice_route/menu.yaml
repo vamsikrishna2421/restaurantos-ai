@@ -1,0 +1,348 @@
+# Spice Route menu (CONTRACTS_SEED §6): 30 items, sample USD prices. SAMPLE data.
+#
+# names: English, Telugu and Tamil in native script with their romanizations, and Spanish. aliases add common
+# spellings (romanized and native script). modifier_set names a set from modifiers.yaml. Allergens are not written
+# here: the loader derives them from recipes.yaml and ingredients.yaml. Codes, names, aliases, categories and modifier
+# sets are prompt-visible (they make up menu_hash): after the Oct 28 12:00 freeze they change only through the lead.
+#
+# UNREVIEWED: no fluent Telugu, Tamil or Spanish speaker has checked these names or aliases yet.
+review_status: unreviewed
+reviewer: null
+
+items:
+  # --- biryani ------------------------------------------------------------------------------------------------------
+  - code: CHK_BIRY
+    category: biryani
+    station_id: STN_BIRYANI
+    price_cents: 1699
+    is_veg: false
+    spice_level: 2
+    prep_min: 14
+    modifier_set: RICE
+    names: {en: Chicken Dum Biryani, te: చికెన్ దమ్ బిర్యానీ, te_roman: chicken dum biryani,
+            ta: சிக்கன் பிரியாணி, ta_roman: chicken biryani, es: biryani de pollo}
+    aliases: [chicken biryani, kodi biryani, కోడి బిర్యానీ, kozhi biryani, கோழி பிரியாணி]
+  - code: GOAT_BIRY
+    category: biryani
+    station_id: STN_BIRYANI
+    price_cents: 1999
+    is_veg: false
+    spice_level: 2
+    prep_min: 14
+    modifier_set: RICE
+    names: {en: Goat Biryani, te: మటన్ బిర్యానీ, te_roman: mutton biryani,
+            ta: மட்டன் பிரியாணி, ta_roman: mutton biryani, es: biryani de chivo}
+    aliases: [goat biryani, mamsam biryani, మాంసం బిర్యానీ, aattukari biryani, ஆட்டுக்கறி பிரியாணி]
+  - code: VEG_BIRY
+    category: biryani
+    station_id: STN_BIRYANI
+    price_cents: 1499
+    is_veg: true
+    spice_level: 1
+    prep_min: 12
+    modifier_set: RICE
+    names: {en: Veg Biryani, te: వెజ్ బిర్యానీ, te_roman: veg biryani,
+            ta: காய்கறி பிரியாணி, ta_roman: kaaikari biryani, es: biryani de verduras}
+    aliases: [vegetable biryani, kooragayala biryani, కూరగాయల బిర్యానీ]
+  - code: EGG_BIRY
+    category: biryani
+    station_id: STN_BIRYANI
+    price_cents: 1549
+    is_veg: false
+    spice_level: 2
+    prep_min: 12
+    modifier_set: RICE
+    names: {en: Egg Biryani, te: గుడ్డు బిర్యానీ, te_roman: guddu biryani,
+            ta: முட்டை பிரியாணி, ta_roman: muttai biryani, es: biryani de huevo}
+    aliases: [egg biryani]
+
+  # --- curry --------------------------------------------------------------------------------------------------------
+  - code: PNR_BM
+    category: curry
+    station_id: STN_CURRY
+    price_cents: 1549
+    is_veg: true
+    spice_level: 1
+    prep_min: 10
+    modifier_set: CURRY
+    names: {en: Paneer Butter Masala, te: పనీర్ బటర్ మసాలా, te_roman: paneer butter masala,
+            ta: பனீர் பட்டர் மசாலா, ta_roman: paneer butter masala, es: paneer en salsa de mantequilla}
+    aliases: [paneer curry, PBM, paneer kura, పనీర్ కూర, paneer kari, பனீர் கறி, curry de paneer]
+  - code: PALAK_PNR
+    category: curry
+    station_id: STN_CURRY
+    price_cents: 1549
+    is_veg: true
+    spice_level: 1
+    prep_min: 10
+    modifier_set: CURRY
+    names: {en: Palak Paneer, te: పాలక్ పనీర్, te_roman: palak paneer,
+            ta: பாலக் பனீர், ta_roman: palak paneer, es: paneer con espinacas}
+    aliases: [palakura paneer, పాలకూర పనీర్, keerai paneer, கீரை பனீர்]
+  - code: CHK_TIKKA_MASALA
+    category: curry
+    station_id: STN_CURRY
+    price_cents: 1649
+    is_veg: false
+    spice_level: 1
+    prep_min: 10
+    modifier_set: CURRY
+    names: {en: Chicken Tikka Masala, te: చికెన్ టిక్కా మసాలా, te_roman: chicken tikka masala,
+            ta: சிக்கன் டிக்கா மசாலா, ta_roman: chicken tikka masala, es: pollo tikka masala}
+    aliases: [CTM]
+  - code: VEG_KORMA
+    category: curry
+    station_id: STN_CURRY
+    price_cents: 1449
+    is_veg: true
+    spice_level: 1
+    prep_min: 10
+    modifier_set: CURRY
+    names: {en: Vegetable Korma, te: వెజిటబుల్ కుర్మా, te_roman: vegetable kurma,
+            ta: காய்கறி குருமா, ta_roman: kaaikari kurma, es: korma de verduras}
+    aliases: [veg korma, veg kurma]
+  - code: DAL_TADKA
+    category: curry
+    station_id: STN_CURRY
+    price_cents: 1249
+    is_veg: true
+    spice_level: 1
+    prep_min: 8
+    modifier_set: CURRY
+    names: {en: Dal Tadka, te: పప్పు, te_roman: pappu, ta: பருப்பு, ta_roman: paruppu, es: lentejas (dal)}
+    aliases: [dal, dal tadka, దాల్ తడ్కా]
+  - code: CHANA_MASALA
+    category: curry
+    station_id: STN_CURRY
+    price_cents: 1299
+    is_veg: true
+    spice_level: 2
+    prep_min: 8
+    modifier_set: CURRY
+    names: {en: Chana Masala, te: శనగల కూర, te_roman: senagala kura,
+            ta: சன்னா மசாலா, ta_roman: channa masala, es: garbanzos al curry}
+    aliases: [chole, kondakadalai, கொண்டைக்கடலை]
+  - code: GONGURA_MUTTON
+    category: curry
+    station_id: STN_CURRY
+    price_cents: 1949
+    is_veg: false
+    spice_level: 3
+    prep_min: 12
+    modifier_set: CURRY
+    names: {en: Gongura Mutton, te: గోంగూర మటన్, te_roman: gongura mutton,
+            ta: கோங்குரா மட்டன், ta_roman: gongura mutton, es: chivo con gongura}
+    aliases: [gongura mamsam]
+  - code: CHK_CHETTINAD
+    category: curry
+    station_id: STN_CURRY
+    price_cents: 1699
+    is_veg: false
+    spice_level: 3
+    prep_min: 12
+    modifier_set: CURRY
+    names: {en: Chicken Chettinad, te: చికెన్ చెట్టినాడ్, te_roman: chicken chettinad,
+            ta: செட்டிநாடு சிக்கன், ta_roman: chettinad chicken, es: pollo chettinad}
+    aliases: [chettinad kozhi, செட்டிநாடு கோழி]
+
+  # --- starters -----------------------------------------------------------------------------------------------------
+  - code: CHK_65
+    category: starter
+    station_id: STN_FRY
+    price_cents: 1299
+    is_veg: false
+    spice_level: 3
+    prep_min: 9
+    modifier_set: DRY
+    names: {en: Chicken 65, te: చికెన్ 65, te_roman: chicken sixty five,
+            ta: சிக்கன் 65, ta_roman: chicken sixty five, es: pollo 65}
+    aliases: [chicken 65]
+  - code: GOBI_MAN
+    category: starter
+    station_id: STN_FRY
+    price_cents: 1199
+    is_veg: true
+    spice_level: 2
+    prep_min: 9
+    modifier_set: DRY
+    names: {en: Gobi Manchurian, te: గోబీ మంచూరియా, te_roman: gobi manchuria,
+            ta: கோபி மஞ்சூரியன், ta_roman: gobi manchurian, es: coliflor manchuriana}
+    aliases: [cauliflower manchurian]
+  - code: PNR_TIKKA
+    category: starter
+    station_id: STN_TANDOOR
+    price_cents: 1399
+    is_veg: true
+    spice_level: 2
+    prep_min: 14
+    modifier_set: DRY
+    names: {en: Paneer Tikka, te: పనీర్ టిక్కా, te_roman: paneer tikka,
+            ta: பனீர் டிக்கா, ta_roman: paneer tikka, es: paneer tikka}
+    aliases: []
+  - code: CHK_TIKKA
+    category: starter
+    station_id: STN_TANDOOR
+    price_cents: 1499
+    is_veg: false
+    spice_level: 2
+    prep_min: 14
+    modifier_set: DRY
+    names: {en: Chicken Tikka, te: చికెన్ టిక్కా, te_roman: chicken tikka,
+            ta: சிக்கன் டிக்கா, ta_roman: chicken tikka, es: pollo tikka}
+    aliases: []
+  - code: SAMOSA
+    category: starter
+    station_id: STN_FRY
+    price_cents: 699
+    is_veg: true
+    spice_level: 1
+    prep_min: 6
+    modifier_set: NONE
+    names: {en: Samosa, te: సమోసా, te_roman: samosa, ta: சமோசா, ta_roman: samosa, es: samosas}
+    aliases: [veg samosa]
+
+  # --- tiffin -------------------------------------------------------------------------------------------------------
+  - code: MASALA_DOSA
+    category: tiffin
+    station_id: STN_TIFFIN
+    price_cents: 1149
+    is_veg: true
+    spice_level: 1
+    prep_min: 8
+    modifier_set: TIFFIN
+    names: {en: Masala Dosa, te: మసాలా దోశ, te_roman: masala dosa,
+            ta: மசாலா தோசை, ta_roman: masala dosai, es: dosa masala}
+    aliases: [dosa, dosai]
+  - code: IDLI
+    category: tiffin
+    station_id: STN_TIFFIN
+    price_cents: 799
+    is_veg: true
+    spice_level: 0
+    prep_min: 6
+    modifier_set: TIFFIN
+    names: {en: Idli, te: ఇడ్లీ, te_roman: idli, ta: இட்லி, ta_roman: idli, es: idli}
+    aliases: [idly]
+  - code: SAMBAR_VADA
+    category: tiffin
+    station_id: STN_TIFFIN
+    price_cents: 849
+    is_veg: true
+    spice_level: 1
+    prep_min: 6
+    modifier_set: TIFFIN
+    names: {en: Sambar Vada, te: సాంబార్ వడ, te_roman: sambar vada,
+            ta: சாம்பார் வடை, ta_roman: sambar vadai, es: vada con sambar}
+    aliases: [vada sambar, medu vada]
+  - code: PESARATTU
+    category: tiffin
+    station_id: STN_TIFFIN
+    price_cents: 1199
+    is_veg: true
+    spice_level: 1
+    prep_min: 9
+    modifier_set: TIFFIN
+    names: {en: Pesarattu, te: పెసరట్టు, te_roman: pesarattu, ta: பெசரட்டு, ta_roman: pesarattu,
+            es: crepa de frijol mungo}
+    aliases: [moong dosa]
+
+  # --- breads and rice ----------------------------------------------------------------------------------------------
+  - code: GARLIC_NAAN
+    category: bread
+    station_id: STN_TANDOOR
+    price_cents: 399
+    is_veg: true
+    spice_level: 0
+    prep_min: 5
+    modifier_set: BREAD
+    names: {en: Garlic Naan, te: గార్లిక్ నాన్, te_roman: garlic naan,
+            ta: பூண்டு நான், ta_roman: poondu naan, es: naan de ajo}
+    aliases: [vellulli naan, వెల్లుల్లి నాన్]
+  - code: BUTTER_NAAN
+    category: bread
+    station_id: STN_TANDOOR
+    price_cents: 349
+    is_veg: true
+    spice_level: 0
+    prep_min: 5
+    modifier_set: BREAD
+    names: {en: Butter Naan, te: బటర్ నాన్, te_roman: butter naan,
+            ta: பட்டர் நான், ta_roman: butter naan, es: naan con mantequilla}
+    aliases: [naan]
+  - code: ROTI
+    category: bread
+    station_id: STN_TANDOOR
+    price_cents: 299
+    is_veg: true
+    spice_level: 0
+    prep_min: 4
+    modifier_set: BREAD
+    names: {en: Tandoori Roti, te: తందూరి రోటీ, te_roman: tandoori roti,
+            ta: தந்தூரி ரொட்டி, ta_roman: tandoori rotti, es: pan roti}
+    aliases: [roti]
+  - code: CURD_RICE
+    category: rice
+    station_id: STN_TIFFIN
+    price_cents: 899
+    is_veg: true
+    spice_level: 0
+    prep_min: 4
+    modifier_set: NONE
+    names: {en: Curd Rice, te: పెరుగు అన్నం, te_roman: perugu annam,
+            ta: தயிர் சாதம், ta_roman: thayir sadam, es: arroz con yogur}
+    aliases: [curd rice, daddojanam]
+
+  # --- drinks and dessert -------------------------------------------------------------------------------------------
+  - code: MANGO_LASSI
+    category: drink
+    station_id: STN_BAR
+    price_cents: 499
+    is_veg: true
+    spice_level: 0
+    prep_min: 2
+    modifier_set: NONE
+    names: {en: Mango Lassi, te: మామిడి లస్సీ, te_roman: mamidi lassi,
+            ta: மாம்பழ லஸ்ஸி, ta_roman: maambazha lassi, es: lassi de mango}
+    aliases: [mango lassi]
+  - code: MASALA_CHAI
+    category: drink
+    station_id: STN_BAR
+    price_cents: 299
+    is_veg: true
+    spice_level: 0
+    prep_min: 3
+    modifier_set: NONE
+    names: {en: Masala Chai, te: మసాలా చాయ్, te_roman: masala chai, ta: மசாலா டீ, ta_roman: masala tea, es: té chai}
+    aliases: [chai, tea, టీ, டீ]
+  - code: FILTER_COFFEE
+    category: drink
+    station_id: STN_BAR
+    price_cents: 349
+    is_veg: true
+    spice_level: 0
+    prep_min: 3
+    modifier_set: NONE
+    names: {en: Filter Coffee, te: ఫిల్టర్ కాఫీ, te_roman: filter coffee,
+            ta: ஃபில்டர் காபி, ta_roman: filter kaapi, es: café de filtro}
+    aliases: [kaapi]
+  - code: GULAB_JAMUN
+    category: dessert
+    station_id: STN_BAR
+    price_cents: 549
+    is_veg: true
+    spice_level: 0
+    prep_min: 2
+    modifier_set: NONE
+    names: {en: Gulab Jamun, te: గులాబ్ జామూన్, te_roman: gulab jamun,
+            ta: குலாப் ஜாமூன், ta_roman: gulab jamun, es: gulab jamun}
+    aliases: []
+  - code: WATER
+    category: drink
+    station_id: STN_BAR
+    price_cents: 199
+    is_veg: true
+    spice_level: 0
+    prep_min: 1
+    modifier_set: NONE
+    names: {en: Water, te: నీళ్ళు, te_roman: neellu, ta: தண்ணீர், ta_roman: thanneer, es: agua}
+    aliases: [water bottle, thanni, தண்ணி]

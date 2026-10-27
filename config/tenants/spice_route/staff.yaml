@@ -1,0 +1,8 @@
+# Spice Route staff (CONTRACTS_SEED §4). All staff are fictional personas. SAMPLE data.
+# languages: what each person reads on the KDS; station_ids: where their notices go.
+staff:
+  - {id: STF_LAKSHMI, name: Lakshmi, role: manager, languages: [te, en], station_ids: [], on_shift: true}
+  - {id: STF_CARLOS, name: Carlos, role: cook, languages: [es], station_ids: [STN_CURRY, STN_BIRYANI], on_shift: true}
+  - {id: STF_MEENA, name: Meena, role: cook, languages: [ta, en], station_ids: [STN_TIFFIN], on_shift: true}
+  - {id: STF_ARJUN, name: Arjun, role: cook, languages: [te, en], station_ids: [STN_TANDOOR, STN_FRY], on_shift: true}
+  - {id: STF_MARIA, name: Maria, role: foh, languages: [es, en], station_ids: [STN_BAR], on_shift: true}

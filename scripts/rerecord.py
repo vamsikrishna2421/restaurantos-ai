@@ -10,6 +10,11 @@ lifts its block only for record mode plus RESTOS_ALLOW_NETWORK=1), the repo-root
 RESTOS_ENVIRONMENT=dev, and the daily and total caps both set to --max-usd against a fresh ledger in
 data/rerecord/<UTC timestamp>/. Refuses --max-usd above $1.00. Afterwards it prints that run's spend.
 Every run is logged in BUILD_LOG (CONTRACTS_RUNTIME §10.11).
+
+Only replay tests record: ``tests/fakes/container.py::make_test_settings(ai_mode=AIMode.REPLAY,
+ai_cache_dir=<fixture root>)`` switches to record mode when that root is inside --root, and links each
+recording test's ledger to the run's, so --max-usd caps the whole run. The report also sums any other
+ledger under the run's data dir and names it, since that spend was outside the run-wide cap.
 """
 
 from __future__ import annotations
@@ -109,17 +114,36 @@ def _spend_report() -> ModuleType:
     return module
 
 
+def find_ledgers(ledger: Path) -> list[Path]:
+    """The run ledger, then every other ledger file under its directory (a test's own data dir), each file once:
+    a test's link to the run ledger is the run ledger."""
+    found: dict[Path, Path] = {}
+    candidates = [ledger, *sorted(ledger.parent.rglob(ledger.name))] if ledger.parent.is_dir() else [ledger]
+    for path in candidates:
+        if path.is_file():
+            found.setdefault(path.resolve(), path)
+    return list(found.values())
+
+
 def report_spend(ledger: Path, max_usd: float) -> float:
-    """Print the run's spend by purpose, model and status; returns the total in dollars."""
-    if not ledger.is_file():
+    """Print the run's spend by purpose, model and status (every ledger under the run's data dir); returns the
+    total in dollars."""
+    ledgers = find_ledgers(ledger)
+    if not ledgers:
         print(f"rerecord: no Meta calls recorded, spent $0.00 of ${max_usd:.2f} (no ledger at {ledger})")
         return 0.0
     report = _spend_report()
-    records, _ = report.read_ledger(ledger)
-    summary = report.summarize(records, ("purpose", "model", "status"))
+    per_ledger = [(path, report.read_ledger(path)[0]) for path in ledgers]
+    summary = report.summarize([rec for _, recs in per_ledger for rec in recs], ("purpose", "model", "status"))
     print(report.format_table(summary))
     total = summary["total"]
     print(f"rerecord: spent ${total['cost_usd']:.6f} of ${max_usd:.2f} in {total['calls']} call(s); ledger {ledger}")
+    others = [(path, recs) for path, recs in per_ledger if path.resolve() != ledger.resolve()]
+    if others:
+        print(f"rerecord: also counted {len(others)} other ledger(s) under {ledger.parent}")
+    for path, recs in others:
+        if (cost := report.summarize(recs, ())["total"]["cost_usd"]) > 0:
+            print(f"rerecord: WARNING ${cost:.6f} in {path} was spent outside the run-wide cap")
     return float(total["cost_usd"])
 
 

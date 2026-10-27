@@ -2,17 +2,20 @@
 
 from __future__ import annotations
 
+import warnings
+
 import pytest
 from sqlalchemy import JSON, Boolean, Float, Integer, Numeric, String, create_engine, insert, inspect, select, text
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import IntegrityError, SAWarning
 
 from restaurantos.store import tables
 from restaurantos.store.tables import metadata
 
 # Transcribed from CONTRACTS §3. Column notation: name[:T][?] with T = s (TEXT, default), i (INT), j (JSON) or
 # b (boolean 0/1), and ? = nullable. tenant_id TEXT NOT NULL is implied for every table except tenants and
-# feedback (feedback lists its nullable tenant_id). Index keys are (columns, unique); the partial unique index
-# on quote_offsets is checked separately for its WHERE clause.
+# feedback (feedback lists its nullable tenant_id). Index keys are (columns, unique). The partial unique index on
+# quote_offsets is an expression index (NULLs coalesced), which SQLite reflection skips: it is checked by its SQL.
+# calls.caller_last4 is nullable (a withheld caller ID), as in call.started and call.bound (CONTRACTS §5).
 SPEC: dict[str, dict] = {
     "tenants": dict(
         cols="id name template kind spend_pool created_ms:i last_active_ms:i expires_ms:i? caps_level dtmf_code? "
@@ -56,8 +59,7 @@ SPEC: dict[str, dict] = {
     "staff_tasks": dict(
         cols="id kind order_id? po_id? note status blocked_reason? plan_id? created_ms:i", pk=("id",)),
     "quote_offsets": dict(
-        cols="id incident_id? station_id? minutes:i expires_biz_ms:i plan_id? active:b",
-        pk=("id",), ix={(("tenant_id", "incident_id", "station_id"), True)}),
+        cols="id incident_id? station_id? minutes:i expires_biz_ms:i plan_id? active:b", pk=("id",)),
     "incidents": dict(
         cols="id kind ingredient_id? band status plan_epoch:i ai_runs:i opened_biz_ms:i resolved_biz_ms:i? "
              "report:j? report_digest? decision_digest?",
@@ -78,7 +80,7 @@ SPEC: dict[str, dict] = {
         pk=("tenant_id", "seq"), ix={(("tenant_id", "type"), False)}),
     "handler_cursors": dict(cols="handler last_seq:i", pk=("tenant_id", "handler")),
     "calls": dict(
-        cols="id call_sid lane caller_hash caller_last4 started_ms:i ended_ms:i? duration_s:i? order_id? status "
+        cols="id call_sid lane caller_hash caller_last4? started_ms:i ended_ms:i? duration_s:i? order_id? status "
              "meta_cost_micros:i twilio_seconds:i",
         pk=("id",), uq={("call_sid",)}, ix={(("caller_hash", "started_ms"), False)}),
     "turns": dict(
@@ -91,6 +93,8 @@ SPEC: dict[str, dict] = {
     "feedback": dict(cols="id tenant_id? session_id? trace_id? page note created_ms:i", pk=("id",)),
 }
 NO_TENANT_COLUMN = {"tenants", "feedback"}
+QUOTE_OFFSETS_ACTIVE_SQL = ("CREATE UNIQUE INDEX uq_quote_offsets_active ON quote_offsets (tenant_id, "
+                            "coalesce(incident_id, ''), coalesce(station_id, '')) WHERE active = 1")
 
 
 def _expected_columns(table: str) -> dict[str, tuple[str, bool]]:
@@ -120,19 +124,21 @@ def engine():
 def test_tables_match_contract(engine):
     insp = inspect(engine)
     assert set(insp.get_table_names()) == set(SPEC) == set(metadata.tables)
-    for table, spec in SPEC.items():
-        reflected = {c["name"]: (_kind(c["type"]), c["nullable"]) for c in insp.get_columns(table)}
-        assert reflected == _expected_columns(table), table
-        assert tuple(insp.get_pk_constraint(table)["constrained_columns"]) == spec["pk"], table
-        uniques = {tuple(u["column_names"]) for u in insp.get_unique_constraints(table)}
-        assert uniques == spec.get("uq", set()), table
-        indexes = {(tuple(ix["column_names"]), bool(ix["unique"])) for ix in insp.get_indexes(table)}
-        assert indexes == spec.get("ix", set()), table
+    with warnings.catch_warnings():  # only the quote_offsets expression index is skipped, and checked below
+        warnings.filterwarnings("ignore", "Skipped unsupported reflection of expression-based index", SAWarning)
+        for table, spec in SPEC.items():
+            reflected = {c["name"]: (_kind(c["type"]), c["nullable"]) for c in insp.get_columns(table)}
+            assert reflected == _expected_columns(table), table
+            assert tuple(insp.get_pk_constraint(table)["constrained_columns"]) == spec["pk"], table
+            uniques = {tuple(u["column_names"]) for u in insp.get_unique_constraints(table)}
+            assert uniques == spec.get("uq", set()), table
+            indexes = {(tuple(ix["column_names"]), bool(ix["unique"])) for ix in insp.get_indexes(table)}
+            assert indexes == spec.get("ix", set()), table
 
     with engine.connect() as conn:  # autoindexes behind PK/UNIQUE constraints have sql = NULL
         index_sql = conn.execute(text("SELECT sql FROM sqlite_master WHERE type = 'index' "
                                       "AND tbl_name = 'quote_offsets' AND sql IS NOT NULL")).scalars().all()
-    assert len(index_sql) == 1 and index_sql[0].endswith("WHERE active = 1")
+    assert index_sql == [QUOTE_OFFSETS_ACTIVE_SQL]
 
 
 def test_no_real_columns_and_tenant_id_rule():
@@ -163,6 +169,29 @@ def test_quote_offsets_never_stack_while_active(engine):
         conn.execute(insert(tables.quote_offsets), [_offset(id="qo_5")])
         raw = conn.execute(text("SELECT id, active FROM quote_offsets ORDER BY id")).all()
     assert [tuple(r) for r in raw] == [("qo_1", 0), ("qo_2", 0), ("qo_3", 0), ("qo_4", 1), ("qo_5", 1)]
+
+    # NULL station (every station) and NULL incident are keys too: unique indexes would treat NULLs as distinct.
+    with engine.begin() as conn:
+        conn.execute(insert(tables.quote_offsets), [_offset(id="qo_6", station_id=None),
+                                                    _offset(id="qo_7", station_id=None, active=False),
+                                                    _offset(id="qo_8", incident_id=None, station_id=None),
+                                                    _offset(id="qo_9", tenant_id="sbx_2", station_id=None)])
+    for dup in (_offset(id="qo_10", station_id=None), _offset(id="qo_11", incident_id=None, station_id=None)):
+        with pytest.raises(IntegrityError), engine.begin() as conn:
+            conn.execute(insert(tables.quote_offsets), [dup])
+    with engine.begin() as conn:
+        active = conn.execute(text("SELECT count(*) FROM quote_offsets WHERE tenant_id = 'sbx_1' "
+                                   "AND station_id IS NULL AND active = 1")).scalar()
+    assert active == 2  # one for inc_1, one without an incident
+
+
+def test_calls_caller_last4_null_for_withheld_caller_id(engine):
+    call = dict(tenant_id="live", id="call_1", call_sid="CA" + "0" * 32, lane="public", caller_hash="h" * 64,
+                caller_last4=None, started_ms=1_794_095_000_000, status="in_progress", meta_cost_micros=0,
+                twilio_seconds=0)
+    with engine.begin() as conn:
+        conn.execute(insert(tables.calls), [call])
+        assert conn.execute(select(tables.calls.c.caller_last4)).scalar() is None
 
 
 def test_json_none_is_sql_null_and_not_null_json_fails_loudly(engine):

@@ -24,6 +24,7 @@ from sqlalchemy import (
     String,
     Table,
     UniqueConstraint,
+    func,
     text,
 )
 
@@ -168,11 +169,12 @@ quote_offsets = Table(
     "quote_offsets", metadata,
     _tenant(), _id(), _s("incident_id", null=True), _s("station_id", null=True), _i("minutes"), _i("expires_biz_ms"),
     _s("plan_id", null=True), _b("active"),
-    # Offsets never stack: one active row per (tenant, incident, station). SQLite treats NULLs as distinct here,
-    # so writers deactivate the previous row (matched with IS) in the same transaction before inserting.
-    Index("uq_quote_offsets_active", "tenant_id", "incident_id", "station_id", unique=True,
-          sqlite_where=text("active = 1")),
 )
+# Offsets never stack: one active row per (tenant, incident, station), where a NULL station means every station.
+# A unique index treats NULLs as distinct, so the key coalesces them to ''. Writers still deactivate the previous
+# row (matched with IS) in the same transaction before inserting the new one.
+Index("uq_quote_offsets_active", quote_offsets.c.tenant_id, func.coalesce(quote_offsets.c.incident_id, ""),
+      func.coalesce(quote_offsets.c.station_id, ""), unique=True, sqlite_where=text("active = 1"))
 
 incidents = Table(
     "incidents", metadata,
@@ -223,7 +225,8 @@ handler_cursors = Table(
 
 calls = Table(
     "calls", metadata,
-    _tenant(), _id(), _s("call_sid"), _s("lane"), _s("caller_hash"), _s("caller_last4"), _i("started_ms"),
+    # caller_last4 is null for a withheld caller ID, as in call.started and call.bound (CONTRACTS §5)
+    _tenant(), _id(), _s("call_sid"), _s("lane"), _s("caller_hash"), _s("caller_last4", null=True), _i("started_ms"),
     _i("ended_ms", null=True), _i("duration_s", null=True), _s("order_id", null=True), _s("status"),
     _i("meta_cost_micros"), _i("twilio_seconds"),
     UniqueConstraint("call_sid", name="uq_calls_call_sid"),

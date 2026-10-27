@@ -1,0 +1,48 @@
+# Telugu fast-path lexicon (CONTRACTS_SEED §12): romanized and native script. Owned by P07.
+#
+# UNREVIEWED: no fluent Telugu speaker has checked these yet (founders review Oct 27-28). Romanized spellings vary,
+# so common variants are listed. See en.yaml for what each section means; the same rules apply:
+# carriers are affirmative only, negations are single words, and the done phrase "inka emi vaddu" is matched
+# before the negation check (it closes the order instead of forcing a miss).
+lang: te
+review_status: unreviewed
+reviewer: null
+
+numbers:
+  1: [okati, oka, okka, okkati, ఒకటి, ఒక, ఒక్క, ఒక్కటి]
+  2: [rendu, రెండు]
+  3: [moodu, mudu, మూడు]
+  4: [naalugu, nalugu, నాలుగు]
+  5: [aidu, ayidu, ఐదు]
+  6: [aaru, ఆరు]
+  7: [edu, ఏడు]
+  8: [enimidi, ఎనిమిది]
+  9: [tommidi, thommidi, తొమ్మిది]
+  10: [padi, పది]
+
+control:
+  "yes": [avunu, avnu, అవును, avunandi, అవునండి, sare, సరే, haa, హా]
+  "no": [kaadu, kadu, కాదు, vaddu, వద్దు]
+  done: [anthe, ante, అంతే, inka emi vaddu, inkemi vaddu, inka emi vaddhu, ఇంకా ఏమీ వద్దు, ఇంకేమీ వద్దు]
+  repeat: [malli cheppandi, malli chepandi, మళ్ళీ చెప్పండి]
+  cancel: [order cancel cheyyandi, order cancel cheyandi, ఆర్డర్ క్యాన్సిల్ చేయండి]
+  human: [manishi tho matladali, manishitho matladali, మనిషితో మాట్లాడాలి]
+
+carriers:
+  - naaku
+  - naku
+  - నాకు
+  - kavali
+  - kaavali
+  - kaavaali
+  - కావాలి
+  - ivvandi
+  - ఇవ్వండి
+  - inka
+  - ఇంకా
+  - mariyu
+  - మరియు
+  - andi
+  - అండి
+
+negations: [vaddu, వద్దు, ledu, లేదు, kaadu, కాదు]

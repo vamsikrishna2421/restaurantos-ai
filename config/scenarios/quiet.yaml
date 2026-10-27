@@ -1,0 +1,10 @@
+# quiet (CONTRACTS_SEED §11): the default for the live and demo tenants. Owned by P05; applied by seed/scenario.py.
+# Real clock, on_hand = par, no open orders and no supplier notes.
+name: quiet
+label: Quiet service
+clock:
+  mode: real
+inventory: {}          # unlisted ingredients start at their par
+supplier_notes: []
+open_orders: []
+rush: null

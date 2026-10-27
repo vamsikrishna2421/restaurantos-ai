@@ -1,0 +1,42 @@
+# Spice Route modifiers (CONTRACTS_SEED §5). SAMPLE data.
+# The KDS shows labels in CAPS ("SIN CEBOLLA"). Aliases mix romanized and native-script forms; they are part of the
+# prompt-visible menu, so they change only through the lead after the Oct 28 12:00 menu freeze.
+#
+# UNREVIEWED: no fluent Telugu, Tamil or Spanish speaker has checked these labels or aliases yet.
+review_status: unreviewed
+reviewer: null
+
+modifiers:
+  - code: NO_ONION
+    labels: {en: No onion, te: ఉల్లిపాయ లేకుండా, ta: வெங்காயம் இல்லாமல், es: Sin cebolla}
+    aliases: [without onion, without onions, onion vaddu, ullipaya lekunda, vengayam illama, sin cebolla]
+  - code: NO_GARLIC
+    labels: {en: No garlic, te: వెల్లుల్లి లేకుండా, ta: பூண்டு இல்லாமல், es: Sin ajo}
+    aliases: [without garlic, vellulli lekunda, poondu illama, sin ajo]
+  - code: NO_CILANTRO
+    labels: {en: No cilantro, te: కొత్తిమీర లేకుండా, ta: கொத்தமல்லி இல்லாமல், es: Sin cilantro}
+    aliases: [no coriander, kothimeera lekunda, kothamalli illama]
+  - code: MILD
+    labels: {en: Mild, te: కారం తక్కువ, ta: காரம் குறைவு, es: Poco picante}
+    aliases: [less spicy, not spicy, karam takkuva, kaaram kammi, sin picante]
+  - code: EXTRA_SPICY
+    labels: {en: Extra spicy, te: కారం ఎక్కువ, ta: காரம் அதிகம், es: Extra picante}
+    aliases: [extra hot, karam ekkuva, kaaram adhigam, muy picante]
+  - code: EXTRA_RAITA
+    labels: {en: Extra raita, te: ఎక్స్‌ట్రా రైతా, ta: கூடுதல் ரைத்தா, es: Raita extra}
+    aliases: [more raita]
+  - code: LESS_OIL
+    labels: {en: Less oil, te: నూనె తక్కువ, ta: எண்ணெய் குறைவு, es: Menos aceite}
+    aliases: [noone takkuva, ennai kammi]
+  - code: EXTRA_BUTTER
+    labels: {en: Extra butter, te: ఎక్స్‌ట్రా బటర్, ta: கூடுதல் வெண்ணெய், es: Extra mantequilla}
+    aliases: [more butter, más mantequilla]
+
+# Modifier sets used by menu.yaml (each item names one).
+sets:
+  RICE: [NO_ONION, NO_GARLIC, NO_CILANTRO, MILD, EXTRA_SPICY, EXTRA_RAITA, LESS_OIL]
+  CURRY: [NO_ONION, NO_GARLIC, NO_CILANTRO, MILD, EXTRA_SPICY, LESS_OIL, EXTRA_BUTTER]
+  DRY: [NO_ONION, NO_GARLIC, NO_CILANTRO, MILD, EXTRA_SPICY, LESS_OIL]
+  TIFFIN: [NO_ONION, MILD, EXTRA_SPICY, LESS_OIL, EXTRA_BUTTER]
+  BREAD: [EXTRA_BUTTER]
+  NONE: []

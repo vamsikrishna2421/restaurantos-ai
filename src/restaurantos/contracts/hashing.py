@@ -1,19 +1,24 @@
 """Canonical JSON, digests and short codes (CONTRACTS §1.5). The only implementation.
 
 ``canonical`` refuses floats (use cents, micros or minutes), naive datetimes, sets and non-string
-dict keys, so the same logical value always hashes the same way. Aware datetimes become UTC ISO
-strings with milliseconds and ``Z``; pydantic models are dumped first.
+dict keys, so the same logical value always hashes the same way. A bare aware datetime becomes
+``utc_iso`` (UTC ISO with milliseconds and ``Z``). A pydantic model hashes as its JSON form
+(``model_dump(mode="json")``), so a model, its JSON dump and its round trip through a JSON column
+share one digest: real-time fields serialize as ``utc_iso`` too, business-time fields keep their
+tenant offset. Hash a model or its JSON form, never a python-mode dump that holds biz datetimes.
 """
 
 from __future__ import annotations
 
 import hashlib
 import json
-from datetime import UTC, date, datetime
+from datetime import date, datetime
 from enum import Enum
 from typing import Any
 
 from pydantic import BaseModel
+
+from restaurantos.contracts.common import utc_iso
 
 
 def _normalize(obj: Any, path: str = "$") -> Any:
@@ -28,11 +33,14 @@ def _normalize(obj: Any, path: str = "$") -> Any:
     if isinstance(obj, datetime):
         if obj.tzinfo is None:
             raise TypeError(f"naive datetime at {path}")
-        return obj.astimezone(UTC).isoformat(timespec="milliseconds").replace("+00:00", "Z")
+        return utc_iso(obj)
     if isinstance(obj, date):
         return obj.isoformat()
     if isinstance(obj, BaseModel):
-        return _normalize(obj.model_dump(mode="python"), path)
+        # The python-mode pass enforces the rules above (JSON mode would turn a set into a list and a Decimal into a
+        # string); the JSON form is what gets hashed, so a stored or re-sent model hashes the same.
+        _normalize(obj.model_dump(mode="python"), path)
+        return _normalize(obj.model_dump(mode="json"), path)
     if isinstance(obj, dict):
         out = {}
         for key, value in obj.items():

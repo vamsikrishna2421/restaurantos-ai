@@ -1,20 +1,16 @@
 """Menu contract models (CONTRACTS §4): names, items, modifiers, the menu snapshot and availability.
 
 Layering: ``menu`` imports ``Station`` and ``LocalizedLabel`` from ``kitchen``; ``kitchen`` never imports ``menu``.
-Item and modifier codes are UPPER_SNAKE, at most 16 characters (CONTRACTS §1.1).
+Item and modifier codes are UPPER_SNAKE, at most 16 characters (CONTRACTS §1.1): ``Code`` and ``CODE_PATTERN`` live
+in ``common`` (``CartOp`` uses them too) and are re-exported here.
 """
 
 from __future__ import annotations
 
-from typing import Annotated
+from pydantic import Field
 
-from pydantic import Field, StringConstraints
-
-from restaurantos.contracts.common import Allergen, Model
+from restaurantos.contracts.common import CODE_PATTERN, Allergen, Code, Model  # noqa: F401 - CODE_PATTERN re-exported
 from restaurantos.contracts.kitchen import LocalizedLabel, Station
-
-CODE_PATTERN = r"^[A-Z][A-Z0-9_]{0,15}$"
-Code = Annotated[str, StringConstraints(pattern=CODE_PATTERN)]
 
 
 class LocalizedName(Model):

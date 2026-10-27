@@ -1,0 +1,56 @@
+# Spice Route demand curve (CONTRACTS_SEED §10). SAMPLE numbers.
+#
+# Prior burn of an ingredient (per hour) = orders_per_hour[weekday|weekend][daypart] × items_per_order
+#                                          × Σ item_mix(item) × recipe qty(item, ingredient)
+# e.g. paneer at weekend dinner = 30 × 1.8 × (0.06·150 + 0.03·150 + 0.03·180) = 1,020.6 → 1,021 g/h
+# (domain.forecast.prior_per_h). Dayparts are half-open [start, end) local times; weekend is Saturday and Sunday.
+dayparts:
+  lunch: ["11:00", "14:30"]
+  afternoon: ["14:30", "17:00"]
+  dinner: ["17:00", "21:00"]
+  late: ["21:00", "22:00"]
+
+orders_per_hour:
+  weekday: {lunch: 14, afternoon: 5, dinner: 20, late: 6}
+  weekend: {lunch: 20, afternoon: 8, dinner: 30, late: 8}
+
+items_per_order: 1.8
+
+# Share of items ordered; sums to exactly 1.00.
+item_mix:
+  # biryani
+  CHK_BIRY: 0.11
+  GOAT_BIRY: 0.06
+  VEG_BIRY: 0.04
+  EGG_BIRY: 0.02
+  # curry
+  PNR_BM: 0.06
+  PALAK_PNR: 0.03
+  CHK_TIKKA_MASALA: 0.06
+  VEG_KORMA: 0.03
+  DAL_TADKA: 0.03
+  CHANA_MASALA: 0.02
+  GONGURA_MUTTON: 0.02
+  CHK_CHETTINAD: 0.03
+  # starters
+  CHK_65: 0.05
+  GOBI_MAN: 0.03
+  PNR_TIKKA: 0.03
+  CHK_TIKKA: 0.02
+  SAMOSA: 0.03
+  # tiffin
+  MASALA_DOSA: 0.04
+  IDLI: 0.02
+  SAMBAR_VADA: 0.02
+  PESARATTU: 0.01
+  # breads and rice
+  GARLIC_NAAN: 0.06
+  BUTTER_NAAN: 0.04
+  ROTI: 0.02
+  CURD_RICE: 0.01
+  # drinks and dessert
+  MANGO_LASSI: 0.04
+  MASALA_CHAI: 0.02
+  FILTER_COFFEE: 0.01
+  GULAB_JAMUN: 0.02
+  WATER: 0.02

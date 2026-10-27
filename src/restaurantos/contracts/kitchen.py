@@ -13,7 +13,7 @@ from typing import Literal, get_args
 
 from pydantic import AwareDatetime, Field
 
-from restaurantos.contracts.common import Channel, Model, SpeakLang
+from restaurantos.contracts.common import Channel, Model, SpeakLang, UtcTime
 
 TicketStatus = Literal["queued", "cooking", "ready", "bumped", "recalled", "void"]
 StaffRole = Literal["owner", "manager", "cook", "foh"]
@@ -71,7 +71,7 @@ class Ticket(Model):
     started_biz: AwareDatetime | None = None
     bumped_biz: AwareDatetime | None = None
     changed: bool = False
-    undo_until: AwareDatetime | None = None  # real time: end of the 10 s KDS undo window
+    undo_until: UtcTime | None = None  # real time: end of the 10 s KDS undo window
 
 
 class StationLoad(Model):
@@ -117,9 +117,9 @@ class StaffNotice(Model):
     plan_id: str | None = None
     step_idx: int | None = None
     status: NoticeStatus
-    created_at: AwareDatetime
-    delivered_at: AwareDatetime | None = None
-    seen_at: AwareDatetime | None = None
+    created_at: UtcTime
+    delivered_at: UtcTime | None = None
+    seen_at: UtcTime | None = None
 
 
 class StaffTask(Model):
@@ -131,4 +131,4 @@ class StaffTask(Model):
     status: TaskStatus
     blocked_reason: str | None = None
     plan_id: str | None = None
-    created_at: AwareDatetime
+    created_at: UtcTime

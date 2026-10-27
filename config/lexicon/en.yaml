@@ -1,0 +1,115 @@
+# English fast-path lexicon (CONTRACTS_SEED §12). Owned by P07; loaded by restaurantos.orders.lexicon.
+#
+# Phrases are normalized exactly like utterances (lowercase, accents and apostrophes dropped, punctuation removed),
+# so "that's all" also matches "thats all". All four lexicons are merged, so these words also work inside
+# code-mixed Telugu, Tamil and Spanish utterances.
+#
+# - numbers: quantity words. "a"/"an" mean one ("a mango lassi").
+# - numbers_before_alias: ASR homophones of "two" that count as 2 ONLY directly before a dish alias.
+# - control: whole-utterance answers. "done" phrases also close an item utterance ("two samosas, that's all").
+# - carriers: a closed, AFFIRMATIVE-ONLY list stripped before matching. Never add a word that can negate or
+#   change an order ("instead", "without", "remove"): the loader rejects carriers that contain a negation.
+# - negations: single words that force a miss (the turn goes to the LLM) unless they sit inside a modifier
+#   alias ("no onion") or a done phrase.
+lang: en
+review_status: unreviewed
+reviewer: null
+
+numbers:
+  1: [one, a, an, single, another]
+  2: [two, couple, a couple, couple of, a couple of]
+  3: [three]
+  4: [four]
+  5: [five]
+  6: [six]
+  7: [seven]
+  8: [eight]
+  9: [nine]
+  10: [ten]
+
+numbers_before_alias:
+  2: [to, too]
+
+control:
+  "yes": ["yes", yeah, yep, yup, correct, confirm, that's correct, that's right]
+  "no": ["no", nope, nah]
+  done:
+    - that's all
+    - that's it
+    - that is all
+    - that is it
+    - that's everything
+    - that'll be all
+    - that will be all
+    - nothing else
+    - nothing more
+    - i'm done
+    - all done
+    - done
+  repeat:
+    - repeat
+    - repeat that
+    - say again
+    - say that again
+    - sorry
+    - pardon
+    - pardon me
+    - come again
+    - what
+    - what was that
+    - can you repeat that
+    - could you repeat that
+  cancel: [cancel the order, cancel order, cancel my order, cancel the whole order, cancel everything, cancel]
+  human:
+    - talk to a person
+    - speak to a person
+    - talk to someone
+    - speak to someone
+    - talk to a human
+    - speak to a human
+    - talk to staff
+    - speak to staff
+    - talk to the manager
+    - speak to the manager
+    - a person
+    - a real person
+    - real person
+    - a human
+    - human
+    - staff
+    - manager
+    - operator
+    - representative
+
+carriers:
+  - i want
+  - i would like
+  - i'd like
+  - i need
+  - can i get
+  - can i have
+  - could i get
+  - could i have
+  - may i have
+  - may i get
+  - i'll have
+  - i will have
+  - i'll take
+  - i will take
+  - i want to order
+  - i'd like to order
+  - i would like to order
+  - can i order
+  - give me
+  - get me
+  - please
+  - and
+  - also
+  - plus
+  - with
+  - thanks
+  - thank you
+  - to go
+  - for pickup
+
+negations: ["no", not, without, don't, never, none, nothing, nor, neither]

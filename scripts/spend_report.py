@@ -176,11 +176,13 @@ def _day_arg(text: str) -> date:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="spend_report.py", description="Meta spend from the call ledger (no network).")
+    parser = argparse.ArgumentParser(prog="spend_report.py", description="Meta spend from the call ledger.")
     parser.add_argument("--ledger", type=Path, help="ledger JSONL (default: Settings().ledger_path)")
     parser.add_argument("--tag", help="only lines whose live_tag matches this glob, e.g. P13 or 'rerecord:*'")
     parser.add_argument("--since", type=_day_arg, metavar="YYYY-MM-DD", help="only budget days on or after this one")
-    parser.add_argument("--by", action="append", choices=list(FIELDS), help="group key, repeatable (default: tag purpose)")
+    parser.add_argument(
+        "--by", action="append", choices=list(FIELDS), help="group key, repeatable (default: tag, purpose)"
+    )
     parser.add_argument("--json", action="store_true", help="print JSON instead of a table")
     return parser
 

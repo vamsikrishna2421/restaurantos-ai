@@ -10,7 +10,7 @@ from typing import Annotated, Literal, get_args
 
 from pydantic import AwareDatetime, Field, StringConstraints, field_validator
 
-from restaurantos.contracts.common import Allergen, Band, Lang, Model, SpeakLang, Unit
+from restaurantos.contracts.common import Allergen, Band, Lang, Model, SpeakLang, Unit, UtcTime
 
 SupplierKind = Literal["delivery", "pickup"]
 POStatus = Literal["sent", "acked", "received", "cancelled"]
@@ -102,7 +102,7 @@ class PurchaseOrder(Model):
     status: POStatus
     plan_id: str | None = None
     step_idx: int | None = None
-    created_at: AwareDatetime
+    created_at: UtcTime
     eta_biz: AwareDatetime
 
 

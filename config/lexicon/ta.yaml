@@ -1,0 +1,44 @@
+# Tamil fast-path lexicon (CONTRACTS_SEED §12): romanized and native script. Owned by P07.
+#
+# UNREVIEWED: no fluent Tamil speaker has checked these yet (founders review Oct 27-28). Romanized spellings vary,
+# so common variants are listed. See en.yaml for what each section means; the same rules apply: carriers are
+# affirmative only ("vendum" = want is a carrier, "venda"/"vendaam" = don't want is a negation).
+lang: ta
+review_status: unreviewed
+reviewer: null
+
+numbers:
+  1: [onnu, oru, ondru, ஒன்று, ஒரு, ஒண்ணு]
+  2: [rendu, irandu, randu, இரண்டு, ரெண்டு]
+  3: [moonu, moondru, மூன்று, மூணு]
+  4: [naalu, naangu, நான்கு, நாலு]
+  5: [anju, ainthu, அஞ்சு, ஐந்து]
+  6: [aaru, ஆறு]
+  7: [ezhu, ஏழு]
+  8: [ettu, எட்டு]
+  9: [onbadhu, onbathu, ஒன்பது]
+  10: [pathu, paththu, பத்து]
+
+control:
+  "yes": [aamaa, aama, aamaam, ஆமா, ஆமாம், sari, seri, சரி]
+  "no": [illa, illai, இல்ல, இல்லை, venda, vendaam, வேண்டா, வேண்டாம்]
+  done: [podhum, pothum, போதும், avlo dhaan, avlo thaan, avlothaan, அவ்ளோ தான், அவ்வளவு தான்]
+  repeat: [thirumba sollunga, thirumbi sollunga, திரும்ப சொல்லுங்க]
+  cancel: [order cancel pannunga, ஆர்டர் கேன்சல் பண்ணுங்க]
+  human: [aal kitta pesanum, ஆள் கிட்ட பேசணும்]
+
+carriers:
+  - enakku
+  - enaku
+  - எனக்கு
+  - venum
+  - vendum
+  - வேணும்
+  - வேண்டும்
+  - kudunga
+  - kodunga
+  - குடுங்க
+  - innoru
+  - இன்னொரு
+
+negations: [venda, vendaam, வேண்டா, வேண்டாம், illa, illai, இல்ல, இல்லை]

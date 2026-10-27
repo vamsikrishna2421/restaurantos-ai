@@ -1,8 +1,9 @@
 """Live smoke test of the Meta layer (costs well under $0.01).
 
-Usage: .venv/bin/python scripts/smoke_meta.py [path/to/clip.wav]
-Runs one structured order parse, one streamed GM-style call (first chunk only), one file
-transcription and one realtime transcription of the same clip, then prints the spend snapshot.
+Usage: RESTOS_AI_MODE=live RESTOS_LIVE_TAG=F0 .venv/bin/python scripts/smoke_meta.py [path/to/clip.wav]
+Runs one structured order parse, one streamed GM-style call, one file transcription and one realtime
+transcription of the same clip, then prints the spend snapshot. Every call is billed to the ``dev:F0``
+spend scope with synthetic data (CONTRACTS_RUNTIME §10.9).
 """
 
 from __future__ import annotations
@@ -13,7 +14,9 @@ import time
 import wave
 from pathlib import Path
 
-from restaurantos.config import Purpose, get_settings
+from restaurantos.config import AIMode, Purpose, get_settings
+from restaurantos.contracts.common import CallCtx
+from restaurantos.contracts.ids import new_id
 from restaurantos.meta import MetaClient, RealtimeASR, SpendGuard
 
 ORDER_SCHEMA = {
@@ -47,19 +50,21 @@ def pcm16k(path: Path) -> bytes:
 
 async def main() -> None:
     s = get_settings()
-    guard = SpendGuard(s.ledger_path, daily_cap=s.daily_usd_cap, total_cap=s.total_usd_cap,
-                       session_cap=s.session_usd_cap, kill_switch=s.kill_switch)
+    if s.ai_mode is not AIMode.LIVE or not s.live_tag:
+        sys.exit("smoke_meta spends real money: run with RESTOS_AI_MODE=live and RESTOS_LIVE_TAG=<package-id>")
+    guard = SpendGuard.from_settings(s)
     client = MetaClient(s, guard)
+    ctx = CallCtx.dev("F0", trace_id=new_id("tr"))
     try:
         t = time.monotonic()
         out, rec = await client.chat_json(
-            purpose=Purpose.ORDER, schema=ORDER_SCHEMA, schema_name="Order", cache_key="smoke-v1",
+            purpose=Purpose.ORDER, schema=ORDER_SCHEMA, schema_name="Order", cache_key="smoke-v1", ctx=ctx,
             messages=[{"role": "system", "content": "Map the order to menu codes CHK_BIRY, PNR_BM, GARLIC_NAAN."},
                       {"role": "user", "content": "naaku rendu chicken biryani kavali, okati without onions"}])
         print(f"order: {time.monotonic() - t:.2f}s ${rec.cost_usd:.4f} -> {out}")
 
         n = 0
-        async for ev in client.responses_stream(purpose=Purpose.GM, input="Say 'ready' in one word.",
+        async for ev in client.responses_stream(purpose=Purpose.GM, input="Say 'ready' in one word.", ctx=ctx,
                                                 reasoning_summary=None, effort="minimal"):
             n += 1
             if ev.kind == "done":
@@ -68,13 +73,13 @@ async def main() -> None:
         if len(sys.argv) > 1:
             clip = Path(sys.argv[1])
             wav = await asyncio.to_thread(clip.read_bytes)
-            res, rec = await client.transcribe_file(wav, keywords=["biryani", "paneer"],
+            res, rec = await client.transcribe_file(wav, ctx=ctx, keywords=["biryani", "paneer"],
                                                     language_bias=["English", "Telugu"])
             print(f"asr-file: {rec.latency_ms}ms ${rec.cost_usd:.5f} -> {res.transcript!r}")
 
             pcm = await asyncio.to_thread(pcm16k, clip)
             t = time.monotonic()
-            async with RealtimeASR(s, guard, mode="ENDPOINTING", keywords=["biryani", "paneer"],
+            async with RealtimeASR(s, guard, ctx=ctx, mode="ENDPOINTING", keywords=["biryani", "paneer"],
                                    language_bias=["English", "Telugu"], max_seconds=30) as asr:
                 async def feed() -> None:
                     frame = 16_000 * 2 * 80 // 1000  # 80 ms
@@ -92,7 +97,7 @@ async def main() -> None:
                         print(f"asr-rt {time.monotonic() - t:5.2f}s {ev.type}: {ev.text or ev.message or ev.code}")
                 await feeder
         snap = guard.snapshot(last=0)
-        print(f"spend today ${snap['today_usd']:.4f} total ${snap['total_usd']:.4f}")
+        print(f"spend today ${snap['today_usd']:.4f} total ${snap['total_usd']:.4f} (budget day {snap['budget_day']})")
     finally:
         await client.aclose()
 

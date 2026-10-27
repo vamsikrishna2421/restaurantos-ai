@@ -1,0 +1,32 @@
+# Spice Route stations (CONTRACTS_SEED §3), in KDS order. SAMPLE data.
+# Each station's tickets render in its default_language (ARCHITECTURE §9).
+#
+# UNREVIEWED: no fluent Telugu, Tamil or Spanish speaker has checked these names yet (founders review Oct 27-28).
+review_status: unreviewed
+reviewer: null
+
+stations:
+  - id: STN_BIRYANI
+    names: {en: Biryani, te: బిర్యానీ, ta: பிரியாணி, es: Biryani}
+    parallel_slots: 2
+    default_language: es
+  - id: STN_CURRY
+    names: {en: Curry, te: కూర, ta: கறி, es: Curry}
+    parallel_slots: 3
+    default_language: es
+  - id: STN_TANDOOR
+    names: {en: Tandoor, te: తందూర్, ta: தந்தூர், es: Tandoor}
+    parallel_slots: 2
+    default_language: te
+  - id: STN_TIFFIN
+    names: {en: Tiffin (dosa/idli), te: టిఫిన్, ta: டிபன், es: Tiffin (dosa/idli)}
+    parallel_slots: 2
+    default_language: ta
+  - id: STN_FRY
+    names: {en: Fry, te: ఫ్రై, ta: பொரியல், es: Freidora}
+    parallel_slots: 2
+    default_language: te
+  - id: STN_BAR
+    names: {en: Drinks & desserts, te: పానీయాలు, ta: பானங்கள், es: Bebidas y postres}
+    parallel_slots: 1
+    default_language: en

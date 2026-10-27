@@ -1,0 +1,47 @@
+# Spanish fast-path lexicon (CONTRACTS_SEED §12). Owned by P07.
+#
+# UNREVIEWED: no fluent Spanish speaker has checked these yet (founders review Oct 27-28). Accents are folded by the
+# normalizer, so "sí" and "si" are the same entry. See en.yaml for what each section means; carriers are
+# affirmative only ("con" is a carrier, "sin" is a negation unless it sits inside a modifier alias like
+# "sin cebolla").
+lang: es
+review_status: unreviewed
+reviewer: null
+
+numbers:
+  1: [uno, una, un, otro, otra]
+  2: [dos]
+  3: [tres]
+  4: [cuatro]
+  5: [cinco]
+  6: [seis]
+  7: [siete]
+  8: [ocho]
+  9: [nueve]
+  10: [diez]
+
+control:
+  "yes": [sí, claro, claro que sí, correcto, vale, por supuesto]
+  "no": ["no"]
+  done: [es todo, eso es todo, nada más, eso sería todo, sería todo, ya está]
+  repeat: [repita, repite, otra vez, puede repetir, perdón]
+  cancel: [cancela el pedido, cancelar el pedido, cancela la orden, cancelar la orden]
+  human: [hablar con una persona, hablar con alguien, hablar con el personal, una persona]
+
+carriers:
+  - quiero
+  - quisiera
+  - me gustaría
+  - me da
+  - me das
+  - me puede dar
+  - dame
+  - por favor
+  - "y"
+  - también
+  - con
+  - gracias
+  - muchas gracias
+  - para llevar
+
+negations: ["no", sin, nada, ni, nunca]

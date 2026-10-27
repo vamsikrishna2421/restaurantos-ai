@@ -1,4 +1,3 @@
-import asyncio
 import json
 
 import pytest
@@ -7,51 +6,7 @@ from restaurantos.config import AIMode
 from restaurantos.meta.asr_realtime import RealtimeASR, parse_server_event
 from restaurantos.meta.errors import BudgetExceeded, MockModeError
 
-from .conftest import FAKE_KEY
-
-
-class FakeWS:
-    """Scripted stand-in for the Meta ASR socket."""
-
-    def __init__(self, script):
-        self.sent = []
-        self.script = script
-        self.close_code = None
-        self.close_reason = ""
-        self._incoming: asyncio.Queue = asyncio.Queue()
-        self._incoming.put_nowait(json.dumps({"sessionId": "srv-1"}))
-
-    async def send(self, data):
-        self.sent.append(data)
-        if isinstance(data, str) and json.loads(data).get("type") == "endStream":
-            for ev in self.script:
-                self._incoming.put_nowait(json.dumps(ev))
-            self._incoming.put_nowait(None)
-
-    async def recv(self):
-        return await self._incoming.get()
-
-    def __aiter__(self):
-        return self
-
-    async def __anext__(self):
-        msg = await self._incoming.get()
-        if msg is None:
-            self.close_code = 1000
-            raise StopAsyncIteration
-        return msg
-
-    async def close(self):
-        self.close_code = self.close_code or 1000
-
-
-def fake_connect(ws):
-    async def connect(url, **kwargs):
-        assert url.startswith("wss://api.meta.ai/v1/asr/realtime?sessionId=")
-        return ws
-
-    return connect
-
+from .conftest import FAKE_KEY, FakeWS, fake_connect, make_ctx
 
 SCRIPT = [
     {"type": "speechStart", "turnId": 1, "audioProcessedMs": 100},
@@ -60,12 +15,14 @@ SCRIPT = [
     {"type": "speechComplete", "turnId": 1, "transcript": "two chicken biryani", "audioProcessedMs": 1600},
     {"type": "somethingNew"},
 ]
+CALL = make_ctx("call_1", session_id="call_1", tenant_id="live", spend_pool="public", data_class="customer",
+                channel="phone")
 
 
 async def test_session_handshake_events_and_cost(settings, guard):
     ws = FakeWS(SCRIPT)
-    asr = RealtimeASR(settings, guard, keywords=["biryani"], language_bias=["Telugu", "English"],
-                      session_id="call-1", connect=fake_connect(ws))
+    asr = RealtimeASR(settings, guard, ctx=CALL, keywords=["biryani"], language_bias=["Telugu", "English"],
+                      connect=fake_connect(ws))
     async with asr:
         hs = json.loads(ws.sent[0])
         assert hs["authorization"]["accessToken"] == f"Bearer {FAKE_KEY}"
@@ -80,21 +37,26 @@ async def test_session_handshake_events_and_cost(settings, guard):
     last = guard.snapshot()["recent"][-1]
     assert last["endpoint"] == "asr_realtime" and last["audio_seconds"] == pytest.approx(1.0)
     assert last["status"] == "ok" and guard.snapshot()["pending_usd"] == 0
+    assert last["cost_usd"] == pytest.approx(2 * 0.18 / 3600)  # the server reported 1.6 s processed → 2 s
+    assert (last["trace_id"], last["data_class"], last["spend_scope"], last["pool"]) == (
+        "tr_test", "customer", "call_1", "public")
+    assert asr.record is not None and asr.record.session_id == "call_1"
     assert FAKE_KEY not in settings.ledger_path.read_text()
 
 
 async def test_max_seconds_cap(settings, guard):
-    asr = RealtimeASR(settings, guard, max_seconds=1.0, connect=fake_connect(FakeWS([])))
+    asr = RealtimeASR(settings, guard, ctx=CALL, max_seconds=1.0, connect=fake_connect(FakeWS([])))
     async with asr:
         await asr.send_pcm(b"\0" * 32_000)
-        with pytest.raises(BudgetExceeded):
+        with pytest.raises(BudgetExceeded) as exc:
             await asr.send_pcm(b"\0" * 320)
+    assert exc.value.scope == "asr_max_seconds"
 
 
 async def test_mock_mode_refuses(settings, guard):
     settings.ai_mode = AIMode.MOCK
     with pytest.raises(MockModeError):
-        async with RealtimeASR(settings, guard, connect=fake_connect(FakeWS([]))):
+        async with RealtimeASR(settings, guard, ctx=CALL, connect=fake_connect(FakeWS([]))):
             pass
     assert guard.snapshot()["pending_usd"] == 0
 
