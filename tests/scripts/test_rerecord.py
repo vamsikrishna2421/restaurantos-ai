@@ -109,6 +109,17 @@ def test_build_env_record_mode_caps_and_fresh_data_dir(tmp_path):
     assert rr.build_env(args, base) == env
 
 
+def test_dev_key_reaches_the_child_without_overriding_a_given_one(tmp_path, monkeypatch):
+    monkeypatch.delenv("MODEL_API_KEY", raising=False)
+    monkeypatch.delenv("RESTOS_MODEL_API_KEY", raising=False)
+    (tmp_path / "meta_muse_api_key").write_text("LLM_fake-key-for-the-test\n")
+    assert rr.with_dev_key({"PATH": "/bin"}, tmp_path) == {"PATH": "/bin", "MODEL_API_KEY": "LLM_fake-key-for-the-test"}
+    assert rr.with_dev_key({"MODEL_API_KEY": "given"}, tmp_path) == {"MODEL_API_KEY": "given"}
+    empty = tmp_path / "empty"
+    empty.mkdir()
+    assert rr.with_dev_key({"PATH": "/bin"}, empty) == {"PATH": "/bin"}
+
+
 def test_run_pytest_uses_this_interpreter_in_the_repo(monkeypatch):
     seen = {}
 

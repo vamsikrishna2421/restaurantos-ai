@@ -99,7 +99,8 @@ async def replay(agent: OrderAgent, name: str, menu):
             raise
         pytest.fail(f"no replay fixture for {name}: the o1 prompt, schema, seed menu or ORDER route changed. "
                     "Regenerate the stand-ins (.venv/bin/python -m tests.fakes.order_agent) or re-record (README).")
-    assert record.status == "replay" and record.model == "muse-spark-1.3" and record.purpose == "order"
+    assert record.status in ("replay", "ok")  # ok only while scripts/rerecord.py records (network is blocked otherwise)
+    assert record.model == "muse-spark-1.3" and record.purpose == "order"
     return turn, cart
 
 

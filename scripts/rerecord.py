@@ -6,9 +6,10 @@ Usage:
 
 Runs pytest in a subprocess with RESTOS_AI_MODE=record, RESTOS_LIVE_TAG=rerecord:<tag> (default tag:
 the --root directory name), the response cache rooted at --root, network allowed (the root conftest
-lifts its block only for record mode plus RESTOS_ALLOW_NETWORK=1), the repo-root key files enabled,
-RESTOS_ENVIRONMENT=dev, and the daily and total caps both set to --max-usd against a fresh ledger in
-data/rerecord/<UTC timestamp>/. Refuses --max-usd above $1.00. Afterwards it prints that run's spend.
+lifts its block only for record mode plus RESTOS_ALLOW_NETWORK=1), the repo-root key files enabled (the dev key
+is also passed as MODEL_API_KEY, since test settings never read key files), RESTOS_ENVIRONMENT=dev, and the
+daily and total caps both set to --max-usd against a fresh ledger in data/rerecord/<UTC timestamp>/. Refuses
+--max-usd above $1.00. Afterwards it prints that run's spend.
 Every run is logged in BUILD_LOG (CONTRACTS_RUNTIME §10.11).
 
 Only replay tests record: ``tests/fakes/container.py::make_test_settings(ai_mode=AIMode.REPLAY,
@@ -95,6 +96,20 @@ def build_env(args: argparse.Namespace, base_env: Mapping[str, str]) -> dict[str
     }
 
 
+def with_dev_key(env: Mapping[str, str], key_files_dir: Path = REPO_ROOT) -> dict[str, str]:
+    """``env`` plus ``MODEL_API_KEY`` from the dev key file when neither key variable is set. Test settings keep
+    environment ``test`` (so hashes match replay) and never read key files, so the child needs the key in its
+    environment. ``Settings`` reads the file; the value is never printed or logged."""
+    if env.get("MODEL_API_KEY") or env.get("RESTOS_MODEL_API_KEY"):
+        return dict(env)
+    from restaurantos.config import AIMode, Settings
+
+    dev = Settings(_env_file=None, environment="dev", ai_mode=AIMode.MOCK, key_files=True,  # type: ignore[call-arg]
+                   key_files_dir=key_files_dir)
+    key = dev.model_api_key
+    return dict(env) if key is None else {**env, "MODEL_API_KEY": key.get_secret_value()}
+
+
 def run_pytest(pytest_args: Sequence[str], env: Mapping[str, str]) -> int:
     cmd = [sys.executable, "-m", "pytest", *pytest_args]
     return subprocess.run(cmd, cwd=REPO_ROOT, env=dict(env), check=False).returncode  # noqa: S603 (no shell)
@@ -149,7 +164,7 @@ def report_spend(ledger: Path, max_usd: float) -> float:
 
 def main(argv: Sequence[str] | None = None) -> int:
     args = parse_args(argv)
-    env = build_env(args, os.environ)
+    env = with_dev_key(build_env(args, os.environ))
     try:
         args.data_dir.mkdir(parents=True, exist_ok=False)
     except FileExistsError:

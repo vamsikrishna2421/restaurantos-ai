@@ -262,6 +262,15 @@ def pytest_runtest_setup(item: pytest.Item) -> None:
 
 
 @pytest.fixture(autouse=True)
+def _fresh_rate_limits() -> None:
+    """P11's limiter (llm_turn, voice_turn, sandbox_creation, live_connect, ws_slot) is process-wide: every test
+    starts with empty buckets, so a socket-heavy test never makes a later one see 429s."""
+    from restaurantos.security import ratelimit  # lazy, like the redaction fixture below
+
+    ratelimit.reset()
+
+
+@pytest.fixture(autouse=True)
 def _restore_log_redaction() -> Iterator[None]:
     """Every app lifespan installs P11's log redaction process-wide (step 1), as production does once; a test that
     booted an app leaves logging as it found it (the filter off, the pinned loggers' levels restored)."""
