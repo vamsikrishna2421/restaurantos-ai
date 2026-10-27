@@ -259,3 +259,15 @@ def no_network() -> Iterator[None]:
 def pytest_runtest_setup(item: pytest.Item) -> None:
     if _active and not network_blocked():
         _install()  # backstop: another plugin reset a guard after the previous test
+
+
+@pytest.fixture(autouse=True)
+def _restore_log_redaction() -> Iterator[None]:
+    """Every app lifespan installs P11's log redaction process-wide (step 1), as production does once; a test that
+    booted an app leaves logging as it found it (the filter off, the pinned loggers' levels restored)."""
+    from restaurantos.security import redact  # lazy: the environment defaults above come before any import
+
+    before = redact.installed()
+    yield
+    if before is None and redact.installed() is not None:
+        redact.uninstall()

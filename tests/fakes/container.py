@@ -10,7 +10,10 @@
   installs in production (hub first, then bus, each failure isolated).
 
 Every other port stays None unless passed as an override (``make_test_container(orders=my_fake)``; pass ``store=None``
-to drop the store). ``real_store=True`` uses P04's store provider and raises ``NotWired`` until P04 lands.
+to drop the store). ``real_store=True`` uses P04's store provider (a WAL file in the settings' data dir; close it with
+``await c.store.aclose()``); ``real_bus=True`` and ``real_hub=True`` use P10a's and P10b's providers (an ``EventBus``
+on the container's store, then ``bus.start()`` is the caller's; a ``Hub``), with the same commit hook and ephemeral
+sink as the lifespan. An override of the same field always wins over its flag.
 
 App tests: ``create_app(container=make_test_container())`` inside ``with TestClient(app)`` runs the real lifespan on
 the fakes; ``isolated_registry(monkeypatch, REQUIRED_ROUTERS=(...))`` and ``register_module`` keep it hermetic.
@@ -22,6 +25,7 @@ ai_cache_dir=<fixture root>)``; ``scripts/rerecord.py --root`` re-records exactl
 from __future__ import annotations
 
 import asyncio
+import importlib
 import inspect
 import logging
 import os
@@ -323,23 +327,22 @@ def register_module(monkeypatch: Any, name: str, **attrs: Any) -> str:
     return name
 
 
-def _provide_real_store(c: Container) -> None:
-    import restaurantos.store as store_pkg
-
-    provide = getattr(store_pkg, "provide", None)
+def _provide_real(c: Container, module: str, field: str) -> None:
+    """Run the real package's synchronous ``provide(c)`` (``restaurantos.<module>``); NotWired until it lands."""
+    provide = getattr(importlib.import_module(f"restaurantos.{module}"), "provide", None)
     if provide is None:
-        raise NotWired("store")  # P04 has not landed
+        raise NotWired(field)  # the package has not landed
     if inspect.isawaitable(result := provide(c)):
         if inspect.iscoroutine(result):
             result.close()
-        raise TypeError("store.provide(c) must be synchronous")
-    if c.store is None:
-        raise NotWired("store")
+        raise TypeError(f"{module}.provide(c) must be synchronous")
+    if getattr(c, field) is None:
+        raise NotWired(field)
 
 
-def make_test_container(*, real_store: bool = False, script: Mapping[Any, Any] | None = None,
-                        now_ms: int = FAKE_NOW_MS, seed: int = DEFAULT_SEED, install_ids: bool = True,
-                        **overrides: Any) -> Container:
+def make_test_container(*, real_store: bool = False, real_bus: bool = False, real_hub: bool = False,
+                        script: Mapping[Any, Any] | None = None, now_ms: int = FAKE_NOW_MS, seed: int = DEFAULT_SEED,
+                        install_ids: bool = True, **overrides: Any) -> Container:
     """A container of fakes; ``overrides`` replace container fields by name (unknown names raise TypeError)."""
     if unknown := sorted(set(overrides) - set(FIELD_NAMES)):
         raise TypeError(f"make_test_container: unknown container fields {unknown}")
@@ -354,12 +357,13 @@ def make_test_container(*, real_store: bool = False, script: Mapping[Any, Any] |
     id_gen = pick("ids", lambda: seeded_idgen(seed, clock=clock.now_real_ms))
     c = Container(settings=settings, guard=guard, meta=meta, clock=clock, ids=id_gen,
                   rng=pick("rng", lambda: random.Random(seed)), chaos=pick("chaos", NoopChaos))
-    if real_store and "store" not in overrides:
-        _provide_real_store(c)
-    else:
-        c.store = pick("store", lambda: FakeStore(clock, tz=settings.tenant_timezone))
-    c.bus = pick("bus", FakeBus)
-    c.hub = pick("hub", FakeHub)
+    fakes = {"store": lambda: FakeStore(clock, tz=settings.tenant_timezone), "bus": FakeBus, "hub": FakeHub}
+    for real, module, name in ((real_store, "store", "store"), (real_bus, "realtime.bus", "bus"),
+                               (real_hub, "realtime.hub", "hub")):
+        if real and name not in overrides:
+            _provide_real(c, module, name)  # in this order: the real bus is built on the container's store
+        else:
+            setattr(c, name, pick(name, fakes[name]))
     for name, value in overrides.items():
         setattr(c, name, value)
     install_commit_hook(c)

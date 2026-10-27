@@ -1,7 +1,8 @@
 """Boot wiring (CONTRACTS_RUNTIME §10.1): build the container, mount routers, and run the lifespan phases.
 
 Lifespan order:
-1. Settings (staging/prod run the boot validator), SpendGuard (loads ``caps.json``), MetaClient, clock, IdGen, rng;
+1. Log redaction first (P11's ``security.redact.install(settings)``: idempotent, so every lifespan refreshes it), then
+   settings (staging/prod run the boot validator), SpendGuard (loads ``caps.json``), MetaClient, clock, IdGen, rng;
 2. ``PROVIDERS`` in registry order, then the store commit hook: ``commit_fanout(bus, hub)`` feeds the hub directly,
    then the bus (§10.2-§10.3). It is composed here, once, whatever hook a provider registered; tests get the same
    composition from ``make_test_container``;
@@ -37,6 +38,7 @@ from restaurantos.contracts import ids as ids_mod
 from restaurantos.contracts.ids import IdGen
 from restaurantos.meta.client import MetaClient
 from restaurantos.meta.spend import SpendGuard
+from restaurantos.security import redact
 from restaurantos.services.clock import RealClock
 from restaurantos.services.container import FIELD_NAMES, Container, NoopChaos, is_wired
 
@@ -264,6 +266,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     tasks: list[asyncio.Task[None]] = []
     app.state.starting = True
     try:
+        redact.install(settings)  # 1: before anything that could log a secret (uvicorn's handlers exist by now)
         if c is None:
             c = app.state.container = build_container(settings)  # 1
         ids_mod.install(c.ids)

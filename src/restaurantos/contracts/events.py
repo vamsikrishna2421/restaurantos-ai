@@ -48,7 +48,8 @@ EventType = Literal[
 ]
 SessionPurpose = Literal["order", "kitchen", "sample"]
 LangHint = Literal["auto"]  # /ws/voice?lang=auto; any other hint is a Lang
-OrderUpdateStatus = Literal["ready", "picked_up"]
+# in_progress: work started, or a ready order reopened by an undo, recall or correction (2.3.0)
+OrderUpdateStatus = Literal["in_progress", "ready", "picked_up"]
 CorrectionKind = Literal["qty", "modifiers", "remove", "add"]
 TicketAction = Literal["start", "bump", "recall", "undo", "void", "change"]
 AvailabilitySource = Literal["plan", "kitchen", "manager", "seed"]

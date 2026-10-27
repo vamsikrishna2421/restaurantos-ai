@@ -1,0 +1,68 @@
+# Fly.io prod app (ARCHITECTURE §3): one always-on iad machine serving the SPA, REST, /ws/*, /static/phrases/* and
+# /twilio/* from one origin, with SQLite and the ledgers on the 3 GB ros_data volume.
+#
+# Release with scripts/deploy.sh: staging builds the image, prod promotes that same image (`fly deploy --image ...`),
+# never a rebuild. First setup: `scripts/deploy.sh init prod` (app, volume, secrets, .volume-id sentinel).
+# Secrets come from scripts/secrets_to_fly.sh, never from this file; everything below is public configuration.
+app = "restaurantos"
+primary_region = "iad"
+kill_signal = "SIGTERM"
+kill_timeout = "30s"
+swap_size_mb = 512
+
+[build]
+  dockerfile = "Dockerfile"
+
+[deploy]
+  # A volume attaches to one machine, so the single machine is replaced in place.
+  strategy = "rolling"
+
+[env]
+  RESTOS_ENVIRONMENT = "prod"
+  RESTOS_AI_MODE = "live"
+  # The boot validator wants the caps explicit (CONTRACTS §2.2); pools switch to judging on Nov 4 by themselves.
+  RESTOS_DAILY_USD_CAP = "8"
+  RESTOS_TOTAL_USD_CAP = "85"
+  RESTOS_PUBLIC_BASE_URL = "https://restaurantos.fly.dev"
+  RESTOS_DATA_DIR = "/data"
+  RESTOS_HOST = "0.0.0.0"
+  RESTOS_PORT = "8000"
+  RESTOS_KEY_FILES = "false"
+  # Client IPs: the Fly-Client-IP header (security/ratelimit.py); uvicorn trusts Fly's proxy for X-Forwarded-*.
+  RESTOS_BEHIND_PROXY = "fly"
+  FORWARDED_ALLOW_IPS = "*"
+
+[[mounts]]
+  source = "ros_data"
+  destination = "/data"
+  initial_size = "3gb"
+
+[http_service]
+  internal_port = 8000
+  force_https = true
+  auto_stop_machines = "off"
+  auto_start_machines = true
+  min_machines_running = 1
+
+  # WebSockets hold connections (event sockets, push-to-talk, Twilio media); Fly's default limit of 25 is far too low.
+  [http_service.concurrency]
+    type = "connections"
+    soft_limit = 400
+    hard_limit = 500
+
+  # Liveness only: the process plus a SQLite read. Meta, TTS and Twilio live in /api/status and /api/health/deep, so
+  # an upstream outage never turns into a restart loop.
+  [[http_service.checks]]
+    grace_period = "30s"
+    interval = "15s"
+    timeout = "5s"
+    method = "GET"
+    path = "/api/health"
+
+[[restart]]
+  policy = "always"
+
+[[vm]]
+  # performance-1x from Nov 3 if the staging load test shows event-loop stalls over 100 ms (ARCHITECTURE §3).
+  size = "shared-cpu-2x"
+  memory = "2gb"

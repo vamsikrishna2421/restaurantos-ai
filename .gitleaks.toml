@@ -1,0 +1,34 @@
+# Secret scanning for RestaurantOS AI (ARCHITECTURE_OPS §13): gitleaks' default rules plus the key shapes that
+# security/redact.py scrubs at runtime. Used by the CI gitleaks job and the pre-commit hook on the lead's commits.
+#
+# A test or fixture that needs a key-shaped string must make it obviously fake (the value contains fake, test, example,
+# dummy or redacted) or end the line with a `gitleaks:allow` comment. Never allowlist a whole folder: fixtures are
+# scanned like everything else.
+title = "RestaurantOS AI"
+
+[extend]
+useDefault = true
+
+[[rules]]
+id = "meta-model-api-key"
+description = "Meta Model API key (LLM_<id>_<secret>)"
+regex = '''LLM_[0-9]+_[A-Za-z0-9_-]{16,}'''
+keywords = ["llm_"]
+tags = ["key", "meta"]
+
+[[rules]]
+id = "elevenlabs-api-key"
+description = "ElevenLabs API key (sk_...); the word boundary keeps task ids such as tsk_<ulid> out"
+regex = '''\bsk_[A-Za-z0-9]{20,}'''
+keywords = ["sk_"]
+tags = ["key", "elevenlabs"]
+
+[[rules]]
+id = "twilio-account-sid"
+description = "Twilio Account SID (AC + 32 hex), the account half of the Twilio credentials"
+regex = '''\bAC[0-9a-f]{32}\b'''
+tags = ["twilio"]
+
+[allowlist]
+description = "Obviously fake key shapes in tests, fixtures and docs"
+stopwords = ["fake", "test", "example", "dummy", "redacted"]

@@ -11,12 +11,21 @@ from pydantic import BaseModel
 from starlette.exceptions import HTTPException
 from starlette.testclient import WebSocketDenialResponse
 
-from restaurantos.api.errors import seconds_until_budget_reset, ws_close_code
-from restaurantos.app import SpaFiles, content_security_policy, create_app, public_host
+from restaurantos.api.errors import InternalErrorMiddleware, seconds_until_budget_reset, ws_close_code
+from restaurantos.app import (
+    SecurityHeadersMiddleware,
+    SpaFiles,
+    StartupGateMiddleware,
+    content_security_policy,
+    create_app,
+    public_host,
+)
 from restaurantos.contracts import ids
 from restaurantos.contracts.common import ms_from_dt
 from restaurantos.contracts.errors import ChaosDown, Conflict, Forbidden, NotWired, RateLimited
 from restaurantos.meta.errors import BudgetExceeded, CircuitOpen, MetaAPIError, MetaTimeout, MockModeError
+from restaurantos.security.auth import StagingAdminGate
+from restaurantos.security.ratelimit import RestRateLimitMiddleware
 from tests.fakes.clock import FAKE_NOW_MS
 from tests.fakes.container import isolated_registry, make_test_container, make_test_settings
 
@@ -96,6 +105,20 @@ def test_security_headers_csp_host(dist):
     assert public_host("http://[::1]:8000") == "[::1]:8000"
     with pytest.raises(ValueError):
         content_security_policy("restaurantos.fly.dev")
+
+
+def test_rate_limit_and_staging_gate_wired_inside_the_headers():
+    """P11's REST rate limit and staging admin gate sit inside the security headers and the startup gate: a refusal
+    carries the headers, and nothing is refused (or counted) before the app serves."""
+    order = [m.cls for m in make_app().user_middleware]
+    assert order == [SecurityHeadersMiddleware, StartupGateMiddleware, RestRateLimitMiddleware, StagingAdminGate,
+                     InternalErrorMiddleware]
+    with TestClient(make_app(environment="staging", public_base_url="https://staging.example")) as client:
+        assert client.get("/api/health").status_code == 200
+        refused = client.get("/api/orders")
+        assert (refused.status_code, refused.json()["error"]["code"]) == (401, "no_session")
+        assert refused.json()["error"]["details"] == {"admin_required": True}
+        assert refused.headers["content-security-policy"].endswith("frame-ancestors 'none'")
 
 
 class Body(BaseModel):

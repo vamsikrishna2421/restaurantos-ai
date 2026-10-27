@@ -230,14 +230,23 @@ def test_fakes_match_their_ports():
             assert inspect.iscoroutinefunction(ours) == inspect.iscoroutinefunction(port_fn), (impl, name)
 
 
-def test_make_test_container_real_store_flag():
+async def test_make_test_container_real_store_flag():
     import restaurantos.store as store_pkg
 
     if getattr(store_pkg, "provide", None) is None:
         with pytest.raises(NotWired):
             make_test_container(real_store=True)
-    else:
-        assert type(make_test_container(real_store=True).store).__name__ != "FakeStore"
+        return
+    c = make_test_container(real_store=True, real_bus=True, real_hub=True)  # P04, P10a and P10b's providers
+    fake_hub = FakeHub()
+    mixed = make_test_container(real_store=True, real_hub=True, hub=fake_hub)  # an override wins over its flag
+    try:
+        assert (type(c.store).__name__, type(c.bus).__name__, type(c.hub).__name__) == ("Store", "EventBus", "Hub")
+        assert c.bus.store is c.store and c.repo is not None  # the real bus runs on the container's real store
+        assert mixed.hub is fake_hub and isinstance(mixed.bus, FakeBus)
+    finally:
+        await c.store.aclose()
+        await mixed.store.aclose()
 
 
 def test_deps_accessors_raise_not_wired():

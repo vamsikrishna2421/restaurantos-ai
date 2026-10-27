@@ -1,0 +1,88 @@
+# Telugu phrase templates (CONTRACTS_SEED §13), native script. Owned by P14; loaded by restaurantos.orders.templates.
+#
+# UNREVIEWED DRAFT: no fluent Telugu speaker has checked these yet (founders review Oct 27-28). Until review_status is
+# `reviewed` and "te" is in settings.speak_languages, the system understands Telugu (and Telugu-English) but replies
+# in English. Same keys and slots as en.yaml. Per CONTRACTS_SEED §13, numbers and money stay in English inside the
+# Telugu line (`numbers: en`, "fifty-two dollars and ninety-three cents"); dish and modifier names come from the
+# menu's Telugu script names. The bake-off (G4) may flip native script vs romanized for TTS.
+lang: te
+review_status: unreviewed
+reviewer: null
+
+words:
+  numbers: en
+  list_sep: ", "
+  list_and: " మరియు "
+  list_or: " లేదా "
+  item: "{qty} {name}"
+  item_mods: "{qty} {name} ({mods})"
+  mods_sep: ", "
+  lowercase_modifiers: false
+  money: "{dollars} {cents}"
+  dollar: [dollar, dollars]
+  cent: [cent, cents]
+  allergens:
+    dairy: పాల పదార్థాలు
+    tree_nuts: జీడిపప్పు వంటి గింజలు
+    peanuts: వేరుశనగ
+    gluten: గ్లూటెన్
+    egg: గుడ్డు
+    soy: సోయా
+    sesame: నువ్వులు
+    mustard: ఆవాలు
+    fish: చేప
+    shellfish: రొయ్యల వంటి సముద్ర ఆహారం
+  spice: [కారం లేదు, కొంచెం కారం, మధ్యస్థ కారం, చాలా కారం]
+
+templates:
+  greet_phone: "నమస్తే, స్పైస్ రూట్‌కి కాల్ చేసినందుకు ధన్యవాదాలు. నేను డెమో లైన్‌లో ఉన్న AI ఆర్డరింగ్ అసిస్టెంట్‌ని — నిజంగా ఆహారం తయారు చేయబడదు. మీకు ఏమి కావాలి?"
+  greet_kiosk: "నమస్తే! బటన్ నొక్కి పట్టుకుని మీ ఆర్డర్ చెప్పండి — ఇంగ్లీష్, తెలుగు, తమిళం లేదా స్పానిష్‌లో."
+  backchannel: "ఊ…"  # never a lexicon control word (సరే is "yes"): its echo must not confirm a read-back
+  ack_added: "{items}. ఇంకా ఏమైనా కావాలా?"
+  readback: "{items}. మొత్తం {total}, సుమారు {minutes} నిమిషాలు. అవును అని చెప్పండి లేదా 1 నొక్కండి."
+  one_moment: "ఒక్క క్షణం…"
+  confirm_reprompt: "ఆర్డర్ చేయడానికి అవును అని చెప్పండి లేదా 1 నొక్కండి; మార్చడానికి కాదు అని చెప్పండి లేదా 2 నొక్కండి."
+  change_prompt: "సరే — ఏమి మార్చాలి?"
+  placed_phone: "అయిపోయింది — మీ ఆర్డర్ నంబర్ {order_no}. సుమారు {minutes} నిమిషాల్లో సిద్ధం అవుతుంది. ధన్యవాదాలు!"
+  placed_kiosk: "ఆర్డర్ {order_no} చేయబడింది — సుమారు {minutes} నిమిషాల్లో సిద్ధం."
+  sold_out_offer: "క్షమించండి, ఈ రోజు {item} అయిపోయింది. దానికి బదులుగా {alt1} లేదా {alt2} కావాలా?"
+  sold_out_no_alt: "క్షమించండి, ఈ రోజు {item} అయిపోయింది. ఇంకా ఏమైనా కావాలా?"
+  clarify_item: "మీకు {candidates} లో ఏది కావాలి?"
+  clarify_qty: "{item} ఎన్ని కావాలి?"
+  allergen_listed: "మా {item} రెసిపీలో {allergens} ఉన్నాయి. మీకు ఏదైనా అలర్జీ ఉంటే దయచేసి మా సిబ్బందికి చెప్పండి."
+  allergen_not_listed: "మా {item} రెసిపీలో {allergen} లేదు, కానీ మా వంటగదిలో అది వాడతాం — మీకు ఏదైనా అలర్జీ ఉంటే దయచేసి మా సిబ్బందికి చెప్పండి."
+  price_answer: "{item} ధర {price}."
+  wait_answer: "ప్రస్తుతం కొత్త ఆర్డర్లు సుమారు {minutes} నిమిషాల్లో సిద్ధం అవుతున్నాయి."
+  hours_answer: "మేము ఉదయం 11 నుండి రాత్రి 10 వరకు తెరిచి ఉంటాం — ఇది ఒక నమూనా రెస్టారెంట్."
+  qty_flagged: "{qty} {item} జోడించాను, మా సిబ్బంది నిర్ధారించడానికి గుర్తు పెట్టాను."
+  large_order_handoff: "ఇంత పెద్ద ఆర్డర్ కోసం మిమ్మల్ని మా సిబ్బందికి అప్పగిస్తాను. మీరు {url} లో కూడా ఆర్డర్ చేయవచ్చు."
+  injection_refusal: "నేను మీ ఆర్డర్‌తో మాత్రమే సహాయం చేయగలను. మీకు ఏమి కావాలి?"
+  didnt_catch: "క్షమించండి, నాకు అర్థం కాలేదు. మళ్ళీ చెప్పగలరా?"
+  silence_reprompt: "మీరు ఇంకా లైన్‌లో ఉన్నారా? మీకు ఏమి ఆర్డర్ చేయాలి?"
+  handoff: "దీని గురించి మా సిబ్బందికి తెలియజేశాను. మీరు {url} లో కూడా ఆర్డర్ చేయవచ్చు."
+  wrap_up: "ఈ డెమో కాల్ సమయం దాదాపు అయిపోయింది — మీ ఆర్డర్ ఇప్పుడే చేయమంటారా?"
+  busy: "మా డెమో లైన్లన్నీ బిజీగా ఉన్నాయి. దయచేసి {url} లో వెబ్ డెమో ప్రయత్నించండి. ధన్యవాదాలు!"
+  public_busy: "మా పబ్లిక్ డెమో లైన్లు ఇప్పుడు బిజీగా ఉన్నాయి. మీ దగ్గర డెమో కోడ్ ఉంటే, పౌండ్ నొక్కి ఇప్పుడే ఎంటర్ చేయండి."
+  degraded_phone: "క్షమించండి, మా ఆర్డరింగ్ అసిస్టెంట్‌కి ఇప్పుడు సమస్య ఉంది. దయచేసి {url} లో వెబ్ డెమో ప్రయత్నించండి. ధన్యవాదాలు!"
+  degraded_one_item: "ఒక్కో వంటకం చొప్పున తీసుకుందాం. వంటకం పేరు చెప్పి, జోడించడానికి 1 నొక్కండి."
+  dtmf_bound: "మీరు మీ డెమో కిచెన్‌కి కనెక్ట్ అయ్యారు. మీకు ఏమి కావాలి?"
+  dtmf_unknown: "ఆ డెమో కోడ్ దొరకలేదు, కాబట్టి ఈ ఆర్డర్ పబ్లిక్ బోర్డుకి వెళ్తుంది."
+  cancel_ack: "సరే, ఆ ఆర్డర్‌ని రద్దు చేశాను."
+  goodbye: "కాల్ చేసినందుకు ధన్యవాదాలు. సెలవు!"
+  notify_default: "{station}: {ingredient} తక్కువగా ఉంది — ఓపెన్ టికెట్లకు ప్రాధాన్యత ఇవ్వండి; {action}."
+  notify_action: "{station}: {ingredient} తక్కువ. {actions}. {deadline}"
+  items_prefix: "{items}."
+  sold_out_offer_one: "క్షమించండి, ఈ రోజు {item} అయిపోయింది. దానికి బదులుగా {alt1} కావాలా?"
+  allergen_none_listed: "మా {item} రెసిపీలో సాధారణ అలర్జీ పదార్థాలు ఏవీ లేవు, కానీ మా వంటగదిలో అవి వాడతాం — మీకు ఏదైనా అలర్జీ ఉంటే దయచేసి మా సిబ్బందికి చెప్పండి."
+  allergen_which_dish: "ఏ వంటకం గురించి తెలుసుకోవాలి? మీకు ఏదైనా అలర్జీ ఉంటే దయచేసి మా సిబ్బందికి చెప్పండి."
+  which_dish: "ఏ వంటకం గురించి తెలుసుకోవాలి?"
+  spice_answer: "{item} — {spice}."
+  menu_answer: "మా దగ్గర బిర్యానీ, కూరలు, స్టార్టర్లు, దోశ మరియు ఇడ్లీ, రొట్టెలు, పానీయాలు మరియు స్వీట్లు ఉన్నాయి. మీకు ఏమి కావాలి?"
+  question_staff: "దాని గురించి పికప్ సమయంలో మా సిబ్బంది సహాయం చేస్తారు. మీకు ఏమి ఆర్డర్ చేయాలి?"
+  smalltalk: "సంతోషంగా సహాయం చేస్తాను! మీకు ఏమి ఆర్డర్ చేయాలి?"
+  off_topic: "క్షమించండి, నేను ఇక్కడ ఆహార ఆర్డర్లు మాత్రమే తీసుకోగలను. మీకు ఏమి కావాలి?"
+  what_else: "సరే — మీకు ఏమి కావాలి?"
+  nothing_ordered: "మీరు ఇంకా ఏమీ ఆర్డర్ చేయలేదు. మీకు ఏమి కావాలి?"
+  cart_empty: "సరే, మీ ఆర్డర్ ఇప్పుడు ఖాళీగా ఉంది. మీకు ఏమి కావాలి?"
+  buttons_offer: "క్షమించండి, నాకు సరిగ్గా అర్థం కావడం లేదు. స్క్రీన్‌పై వంటకాలను నొక్కండి, లేదా మీ ఆర్డర్ టైప్ చేయండి."
+  goodbye_kiosk: "ఆర్డర్ చేసినందుకు ధన్యవాదాలు. భోజనం ఆస్వాదించండి!"

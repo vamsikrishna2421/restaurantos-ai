@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import time
 
 import pytest
@@ -17,6 +18,7 @@ from restaurantos.contracts import ids
 from restaurantos.contracts.common import TenantClockSpec, utc_from_ms
 from restaurantos.contracts.errors import NotWired
 from restaurantos.meta.client import MetaClient
+from restaurantos.security import redact
 from restaurantos.services import wiring
 from restaurantos.store import tables as t
 from tests.fakes.clock import DINNER_RUSH_ANCHOR_MS, FAKE_NOW_MS
@@ -188,6 +190,42 @@ def test_lifespan_builds_and_closes_its_own_container(monkeypatch, tmp_path):
         assert again is not c and not again.meta._http.is_closed
         assert client.get("/api/health").json()["status"] == "ok"
     assert again.meta._http.is_closed and app.state.container is None
+
+
+def test_lifespan_installs_log_redaction_first(monkeypatch):
+    """Step 1 (P11): the redaction filter is on the handlers before any provider runs; another lifespan refreshes the
+    same filter (idempotent)."""
+    secret = "lifespan-secret-0123456789"
+    seen = []
+
+    def provide(c):
+        seen.append(redact.installed())
+        logging.getLogger("restaurantos.test_lifespan").warning("provider saw %s", secret)
+        c.tts = object()
+
+    class Capture(logging.Handler):
+        def __init__(self) -> None:
+            super().__init__(logging.WARNING)
+            self.lines: list[str] = []
+
+        def emit(self, record: logging.LogRecord) -> None:
+            self.lines.append(record.getMessage())
+
+    isolated_registry(monkeypatch, PROVIDERS=(
+        Entry(register_module(monkeypatch, "_lt_redact", provide=provide), "P90", "CP0", sets=("tts",)),))
+    redact.uninstall()
+    capture = Capture()
+    logging.getLogger().addHandler(capture)
+    try:
+        settings = make_test_settings(session_secret=secret)
+        with TestClient(create_app(container=make_test_container(settings=settings))):
+            installed = redact.installed()
+            assert installed is not None and seen == [installed] and installed in capture.filters
+        with TestClient(create_app(container=make_test_container(settings=settings))):
+            assert redact.installed() is installed and capture.filters.count(installed) == 1
+    finally:
+        logging.getLogger().removeHandler(capture)
+    assert capture.lines == ["provider saw [REDACTED]"] * 2
 
 
 def test_lifespan_composes_commit_hook_after_providers(monkeypatch):

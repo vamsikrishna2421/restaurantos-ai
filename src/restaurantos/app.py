@@ -5,6 +5,10 @@
 (CONTRACTS_RUNTIME §10.1). It adds the security headers, the error handlers, ``GET /api/health`` (liveness only)
 and the SPA: files from ``web_dist_dir``, with ``index.html`` for any other GET outside the backend prefixes and
 ``/assets/``.
+
+Middleware, outermost first: security headers (on every response, refusals included), the startup gate (503 before
+lifespan step 7), P11's REST rate limit (120/min per IP on ``/api/*``; off in ``test`` unless given a limiter), P11's
+staging admin gate (staging is admin-only), then the internal-error guard around the routes.
 """
 
 from __future__ import annotations
@@ -24,6 +28,8 @@ from sqlalchemy import text
 from restaurantos import __version__
 from restaurantos.api.errors import error_response, install_error_handlers
 from restaurantos.config import Settings, get_settings
+from restaurantos.security.auth import StagingAdminGate
+from restaurantos.security.ratelimit import RestRateLimitMiddleware
 from restaurantos.services import wiring
 
 if TYPE_CHECKING:
@@ -185,6 +191,8 @@ def create_app(settings: Settings | None = None, *, container: Container | None 
     app.state.starting = False
     spa = SpaFiles(settings.web_dist_dir)
     install_error_handlers(app, not_found=spa.not_found)
+    app.add_middleware(StagingAdminGate)  # each add wraps the previous ones: see the module docstring for the order
+    app.add_middleware(RestRateLimitMiddleware)
     app.add_middleware(StartupGateMiddleware)
     app.add_middleware(SecurityHeadersMiddleware, csp=content_security_policy(settings.public_base_url))
     # Two routes: one route serving GET and HEAD would give OpenAPI two operations with the same operationId.

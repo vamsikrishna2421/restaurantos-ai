@@ -1,0 +1,88 @@
+# Spanish phrase templates (CONTRACTS_SEED §13). Owned by P14; loaded by restaurantos.orders.templates.
+#
+# UNREVIEWED DRAFT: no fluent Spanish speaker has checked these yet (founders or consenting friends review them
+# Oct 27-28). Until review_status is `reviewed` and "es" is in settings.speak_languages, the system understands
+# Spanish but replies in English. Same keys and slots as en.yaml; see en.yaml for what each slot means. Numbers and
+# money are spelled out in Spanish by code (`numbers: es`); dish gender and plural agreement are not handled
+# ("dos biryani de pollo"), which a reviewer may want to rephrase around.
+lang: es
+review_status: unreviewed
+reviewer: null
+
+words:
+  numbers: es
+  list_sep: ", "
+  list_and: " y "
+  list_or: " o "
+  item: "{qty} {name}"
+  item_mods: "{qty} {name} ({mods})"
+  mods_sep: ", "
+  lowercase_modifiers: true
+  money: "{dollars} con {cents}"
+  dollar: [dólar, dólares]
+  cent: [centavo, centavos]
+  allergens:
+    dairy: lácteos
+    tree_nuts: frutos secos
+    peanuts: cacahuates
+    gluten: gluten
+    egg: huevo
+    soy: soya
+    sesame: ajonjolí
+    mustard: mostaza
+    fish: pescado
+    shellfish: mariscos
+  spice: [sin picante, poco picante, medio picante, muy picante]
+
+templates:
+  greet_phone: "Hola, gracias por llamar a Spice Route. Soy un asistente de pedidos con IA en una línea de demostración — en realidad no se prepara comida. ¿Qué le gustaría pedir?"
+  greet_kiosk: "¡Hola! Mantenga presionado el botón y dígame su pedido — en inglés, telugu, tamil o español."
+  backchannel: "A ver…"  # never a lexicon control word ("vale" is "yes"): its echo must not confirm a read-back
+  ack_added: "{items}. ¿Algo más?"
+  readback: "{items}. {total}, unos {minutes} minutos. Diga sí o presione 1."
+  one_moment: "Un momento…"
+  confirm_reprompt: "Por favor, diga sí o presione 1 para hacer el pedido, o diga no o presione 2 para cambiarlo."
+  change_prompt: "Claro — ¿qué le gustaría cambiar?"
+  placed_phone: "Listo — su número de pedido es {order_no}. Estará listo en unos {minutes} minutos. ¡Adiós!"
+  placed_kiosk: "Pedido {order_no} realizado — listo en unos {minutes} minutos."
+  sold_out_offer: "Lo siento, esta noche se nos agotó {item}. ¿Le gustaría {alt1} o {alt2} en su lugar?"
+  sold_out_no_alt: "Lo siento, esta noche se nos agotó {item}. ¿Le puedo ofrecer algo más?"
+  clarify_item: "¿Se refiere a {candidates}?"
+  clarify_qty: "¿Cuántas porciones de {item} le gustaría?"
+  allergen_listed: "Nuestra receta de {item} incluye {allergens}. Por favor, informe a nuestro personal sobre cualquier alergia."
+  allergen_not_listed: "Nuestra receta de {item} no incluye {allergen}, pero nuestra cocina lo maneja — por favor, informe a nuestro personal sobre cualquier alergia."
+  price_answer: "{item} cuesta {price}."
+  wait_answer: "Ahora mismo los pedidos nuevos están listos en unos {minutes} minutos."
+  hours_answer: "Abrimos de 11 de la mañana a 10 de la noche — este es un restaurante de muestra."
+  qty_flagged: "Agregué {qty} {item} y lo marqué para que nuestro personal lo confirme."
+  large_order_handoff: "Para un pedido de ese tamaño le paso con nuestro personal. También puede pedir en {url}."
+  injection_refusal: "Solo puedo ayudarle con su pedido. ¿Qué le gustaría?"
+  didnt_catch: "Lo siento, no le entendí. ¿Podría repetirlo?"
+  silence_reprompt: "¿Sigue ahí? ¿Qué le gustaría pedir?"
+  handoff: "Avisé a nuestro personal. También puede pedir en {url}."
+  wrap_up: "Casi se nos acaba el tiempo de esta llamada de demostración — ¿hago su pedido ahora?"
+  busy: "Todas nuestras líneas de demostración están ocupadas. Pruebe la demostración web en {url}. ¡Adiós!"
+  public_busy: "Nuestras líneas públicas de demostración están ocupadas ahora. Si tiene un código de demostración, presione numeral e ingréselo ahora."
+  degraded_phone: "Lo siento, nuestro asistente de pedidos tiene problemas en este momento. Pruebe la demostración web en {url}. ¡Adiós!"
+  degraded_one_item: "Vamos plato por plato. Diga el plato y luego presione 1 para agregarlo."
+  dtmf_bound: "Está conectado a su cocina de demostración. ¿Qué le gustaría?"
+  dtmf_unknown: "No encontré ese código de demostración, así que este pedido va al tablero público."
+  cancel_ack: "Listo, cancelé ese pedido."
+  goodbye: "Gracias por llamar. ¡Adiós!"
+  notify_default: "{station}: queda poco {ingredient} — prioricen los tickets abiertos; {action}."
+  notify_action: "{station}: poco {ingredient}. {actions}. {deadline}"
+  items_prefix: "{items}."
+  sold_out_offer_one: "Lo siento, esta noche se nos agotó {item}. ¿Le gustaría {alt1} en su lugar?"
+  allergen_none_listed: "Nuestra receta de {item} no incluye alérgenos comunes, pero nuestra cocina los maneja — por favor, informe a nuestro personal sobre cualquier alergia."
+  allergen_which_dish: "¿Sobre qué plato le gustaría saber? Por favor, informe a nuestro personal sobre cualquier alergia."
+  which_dish: "¿Sobre qué plato le gustaría saber?"
+  spice_answer: "{item}: {spice}."
+  menu_answer: "Tenemos biryani, currys, entradas, dosa e idli, panes, bebidas y postres. ¿Qué le gustaría?"
+  question_staff: "Nuestro personal puede ayudarle con eso cuando recoja su pedido. ¿Qué le gustaría pedir?"
+  smalltalk: "¡Con gusto! ¿Qué le gustaría pedir?"
+  off_topic: "Lo siento, aquí solo puedo tomar pedidos de comida. ¿Qué le gustaría?"
+  what_else: "Claro — ¿qué le gustaría?"
+  nothing_ordered: "Todavía no ha pedido nada. ¿Qué le gustaría?"
+  cart_empty: "Listo, su pedido está vacío ahora. ¿Qué le gustaría?"
+  buttons_offer: "Lo siento, me cuesta entenderle. Toque los platos en la pantalla o escriba su pedido."
+  goodbye_kiosk: "Gracias por su pedido. ¡Buen provecho!"

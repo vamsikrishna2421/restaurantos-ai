@@ -287,7 +287,8 @@ class Settings(BaseSettings):
 
     # Voice, language, orders and GM
     speak_languages: Annotated[list[SpeakLang], NoDecode] = Field(default_factory=lambda: ["en"])
-    asr_language_bias: Annotated[list[AsrLanguage] | None, NoDecode] = None
+    asr_language_bias: Annotated[list[AsrLanguage] | None, NoDecode] = Field(  # gate G1: Telugu -3 to -4 pt CER
+        default_factory=lambda: ["English", "Telugu", "Tamil", "Spanish"])
     fake_asr: bool = False  # dev and test only
     order_schema_variant: Literal["full", "lite"] = "full"
     fast_path_items: bool = True  # ARCHITECTURE §5.2 kill switch: False sends every dish phrase to the order model

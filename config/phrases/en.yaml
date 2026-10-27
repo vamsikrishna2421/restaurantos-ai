@@ -1,0 +1,96 @@
+# English phrase templates (CONTRACTS_SEED §13). Owned by P14; loaded by restaurantos.orders.templates.
+#
+# English is canonical: every other language must use exactly the same template keys and slots, and English is the
+# fallback whenever a language is not reviewed or not in settings.speak_languages.
+#
+# Slots ({items}, {total}, {minutes}, ...) are filled by code, never by the model:
+# - {items}: dish lines formatted per language (quantity, name, modifiers); {total}/{price}: money spelled out by
+#   code in the spoken text, digits ("$52.93") in the English caption (Reply.text_en); {minutes}, {qty}: numbers
+#   spelled out when spoken, digits in the caption; {order_no}: read digit by digit; {url}: the public site.
+# - `words` holds the vocabulary those formatters need in this language.
+#
+# Keys from the CONTRACTS_SEED §13 table keep the contract text verbatim. Keys marked "P14" were added by the dialogue
+# package (sold-out offer with one alternative, small talk, off-topic, answers and prompts the table did not cover);
+# a founder read-through of those is still welcome.
+lang: en
+review_status: reviewed
+reviewer: canonical
+
+words:
+  numbers: en
+  list_sep: ", "
+  list_and: " and "
+  list_or: " or "
+  item: "{qty} {name}"
+  item_mods: "{qty} {name} ({mods})"
+  mods_sep: ", "
+  lowercase_modifiers: true
+  money: "{dollars} and {cents}"
+  dollar: [dollar, dollars]
+  cent: [cent, cents]
+  allergens:
+    dairy: dairy
+    tree_nuts: tree nuts
+    peanuts: peanuts
+    gluten: gluten
+    egg: egg
+    soy: soy
+    sesame: sesame
+    mustard: mustard
+    fish: fish
+    shellfish: shellfish
+  spice: [not spicy, mildly spicy, medium spicy, very spicy]
+
+templates:
+  greet_phone: "Hi, thanks for calling Spice Route. I'm an AI ordering assistant on a demo line — no food is actually prepared. What would you like?"
+  greet_kiosk: "Hi! Hold the button and tell me your order — English, Telugu, Tamil or Spanish."
+  backchannel: "Okay…"  # every language: never a control word of any lexicon, so its echo cannot answer a read-back
+  ack_added: "{items}. Anything else?"
+  readback: "{items}. {total}, about {minutes} minutes. Say yes or press 1."
+  one_moment: "One moment…"
+  confirm_reprompt: "Please say yes or press 1 to place the order, or say no or press 2 to change it."
+  change_prompt: "No problem — what would you like to change?"
+  placed_phone: "Done — your order number is {order_no}. Ready in about {minutes} minutes. Goodbye!"
+  placed_kiosk: "Order {order_no} placed — ready in about {minutes} minutes."
+  sold_out_offer: "Sorry, {item} is sold out tonight. Would you like {alt1} or {alt2} instead?"
+  sold_out_no_alt: "Sorry, {item} is sold out tonight. Anything else I can get you?"
+  clarify_item: "Did you mean {candidates}?"
+  clarify_qty: "How many {item} would you like?"
+  allergen_listed: "Our recipe for {item} includes {allergens}. Please tell our staff about any allergy."
+  allergen_not_listed: "Our recipe for {item} doesn't list {allergen}, but our kitchen handles it — please tell our staff about any allergy."
+  price_answer: "{item} is {price}."
+  wait_answer: "New orders are ready in about {minutes} minutes right now."
+  hours_answer: "We're open 11 AM to 10 PM — this is a sample restaurant."
+  qty_flagged: "I've added {qty} {item} and flagged it for our staff to confirm."
+  large_order_handoff: "For an order that size I'll hand you to our staff. You can also order at {url}."
+  injection_refusal: "I can only help with your order. What would you like?"
+  didnt_catch: "Sorry, I didn't catch that. Could you say it again?"
+  silence_reprompt: "Are you still there? What would you like to order?"
+  handoff: "I've flagged this for our staff. You can also order at {url}."
+  wrap_up: "We're almost out of time on this demo call — shall I place your order now?"
+  busy: "All our demo lines are busy. Please try the web demo at {url}. Goodbye!"
+  public_busy: "Our public demo lines are busy right now. If you have a demo code, press pound and enter it now."
+  degraded_phone: "Sorry, our ordering assistant is having trouble right now. Please try the web demo at {url}. Goodbye!"
+  degraded_one_item: "Let's go one dish at a time. Say the dish, then press 1 to add it."
+  dtmf_bound: "You're connected to your demo kitchen. What would you like?"
+  dtmf_unknown: "I couldn't find that demo code, so this order goes to the public board."
+  cancel_ack: "Okay, I've cancelled that order."
+  goodbye: "Thanks for calling. Goodbye!"
+  notify_default: "{station}: {ingredient} is running low — prioritise open tickets; {action}."
+  notify_action: "{station}: {ingredient} low. {actions}. {deadline}"
+  # P14 additions
+  items_prefix: "{items}."
+  sold_out_offer_one: "Sorry, {item} is sold out tonight. Would you like {alt1} instead?"
+  allergen_none_listed: "Our recipe for {item} doesn't list any common allergens, but our kitchen handles them — please tell our staff about any allergy."
+  allergen_which_dish: "Which dish would you like to know about? Please tell our staff about any allergy."
+  which_dish: "Which dish would you like to know about?"
+  spice_answer: "{item} is {spice}."
+  menu_answer: "We have biryani, curries, starters, dosa and idli, breads, drinks and desserts. What would you like?"
+  question_staff: "Our staff can help with that when you pick up. What would you like to order?"
+  smalltalk: "Happy to help! What would you like to order?"
+  off_topic: "Sorry, I can only take food orders here. What would you like?"
+  what_else: "Sure — what would you like?"
+  nothing_ordered: "You haven't ordered anything yet. What would you like?"
+  cart_empty: "Okay, your order is empty now. What would you like?"
+  buttons_offer: "Sorry, I'm having trouble understanding. Tap the dishes on the screen, or type your order."
+  goodbye_kiosk: "Thanks for your order. Enjoy your meal!"

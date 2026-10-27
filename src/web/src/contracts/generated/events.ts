@@ -58,7 +58,7 @@ export type SessionPurpose = 'order' | 'kitchen' | 'sample'
 
 export type LangHint = 'auto'
 
-export type OrderUpdateStatus = 'ready' | 'picked_up'
+export type OrderUpdateStatus = 'in_progress' | 'ready' | 'picked_up'
 
 export type CorrectionKind = 'qty' | 'modifiers' | 'remove' | 'add'
 

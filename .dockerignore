@@ -1,0 +1,37 @@
+# Allowlist build context (ARCHITECTURE §3, ARCHITECTURE_OPS §13): exclude everything, then re-include only what the
+# image needs. The Dockerfile copies only these paths. tests/infra/test_dockerignore.py proves that the credential
+# files, data/, docs/planning/ and .env* never enter the context.
+#
+# Docker applies the LAST matching line, so the re-excludes at the bottom win over the includes above them.
+# Comments must start a line: Docker reads "foo # note" as the pattern "foo # note".
+*
+
+!pyproject.toml
+!requirements.lock
+!src/restaurantos/**
+!src/web/**
+!config/**
+!scripts/build_phrase_cache.py
+
+# Never shipped, even from inside an allowlisted folder.
+src/web/node_modules
+src/web/dist
+src/web/.vite
+src/web/coverage
+src/web/test-results
+src/web/playwright-report
+**/__pycache__
+**/*.pyc
+**/.DS_Store
+**/*.tsbuildinfo
+
+# Credentials and local env files, wherever they appear.
+**/meta_muse_api_key
+**/twilio_credentials
+**/elevenlabs_api_key
+**/fly_token
+**/*_credentials
+**/.env
+**/.env.*
+**/*.key
+**/*.pem

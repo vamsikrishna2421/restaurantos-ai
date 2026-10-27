@@ -88,7 +88,8 @@ def test_settings_fields_defaults_and_env_parsing(clean_env, tmp_path):
     assert (s.sandbox_usd_cap, s.sandbox_usd_cap_passcode, s.call_usd_cap) == (0.40, 1.50, 0.10)
     assert s.phone_lines == {"judge": 2, "public": 2} and s.phone_calls_per_day == {"judge": 60, "public": 90}
     assert (s.phone_max_call_s, s.phone_calls_per_caller_day, s.twilio_minutes_per_day) == (360, 6, 300)
-    assert s.speak_languages == ["en"] and s.asr_language_bias is None and s.order_schema_variant == "full"
+    assert s.speak_languages == ["en"] and s.order_schema_variant == "full"
+    assert s.asr_language_bias == ["English", "Telugu", "Tamil", "Spanish"]  # gate G1
     assert (s.gm_watch_window_s, s.gm_rush_window_min, s.record_calls, s.fake_asr) == (120, 15, False, False)
     assert s.tts_models["te"] == "eleven_v3" and s.tts_models["en"] == "eleven_flash_v2_5" and s.tts_concurrency == 2
     assert s.openweight_daily_usd_cap == 0.50 and s.openweight_api_key is None

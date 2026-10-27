@@ -168,7 +168,8 @@ def strip_data_uris(obj: Any) -> tuple[Any, int]:
         if isinstance(o, dict):
             before = images
             out = {k: walk(v) for k, v in o.items()}
-            if o.get("type") in _IMAGE_PART_TYPES and images == before:
+            kind = o.get("type")  # a JSON-schema node may carry a list, e.g. ["integer", "null"]
+            if isinstance(kind, str) and kind in _IMAGE_PART_TYPES and images == before:
                 images += 1
             return out
         return o

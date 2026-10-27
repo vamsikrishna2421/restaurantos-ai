@@ -37,6 +37,17 @@ def test_other_unit_costs():
     assert pricing.image_cost_usd(3) == pytest.approx(0.03)
 
 
+def test_estimate_accepts_strict_schemas_with_nullable_types():
+    from restaurantos.contracts.schemas import GM_PLAN_SCHEMA
+
+    nullable = {"type": "object", "properties": {"qty": {"type": ["integer", "null"]}}}
+    assert pricing.strip_data_uris(nullable) == (nullable, 0)
+    body = {"model": "muse-spark-1.3", "input": "plan", "max_output_tokens": 100,
+            "text": {"format": {"type": "json_schema", "name": "Plan", "schema": GM_PLAN_SCHEMA, "strict": True}}}
+    est, images = pricing.estimate_body_usd("muse-spark-1.3", body)
+    assert est > 0 and images == 0
+
+
 def test_wav_seconds_reads_header_or_assumes_the_worst():
     import io
     import wave

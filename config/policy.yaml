@@ -1,0 +1,35 @@
+# RestaurantOS GM policy (CONTRACTS §6). Immutable at runtime: governance/policy.py loads it once at startup and
+# hashes it (policy_hash = sha256 of these exact bytes, comments included); the hash is stamped into every ledger row
+# and the golden replay pins it. Changing anything here needs a redeploy.
+policy_version: 2
+
+# Who authorizes each tier: T1 runs automatically when a plan becomes active (allow:policy, undoable);
+# T2 needs a manager (or owner, judge, admin); T3 an owner (or judge, admin). FORBIDDEN is never executable.
+tiers: {T0: none, T1: policy, T2: manager, T3: owner}
+
+limits:
+  manager_po_limit_cents: 5000      # a PO above this is T3
+  po_daily_cap_cents: 30000         # a PO taking the day's PO spend past this is FORBIDDEN
+  po_qty_max_multiple_of_gap: 3
+  quote_offset_auto_max_min: 5      # a quote offset above this is T2
+  quote_offset_max_min: 15
+  plan_ttl_min: 15                  # real minutes after proposal, never shortened by a fast sim clock
+  max_steps_per_plan: 8
+  gm_runs_per_incident: 3
+  gm_runs_per_tenant_hour: 6
+  gm_run_usd_cap: 0.05              # config only: never persisted or hashed into a ledger payload
+  staff_message_max_chars: 280
+  t1_dedupe_window_min: 30
+  notice_delivered_timeout_s: 10
+  notice_seen_timeout_s: 60
+
+actions:
+  set_item_availability: T2
+  suggest_alternative: T1
+  create_purchase_order: {default: T2, over_limit: T3, new_supplier: T3}
+  notify_staff: {default: T1, tainted_ai_draft: T2}
+  adjust_quote_time: {default: T1, over_auto_max: T2}
+  flag_ticket_for_callback: T1
+
+# No candidate, params model or tool exists for these; the policy refuses them by name as well.
+forbidden: [change_price, refund, discount, contact_customer, contact_supplier_external, edit_policy, execute_code]
