@@ -22,7 +22,7 @@ from tests.fakes.container import isolated_registry, make_test_container, make_t
 
 PROD_CSP = ("default-src 'self'; connect-src 'self' wss://restaurantos.fly.dev; img-src 'self' data: blob:; "
             "media-src 'self' blob:; font-src 'self' https://fonts.gstatic.com; style-src 'self' 'unsafe-inline' "
-            "https://fonts.googleapis.com; script-src 'self'; worker-src 'self' blob:")
+            "https://fonts.googleapis.com; script-src 'self'; worker-src 'self' blob:; frame-ancestors 'none'")
 
 
 @pytest.fixture(autouse=True)

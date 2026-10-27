@@ -290,6 +290,7 @@ class Settings(BaseSettings):
     asr_language_bias: Annotated[list[AsrLanguage] | None, NoDecode] = None
     fake_asr: bool = False  # dev and test only
     order_schema_variant: Literal["full", "lite"] = "full"
+    fast_path_items: bool = True  # ARCHITECTURE §5.2 kill switch: False sends every dish phrase to the order model
     gm_watch_window_s: int = 120
     gm_rush_window_min: int = 15
 

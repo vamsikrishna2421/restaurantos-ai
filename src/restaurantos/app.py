@@ -38,7 +38,7 @@ BACKEND_PREFIXES: tuple[str, ...] = ("/api", "/ws", "/twilio", "/static/phrases"
 ASSETS_PREFIX = "/assets"  # Vite's build.assetsDir: a missing file there is a real 404, never index.html
 CSP = ("default-src 'self'; connect-src 'self' {socket}; img-src 'self' data: blob:; media-src 'self' blob:; "
        "font-src 'self' https://fonts.gstatic.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
-       "script-src 'self'; worker-src 'self' blob:")
+       "script-src 'self'; worker-src 'self' blob:; frame-ancestors 'none'")
 NOT_BUILT = "RestaurantOS: the web app is not built yet. Run `npm --prefix src/web run build`, then reload.\n"
 HEALTH_DB_TIMEOUT_S = 2.0
 IMMUTABLE = "public, max-age=31536000, immutable"  # Vite's hashed files under assets/

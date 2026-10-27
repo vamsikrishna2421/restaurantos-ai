@@ -12,7 +12,8 @@ from pathlib import Path
 from typing import Any
 
 # Fields that do not change what the model returns.
-_VOLATILE = {"stream", "stream_options", "prompt_cache_key", "safety_identifier", "metadata", "store", "user"}
+_VOLATILE = {"stream", "stream_options", "prompt_cache_key", "prompt_cache_retention", "safety_identifier", "metadata",
+             "store", "user"}
 
 
 def request_hash(endpoint: str, body: dict[str, Any], extra: bytes | None = None) -> str:
