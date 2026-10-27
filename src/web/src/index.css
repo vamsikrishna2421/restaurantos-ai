@@ -1,0 +1,33 @@
+@import 'tailwindcss';
+
+/* Design tokens — dark "kitchen at night" palette by default, light for print/receipts. */
+@theme {
+  --color-ink: #0b0f14;
+  --color-panel: #121821;
+  --color-panel-2: #18202b;
+  --color-line: #263142;
+  --color-text: #e6edf6;
+  --color-muted: #8a99ad;
+  --color-accent: #ff8a3d;
+  --color-accent-2: #ffd166;
+  --color-ok: #2ecc71;
+  --color-warn: #f5b041;
+  --color-bad: #ff5d5d;
+  --color-ai: #8b7bff;
+  --font-sans: 'Inter', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', 'Noto Sans Telugu', 'Noto Sans Tamil', sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--color-ink);
+  color: var(--color-text);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}

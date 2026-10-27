@@ -1,0 +1,20 @@
+# Registry feature flags (CONTRACTS_API §7), read by api/registry.py and test_registry_complete.
+#
+# - REQUIRED modules due at or before `current_cp` must import (missing ones are a boot error in prod).
+# - OPTIONAL modules whose package is marked `go` must import; `pending` and `cut` packages are
+#   logged and skipped, so the image still boots without them.
+#
+# The lead advances `current_cp` at each checkpoint and flips optional packages at their go/no-go
+# (P38: Oct 29 18:00, P40: Oct 30 18:00). Anything not green by Oct 31 14:00 is marked `cut`.
+
+current_cp: CP0
+
+# "Due at or before current_cp" compares positions in this list.
+checkpoints: [CP0, CP1a, CP1, CP2, CP3, CP4, CP5]
+
+# OPTIONAL packages by package id: go | cut | pending.
+optional:
+  P37: pending  # kitchen_voice.commands (OPTIONAL_MODULES)
+  P38: pending  # api.routes_perception (OPTIONAL_ROUTERS)
+  P39: pending  # api.routes_onboarding (OPTIONAL_ROUTERS)
+  P40: pending  # agents.openweight (OPTIONAL_MODULES)

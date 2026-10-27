@@ -1,0 +1,114 @@
+"""Inventory contract models (CONTRACTS §4, CONTRACTS_RUNTIME §4b): ingredients, recipes, forecasts, suppliers, POs.
+
+Quantities are ints in the ingredient's unit and rates are ints per hour (CONTRACTS §1.2). Supplier times are local
+``HH:MM`` strings; ``*_biz`` fields are business time and ``*_at`` real time (aware datetimes).
+"""
+
+from __future__ import annotations
+
+from typing import Annotated, Literal, get_args
+
+from pydantic import AwareDatetime, Field, StringConstraints, field_validator
+
+from restaurantos.contracts.common import Allergen, Band, Lang, Model, SpeakLang, Unit
+
+SupplierKind = Literal["delivery", "pickup"]
+POStatus = Literal["sent", "acked", "received", "cancelled"]
+InventoryCause = Literal["reserve", "consume", "release", "adjust", "receive"]
+NoteSource = Literal["supplier_seed"]  # the only free text a situation report may carry (CONTRACTS §8.1)
+
+SUPPLIER_KINDS: tuple[str, ...] = get_args(SupplierKind)
+PO_STATUSES: tuple[str, ...] = get_args(POStatus)
+INVENTORY_CAUSES: tuple[str, ...] = get_args(InventoryCause)
+NOTE_SOURCES: tuple[str, ...] = get_args(NoteSource)
+
+HHMM_PATTERN = r"^([01]\d|2[0-3]):[0-5]\d$"
+LocalTime = Annotated[str, StringConstraints(pattern=HHMM_PATTERN)]
+SUPPLIER_NOTE_MAX_CHARS = 200
+
+
+class Ingredient(Model):
+    """``names`` maps a language to a name: ``en`` is required, ``te``/``ta``/``es`` are optional."""
+
+    id: str
+    names: dict[SpeakLang, str]
+    unit: Unit
+    allergens: list[Allergen] = Field(default_factory=list)
+    on_hand: int
+    reserved: int
+    par: int = Field(ge=0)
+    reorder_point: int = Field(ge=0)
+    pack_size: int = Field(ge=1)
+
+    @field_validator("names")
+    @classmethod
+    def _english_name_required(cls, names: dict[str, str]) -> dict[str, str]:
+        if not names.get("en"):
+            raise ValueError("names.en is required")
+        return names
+
+
+class RecipeLine(Model):
+    item_code: str
+    ingredient_id: str
+    qty: int = Field(ge=1)  # per serving, in the ingredient's unit
+
+
+class Forecast(Model):
+    ingredient_id: str
+    free: int
+    burn_per_h: int
+    eta_min: int | None = None
+    eta_biz: AwareDatetime | None = None
+    band: Band
+    formula: str  # human-readable, with the numbers, e.g. "free 800 g = 1,610 on hand − 810 reserved; ..."
+
+
+class SupplierItem(Model):
+    ingredient_id: str
+    pack_qty: int = Field(ge=1)
+    pack_price_cents: int = Field(ge=0)
+
+
+class SupplierNote(Model):
+    """Untrusted free text from the seed or scenario. Code never reads it; the GM sees it fenced as DATA."""
+
+    supplier_id: str
+    text: str = Field(max_length=SUPPLIER_NOTE_MAX_CHARS)
+    lang: Lang
+    source: NoteSource
+
+
+class Supplier(Model):
+    id: str
+    name: str
+    kind: SupplierKind
+    lead_min: int = Field(ge=0)  # same-day lead time when ordered before the cutoff
+    cutoff_local: LocalTime
+    next_day_local: LocalTime | None = None
+    min_order_cents: int = Field(ge=0)
+    catalog: list[SupplierItem] = Field(default_factory=list)
+    notes: list[SupplierNote] = Field(default_factory=list)
+
+
+class PurchaseOrder(Model):
+    id: str
+    po_no: int
+    supplier_id: str
+    ingredient_id: str
+    packs: int
+    qty: int
+    cost_cents: int
+    status: POStatus
+    plan_id: str | None = None
+    step_idx: int | None = None
+    created_at: AwareDatetime
+    eta_biz: AwareDatetime
+
+
+class InventoryDelta(Model):
+    ingredient_id: str
+    delta_on_hand: int
+    delta_reserved: int
+    cause: InventoryCause
+    ref_id: str  # the order, ticket, PO or adjustment that caused it

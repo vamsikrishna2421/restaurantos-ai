@@ -1,0 +1,44 @@
+# Secrets — never commit
+meta_muse_api_key
+twilio_credentials
+*.key
+.env
+.env.*
+!.env.example
+
+# Python
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.egg-info/
+
+# Node
+node_modules/
+dist/
+.vite/
+
+# Runtime data (ledger, caches, recordings, sqlite)
+data/*
+!data/.gitkeep
+*.log
+
+# OS / tooling
+.DS_Store
+.claude-flow/
+.swarm/
+ruvector.db
+
+# Internal planning artifacts (not published yet)
+docs/planning/
+
+# Vendor credentials (never commit)
+elevenlabs_api_key
+fly_token
+*_credentials
+
+# Local AI-agent tooling (not part of the product)
+.claude/
+CLAUDE.md

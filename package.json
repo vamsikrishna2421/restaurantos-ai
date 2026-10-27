@@ -1,0 +1,13 @@
+{
+  "name": "restaurantos",
+  "version": "0.1.0",
+  "private": true,
+  "description": "RestaurantOS AI — the AI General Manager for restaurants (Meta Global AI Developer Hackathon 2026)",
+  "license": "UNLICENSED",
+  "scripts": {
+    "build": "npm --prefix src/web run build",
+    "test": "npm --prefix src/web test && .venv/bin/python -m pytest",
+    "lint": ".venv/bin/ruff check src tests scripts && npm --prefix src/web run typecheck",
+    "dev:web": "npm --prefix src/web run dev"
+  }
+}
