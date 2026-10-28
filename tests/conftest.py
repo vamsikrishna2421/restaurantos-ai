@@ -263,11 +263,13 @@ def pytest_runtest_setup(item: pytest.Item) -> None:
 
 @pytest.fixture(autouse=True)
 def _fresh_rate_limits() -> None:
-    """P11's limiter (llm_turn, voice_turn, sandbox_creation, live_connect, ws_slot) is process-wide: every test
-    starts with empty buckets, so a socket-heavy test never makes a later one see 429s."""
+    """P11's limiter (llm_turn, voice_turn, sandbox_creation, live_connect, ws_slot) and P27a's phone line board and
+    DTMF failure counts are process-wide: every test starts with empty buckets, free lines and no lockouts."""
     from restaurantos.security import ratelimit  # lazy, like the redaction fixture below
+    from restaurantos.voice import call_limits
 
     ratelimit.reset()
+    call_limits.reset()
 
 
 @pytest.fixture(autouse=True)

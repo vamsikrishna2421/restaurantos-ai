@@ -336,3 +336,41 @@ def test_notes_fenced_as_data() -> None:
     assert all("effect_i18n" not in c for c in report_json["candidates"])
     assert situation.planner_input(clean).endswith("SUPPLIER NOTES: none.")
     assert len(situation.planner_input(poisoned)) < 12_000  # ≤3k tokens at ~4 characters a token
+
+
+async def test_open_pos_read_into_the_snapshot(rush_store: tuple[Container, str]) -> None:
+    """P04's store: the ingredient's ``sent`` and ``acked`` POs are stock on order, soonest first; a received or
+    cancelled one is not, nor one whose pickup FOH marked "Can't go", nor another ingredient's. ``exclude_plan_id``
+    leaves out one plan's own; the report lists them after the formula. Without a connection (a repo fake) there
+    are none."""
+    from sqlalchemy import insert
+
+    from restaurantos.gm.incoming import Incoming
+    from restaurantos.store import tables as t
+
+    c, tid = rush_store
+    rows = [("po_a", 1001, "SUP_PATEL", PANEER, "sent", "pln_A", 3000, ANCHOR + 40 * MIN),
+            ("po_b", 1002, "SUP_FRESHDAIRY", PANEER, "acked", None, 2000, ANCHOR + 20 * MIN),
+            ("po_c", 1003, "SUP_PATEL", PANEER, "received", "pln_A", 1000, ANCHOR),
+            ("po_d", 1004, "SUP_PATEL", PANEER, "cancelled", "pln_A", 1000, ANCHOR),
+            ("po_e", 1005, "SUP_PATEL", PANEER, "sent", "pln_B", 4000, ANCHOR + 40 * MIN),  # FOH: "Can't go"
+            ("po_f", 1006, "SUP_METRO", "ING_ONION", "sent", None, 5000, ANCHOR)]
+    async with c.store.write() as tx:
+        for po_id, no, supplier, ingredient, status, plan_id, qty, eta in rows:
+            await tx.conn.execute(insert(t.purchase_orders).values(
+                tenant_id=tid, id=po_id, po_no=no, supplier_id=supplier, ingredient_id=ingredient, packs=qty // 1000,
+                qty=qty, cost_cents=qty // 100 * 11, status=status, plan_id=plan_id, step_idx=None, created_ms=0,
+                eta_biz_ms=eta))
+        await tx.conn.execute(insert(t.staff_tasks).values(
+            tenant_id=tid, id="tsk_e", kind="pickup", order_id=None, po_id="po_e", note="Pick up 4 kg",
+            status="blocked", blocked_reason="Patel is closed", plan_id="pln_B", created_ms=0))
+    async with c.store.read() as conn:
+        snapshot = await situation.read_snapshot(conn, tid, PANEER, ANCHOR)
+        own_left_out = await situation.read_snapshot(conn, tid, PANEER, ANCHOR, exclude_plan_id="pln_A")
+        report = await situation.build(conn, tid, incident("watch", ANCHOR), ANCHOR)
+    assert snapshot.incoming == (Incoming("po_b", 1002, "SUP_FRESHDAIRY", 2000, ANCHOR + 20 * MIN, None),
+                                 Incoming("po_a", 1001, "SUP_PATEL", 3000, ANCHOR + 40 * MIN, "pln_A"))
+    assert [lot.po_id for lot in own_left_out.incoming] == ["po_b"]
+    assert report.ingredient.formula.endswith("; on order: 2 kg (PO #1002, ≈19:02), 3 kg (PO #1001, ≈19:22)")
+    assert (await situation.read_snapshot(None, "sbx_gm", PANEER, I3, repo=SnapshotRepo(rush_snapshot()))  # type: ignore[arg-type]
+            ).incoming == ()

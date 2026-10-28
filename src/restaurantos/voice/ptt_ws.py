@@ -40,6 +40,7 @@ from restaurantos.contracts.events import SessionPurpose
 from restaurantos.contracts.ids import CROCKFORD, new_id
 from restaurantos.contracts.orders import TurnResult
 from restaurantos.meta.errors import MetaError
+from restaurantos.obs import voice_hooks
 from restaurantos.security import ratelimit
 from restaurantos.security.auth import Auth, SessionAuth, require_ws_origin
 from restaurantos.services.container import require
@@ -217,8 +218,8 @@ class VoiceSocket:
         self.key: tuple[str, str] = (str(ctx.tenant_id), str(ctx.session_id))
         if dialogue is None:  # the kitchen: ASR keywords from the menu, no Dialogue
             deps = voice_deps(c, None, menu=getattr(c.dialogue_factory, "menus", None))  # type: ignore[arg-type]
-        self.voice = VoiceSession(ctx, voice_deps(c, dialogue), notify=self.send) if dialogue is not None \
-            else KitchenSession(ctx, deps, notify=self.send, handler=kitchen)
+        self.voice = VoiceSession(ctx, voice_deps(c, dialogue, **voice_hooks(c, self.key[0])), notify=self.send) \
+            if dialogue is not None else KitchenSession(ctx, deps, notify=self.send, handler=kitchen)
         self.superseded, self.gone, self.close_code, self.close_reason = False, False, 1000, ""
         self._lock, self._stop, self._tasks = asyncio.Lock(), asyncio.Event(), set[asyncio.Task[Any]]()
         self._active: str | None = None  # the turn in progress, from its first message until its result

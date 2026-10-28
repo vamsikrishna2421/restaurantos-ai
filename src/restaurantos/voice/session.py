@@ -327,8 +327,9 @@ class VoiceSession:
             await self._flush_trace()
 
     async def _flush_trace(self) -> None:
-        pending, self._pending = self._pending, None
+        pending = self._pending
         if pending is None or self.deps.trace is None:
+            self._pending = None
             return
         r = pending.result
         trace = TurnTrace(turn_id=pending.turn_id, session_id=r.session_id, channel=self.channel,
@@ -339,6 +340,10 @@ class VoiceSession:
             await self.deps.trace(trace)
         except Exception as exc:
             log.warning("voice %s: turn trace not recorded (%s)", self.session_id, type(exc).__name__)
+        # Cleared only once written: a flush cancelled mid-write (the reply's task, on barge-in, the next turn or the
+        # socket closing) leaves the turn to the next flush; the writer keeps one row per turn id.
+        if self._pending is pending:
+            self._pending = None
 
     async def _persist(self, type_: str, payload: Model, causation_id: str | None) -> None:
         store = self.deps.store

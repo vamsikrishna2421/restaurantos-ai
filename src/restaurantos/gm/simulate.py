@@ -6,6 +6,7 @@ curve), so without any step the ingredient runs out exactly when the forecast sa
 - a dish the steps 86 stops burning at once; 60% of its requests convert to the alternatives (redirected) and the
   rest are lost; a dish the steps un-86 sells again;
 - a PO lands at the supplier's lead time from now (or its own later ETA, for a next-day delivery);
+- stock already on order (``incoming``: the situation's open POs) lands at its ETA, with and without the steps;
 - once the stock is gone, every request for a dish still selling is lost until stock lands.
 
 Open orders keep the stock reserved for them: one is protected when the shelf, or PO stock landing before its pickup
@@ -31,6 +32,8 @@ from restaurantos.contracts.gm import (
     SimulationDiff,
 )
 from restaurantos.domain.load import effective_offset
+from restaurantos.gm.fmt import hhmm, quantity
+from restaurantos.gm.incoming import Incoming
 from restaurantos.gm.situation import Situation
 
 LABEL = "Simulation — assumptions shown"
@@ -53,7 +56,8 @@ _MIN = 60_000
 
 
 def state_for(situation: Situation) -> SimState:
-    """The ``SimState`` of a situation (``situation.load_situation``), for ``dry_run``."""
+    """The ``SimState`` of a situation (``situation.load_situation``), for ``dry_run``; pass ``situation.incoming``
+    to ``dry_run`` as well (the contract's ``SimState`` has no field for stock on order)."""
     inputs = situation.inputs
     return SimState(now_biz_ms=inputs.now_biz_ms, ingredient=inputs.ingredient, forecast=inputs.forecast,
                     dishes=list(inputs.dishes), open_orders=list(situation.open_orders),
@@ -67,10 +71,10 @@ class _Run:
     lost: Fraction  # requests (servings) lost to the stockout
 
 
-def dry_run(state: SimState, steps: Sequence[PlanStep], horizon_min: int = 60, *,
-            tz: str = DEFAULT_TZ) -> SimulationDiff:
+def dry_run(state: SimState, steps: Sequence[PlanStep], horizon_min: int = 60, *, tz: str = DEFAULT_TZ,
+            incoming: Sequence[Incoming] = ()) -> SimulationDiff:
     """The projection over ``horizon_min`` business minutes without and with ``steps`` (CONTRACTS_RUNTIME §10.8);
-    ``tz`` renders the stockout times in the tenant's zone."""
+    ``tz`` renders the stockout times in the tenant's zone; ``incoming`` is stock already on order."""
     if horizon_min < 1:
         raise ValueError(f"horizon_min must be at least 1, got {horizon_min}")
     horizon = Fraction(horizon_min)
@@ -81,12 +85,15 @@ def dry_run(state: SimState, steps: Sequence[PlanStep], horizon_min: int = 60, *
         if isinstance(params, SetItemAvailabilityParams) and params.item_code in after:
             after[params.item_code] = params.available
     rates, servings = _rates(state, before)
-    arrivals = _arrivals(state, steps)
-    without = _run(state, before, rates, servings, [], horizon)
+    held = [(max(Fraction(0), Fraction(lot.eta_biz_ms - state.now_biz_ms, _MIN)), lot.qty) for lot in incoming]
+    arrivals = sorted([*held, *_arrivals(state, steps)])
+    without = _run(state, before, rates, servings, sorted(held), horizon)
     with_steps = _run(state, after, rates, servings, arrivals, horizon)
     stopped = sum((servings[code] for code in before if before[code] and not after[code]), Fraction(0)) * horizon / 60
     protected, total, value = _protected(state, arrivals, horizon)
     burn, unit = state.forecast.burn_per_h, state.ingredient.unit
+    on_order = [f"{quantity(lot.qty, unit)} already on order (PO #{lot.po_no}) lands ≈{hhmm(lot.eta_biz_ms, tz)}"
+                for lot in incoming]
     return SimulationDiff(
         horizon_min=horizon_min,
         stockout_biz_without=_at(state, without.stockout_min, tz),
@@ -100,7 +107,7 @@ def dry_run(state: SimState, steps: Sequence[PlanStep], horizon_min: int = 60, *
         quote_change_min=_quote_change(state, steps),
         channels_changed=sorted({channel for step in steps for channel in CHANNELS.get(step.action_type, ())}),
         assumptions=[*ASSUMPTIONS, f"demand follows the current burn ({burn:,} {unit}/h), split across dishes by the "
-                                   "demand curve"])
+                                   "demand curve", *on_order])
 
 
 def _rates(state: SimState, selling: Mapping[str, bool]) -> tuple[dict[str, Fraction], dict[str, Fraction]]:

@@ -85,8 +85,10 @@ const env = (seq: number, type: PersistedEventType): EventEnvelope =>
   event(seq, type, SAMPLES[type] as object, { biz_time: BIZ })
 
 /** The base snapshot plus one session-scoped record, so a reset has something to clear. */
+/** pln_1 holds a T1 step and a T2 step waiting for approval. */
 function base(): TenantData {
-  return reduceEvent(fromState(makeTenantState()), event(11, 'cart.updated', cart('vs_1', 'crt_1')))
+  const pln1 = plan('pln_1', 'inc_1', { steps: [step(0), step(1, { tier: 'T2', decision: 'pending' })] })
+  return reduceEvent(fromState(makeTenantState({ plans: [pln1] })), event(11, 'cart.updated', cart('vs_1', 'crt_1')))
 }
 
 function withoutStamp(d: TenantData): Omit<TenantData, 'as_of_seq'> {
@@ -157,8 +159,17 @@ describe('what each event means for the snapshot', () => {
     expect(d.plans.map((p) => p.id)).toEqual(['pln_1', 'pln_2'])
     const pln1 = d.plans[0]
     expect(pln1.status).toBe('approved')
-    expect(pln1.steps[1]).toEqual(step(1, { status: 'verified' }))
+    expect(pln1.steps[1]).toEqual(step(1, { tier: 'T2', decision: 'approved', authorizer: 'allow:human:judge:12345678',
+      status: 'verified' }))
     expect(d.ledger.map((r) => r.seq)).toEqual([7])
+    // a manager's rejection never decides a T3 step: it waits for the owner and the plan stays open
+    const withT3 = reduceEvent(base(), env(12, 'plan.proposed'))
+    const t3 = { ...withT3, plans: withT3.plans.map((p) => (p.id !== 'pln_1' ? p
+      : { ...p, steps: [...p.steps, step(2, { tier: 'T3', decision: 'pending' })] })) }
+    const no = reduceEvent(t3, event(13, 'approval.decided', { approval: approval('apr_2', 'pln_1', {
+      decision: 'reject', selected_idxs: [], approver_id: 'human:manager:1a2b3c4d', approver_role: 'manager' }) }))
+    expect(no.plans[0].status).toBe('proposed')
+    expect(no.plans[0].steps.map((s) => s.decision)).toEqual(['auto', 'rejected', 'pending'])
 
     const activated = reduceEvent(d, event(30, 'plan.activated',
       { plan_id: 'pln_2', incident_id: 'inc_1', epoch: 4, replaced_plan_id: 'pln_1', by: 'auto' }))

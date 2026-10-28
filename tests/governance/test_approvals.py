@@ -73,10 +73,10 @@ class World:
         return self
 
     async def build(self, conn: Any, tenant_id: str, incident: gm.Incident, now_biz_ms: int, *, observe: Any = None,
-                    policy: gm.PolicyLimits, repo: Any, po_spent_today_cents: int) -> gm.SituationReport:
+                    policy: gm.PolicyLimits, repo: Any, po_spent_today_cents: int, **more: Any) -> gm.SituationReport:
         """Stands in for ``gm.situation.build``; checks it gets what the planner passes (P22's keywords)."""
         assert (tenant_id, incident.id, observe, policy) == (self.tid, INC, None, gm.PolicyLimits())
-        assert repo is not None and po_spent_today_cents >= 0
+        assert repo is not None and po_spent_today_cents >= 0 and more["tz"] == self.c.settings.tenant_timezone
         return self.report
 
     async def add_plan(self, plan_id: str, *, role: str = "active", epoch: int = 1, source: str = "ai",
@@ -179,15 +179,15 @@ async def test_decide_mismatch_409() -> None:
     assert (approval.approver_id, approval.approver_role, approval.method) == (JUDGE.approver_id, "judge", "tap")
     assert approval.id.startswith("apr_") and approval.plan_id == plan.id
     stored = await w.load(plan.id)
-    allow, deny = f"allow:{JUDGE.approver_id}", f"deny:{JUDGE.approver_id}"
+    allow = f"allow:{JUDGE.approver_id}"
     assert (stored.status, stored.digest, stored.short_code) == ("approved", right, code)
-    assert {s.idx: (s.decision, s.authorizer) for s in stored.steps} == {
-        0: ("approved", allow), 1: ("auto", "allow:policy"), 2: ("approved", allow), 3: ("rejected", deny),
+    assert {s.idx: (s.decision, s.authorizer) for s in stored.steps} == {  # the unticked T3 step waits (§6.7)
+        0: ("approved", allow), 1: ("auto", "allow:policy"), 2: ("approved", allow), 3: ("pending", None),
         4: ("auto", "allow:policy")}
     (decide_row,) = await w.ledger("DECIDE")
     assert (decide_row.actor, decide_row.authorizer, decide_row.digest) == (JUDGE.approver_id, allow, right)
     assert decide_row.payload == {"plan_id": plan.id, "decision": "approve", "selected_idxs": [0, 2], "digest": right,
-                                  "method": "tap", "approval_id": approval.id}
+                                  "method": "tap", "approval_id": approval.id, "decided_idxs": [0, 2]}
     assert w.events("approval.decided") == [{"approval": approval.model_dump(mode="json")}]
     assert [e["kind"] for e in w.events("ledger.appended")] == ["ABORT"] * 3 + ["DECIDE"]
     async with w.c.store.read() as conn:
@@ -366,7 +366,7 @@ async def test_t3_requires_owner_judge_admin() -> None:
         await w.decide(plan, [3], MANAGER)
     assert (err.value.status, err.value.code, err.value.details) == (403, "forbidden_role", {"needs": "owner"})
     await w.decide(plan, T2_IDXS, MANAGER)  # the manager approves the T2 set; the T3 PO waits for the owner
-    assert {s.idx: s.decision for s in (await w.load(plan.id)).steps}[3] == "rejected"
+    assert {s.idx: s.decision for s in (await w.load(plan.id)).steps}[3] == "pending"
     mislabelled = steps_from(candidates(w.now_biz))
     mislabelled[3] = mislabelled[3].model_copy(update={"tier": "T2"})  # a $57 PO stored as T2 by a buggy planner
     with pytest.raises(Forbidden):
@@ -439,15 +439,14 @@ async def test_activate_use_playbook_bumps_epoch() -> None:
     assert (await w.decide(await w.load(playbook.id), T2_IDXS, MANAGER)).plan_id == playbook.id
 
     late = await w.add_plan("pln_late", role="preview")  # an AI run that started under epoch 1
-    async with w.c.store.write() as tx:
+    async with w.c.store.write() as tx:  # the decision above moved the epoch on to 3 (and the playbook with it)
         stored = await load_plan(tx.conn, late.id)
         assert await activate_in_tx(tx, w.c.ledger, stored, by="auto", actor="gm", expected_epoch=1) is None
         with pytest.raises(ValueError):
             await activate_in_tx(tx, w.c.ledger, stored, by="auto", actor="gm")
-        promoted = await activate_in_tx(tx, w.c.ledger, stored, by="auto", actor="gm", expected_epoch=2)
-    assert promoted is not None and (promoted.role, promoted.epoch) == ("active", 2)
-    assert w.events("plan.activated")[-1] == {"plan_id": late.id, "incident_id": INC, "epoch": 2,
-                                              "replaced_plan_id": playbook.id, "by": "auto"}
+        owed = await activate_in_tx(tx, w.c.ledger, stored, by="auto", actor="gm", expected_epoch=3)
+    assert owed is None and (await w.load(playbook.id)).epoch == 3  # its approved steps have not run: it stays
+    assert w.events("plan.activated")[-1]["plan_id"] == playbook.id and (await w.load(late.id)).role == "preview"
     assert len(await w.ledger("DECIDE")) == 2  # an auto activation writes no DECIDE row of its own
 
 

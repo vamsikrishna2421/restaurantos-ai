@@ -8,7 +8,8 @@
  *
  * Derivations are kept to what the event states: an order leaves `orders_open` when it is picked up or cancelled, a
  * placed cart leaves `carts`, an ended call leaves `calls_active`, `plan.activated` makes the plan `active` (and the
- * replaced one a `preview`), and `rush.state` re-anchors a sim clock at the envelope's (biz_time, ts) with the new
+ * replaced one a `preview`), `approval.decided` decides the plan's steps as the server did (`applyApproval`), and
+ * `rush.state` re-anchors a sim clock at the envelope's (biz_time, ts) with the new
  * speed so the SimClock keeps ticking without a resync. `sandbox.reset` / `scenario.loaded` clear the session-scoped
  * records; the feed then resyncs the snapshot (which also starts them afresh, see `fromState`).
  *
@@ -31,6 +32,7 @@ import type {
   LedgerAppendedPayload,
   Order,
   OrderCorrectedPayload,
+  Plan,
   PlanFallbackPayload,
   PlanStartedPayload,
   PurchaseOrder,
@@ -113,6 +115,31 @@ export function upsert<T>(list: readonly T[], item: T, key: (t: T) => string | n
 
 function patch<T>(list: readonly T[], match: (t: T) => boolean, fn: (t: T) => T): T[] {
   return list.map((t) => (match(t) ? fn(t) : t))
+}
+
+const APPROVAL_TIERS: ReadonlySet<string> = new Set(['T2', 'T3'])
+const OWNER_ROLES: ReadonlySet<string> = new Set(['owner', 'judge', 'admin'])
+
+/**
+ * `plan` as `approval` left it (governance/approvals.py): an approval decides the selected steps still pending, a
+ * rejection every pending T2/T3 step the approver may decide (T3 needs an owner, judge or admin); anything else
+ * stays pending for a later decision, so the manager approves the T2 set and the T3 PO waits for the owner. A plan
+ * the approval no longer changes is returned as is, so applying it twice is harmless.
+ */
+export function applyApproval(plan: Plan, approval: Approval): Plan {
+  const ok = approval.decision === 'approve'
+  const owner = OWNER_ROLES.has(approval.approver_role)
+  const deciding = (s: Plan['steps'][number]) => s.decision === 'pending' && APPROVAL_TIERS.has(s.tier)
+    && (ok ? approval.selected_idxs.includes(s.idx) : owner || s.tier !== 'T3')
+  if (approval.plan_id !== plan.id || !plan.steps.some(deciding)) return plan
+  const authorizer = `${ok ? 'allow' : 'deny'}:${approval.approver_id}`
+  const steps = plan.steps.map((s) => (deciding(s)
+    ? { ...s, decision: ok ? 'approved' as const : 'rejected' as const, authorizer } : s))
+  const open = plan.status === 'proposed' || plan.status === 'streaming'
+  const waiting = steps.some((s) => s.decision === 'pending')
+  const status = ok ? (open || plan.status === 'done' ? 'approved' as const : plan.status)
+    : (open && !waiting ? 'rejected' as const : plan.status)
+  return { ...plan, steps, status }
 }
 
 function cap<T>(list: T[], max: number): T[] {
@@ -241,9 +268,7 @@ export const PERSISTED_REDUCERS: PersistedReducers = {
   'approval.decided': (d, p) => ({
     ...d,
     approvals: upsert(d.approvals, p.approval, byId),
-    plans: patch(d.plans,
-      (pl) => pl.id === p.approval.plan_id && (pl.status === 'proposed' || pl.status === 'streaming'),
-      (pl) => ({ ...pl, status: p.approval.decision === 'approve' ? 'approved' as const : 'rejected' as const })),
+    plans: patch(d.plans, (pl) => pl.id === p.approval.plan_id, (pl) => applyApproval(pl, p.approval)),
   }),
   'step.updated': (d, p) => ({
     ...d,

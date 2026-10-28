@@ -1,6 +1,7 @@
 /** Shared stores (CONTRACTS_API §8). Surfaces import from here and never edit these modules. */
 
 export {
+  applyApproval,
   CORRECTIONS_MAX,
   emptyExtras,
   fromState,

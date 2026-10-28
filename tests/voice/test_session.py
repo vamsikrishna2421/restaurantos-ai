@@ -191,6 +191,30 @@ async def test_say_checks_chaos_and_degrades_to_captions(voice_env) -> None:
     assert cut.turn_id == "vs_voice1:1" and cut.spans.tts_first_byte_ms is not None
 
 
+async def test_trace_cut_mid_write_is_written_by_the_next_flush(voice_env) -> None:
+    """The reply's task can be cancelled while its trace is being written (the next turn or the socket closing
+    cancels it, e.g. while the store's write lock is busy): the turn stays pending, and the next flush writes it."""
+    env = await voice_env(tts=FakeTTS(fail=TTSUnavailable("busy")))  # captions only: the trace goes out at once
+    s, busy, attempts = env.session, asyncio.Event(), []
+
+    async def trace(record) -> None:  # the turns row behind a busy write lock
+        attempts.append(record.turn_id)
+        await busy.wait()
+        env.traces.append(record)
+
+    s.deps.trace = trace
+    result = await s.on_text("one samosa", "t1")
+    speaking = asyncio.create_task(anext(s.say(result.reply), None))
+    await until(lambda: attempts == ["vs_voice1:1"])
+    speaking.cancel()  # the guest's next turn (or the socket closing) hushes the reply mid-write
+    await asyncio.gather(speaking, return_exceptions=True)
+    busy.set()
+    await s.close()
+    assert attempts == ["vs_voice1:1"] * 2 and [t.turn_id for t in env.traces] == ["vs_voice1:1"]
+    await s.close()  # written once: nothing is pending any more
+    assert len(attempts) == 2
+
+
 async def test_one_turn_at_a_time_cancel_and_close(voice_env) -> None:
     first, second = ScriptedASR(end_close_code=None), ScriptedASR(end_close_code=None)
     factory = FakeASRFactory(first, second)

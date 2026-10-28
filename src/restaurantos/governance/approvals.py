@@ -2,26 +2,32 @@
 
 ``decide(plan_id, decision, idxs, digest, approver)`` checks, in one write transaction and in this order:
 1. identity (``policy.check_approver``): 403, and on ``live``/``demo`` only an admin decides;
-2. the plan: it belongs to ``tenant_id`` (or the QR token's plan), is active (a preview is never approvable), was
-   not decided before (409 ``already_decided``) and still has a pending step;
+2. the plan (``check_open``): it belongs to ``tenant_id`` (or the QR token's plan), is active (a preview is never
+   approvable) and still has a pending step (else 409 ``already_decided``);
 3. TTL: ``plan_ttl_min`` **real** minutes after proposal, so a 10× sim clock never shortens it (409 ``plan_expired``);
-4. selection: unknown or blocked idxs are 400, T1 idxs are ignored; a selected T3 step needs an owner, judge or admin
-   (403), its tier being the stricter of the stored one and the policy's own reading;
+4. selection: unknown or blocked idxs are 400, T1 idxs are ignored. An approval decides the selected steps still
+   pending (none: 409 ``already_decided``), a T3 among them needs an owner, judge or admin (403, by the stricter of
+   the stored tier and the policy's reading); a rejection, every pending step the approver may decide. The rest stays
+   pending for a later decision with its own digest: the manager approves the T2 set, the T3 PO waits for the owner;
 5. the approval digest, recomputed server-side (409 ``digest_mismatch``);
-6. drift, on approve: the rebuilt situation report (``gm.situation.build``, P22) must keep the plan's decision
-   digest and every selected step's params, and each step must still be viable (supplier cutoff, un-86 stock, staff
-   on shift, quote-offset cap, no stricter policy tier, incident open): else 409 ``state_changed`` with
-   ``details.replan_suggested``;
+6. drift, on approve: the report rebuilt with the planner's inputs (``gm.situation.build``, P22; zone and trigger
+   included, the plan's own POs left out) must keep the plan's decision digest (on a first decision: the effects of
+   earlier ones move the candidates) and each deciding step's params, and each must still be viable (supplier
+   cutoff, un-86 stock, staff on shift, quote-offset cap, no stricter tier, incident open): else 409
+   ``state_changed`` with ``details.replan_suggested``;
 7. a QR token (``qr_token=``) is consumed last, so a refused decision never burns it.
 
-It then records the ``approvals`` row, each pending T2/T3 step's decision (``allow:``/``deny:human:<id>``), the plan
-status, a DECIDE row and ``approval.decided`` (the executor's cue). A refusal at 3, 5 or 6 rolls that back and is
-recorded in a second short transaction: an ABORT row and, for an expiry, status ``expired`` and ``plan.expired``.
+It then records the ``approvals`` row, the deciding steps' decisions (``allow:``/``deny:human:<id>``), the plan status
+(``approved`` to run; ``rejected`` once nothing of a proposed plan waits), a DECIDE row and ``approval.decided`` (the
+executor's cue); an approval bumps ``incidents.plan_epoch`` (the plan takes it), so a re-plan already streaming stays
+a preview. A refusal at 3, 5 or 6 rolls that back and is recorded in a second short transaction: an ABORT row and,
+for an expiry, status ``expired`` and ``plan.expired``.
 
 ``activate`` is "Use playbook": it bumps ``incidents.plan_epoch``, makes the plan its incident's one active plan (the
 previous one becomes a preview), writes a DECIDE row and ``plan.activated`` with ``replaced_plan_id``, on which the
 executor carries over or undoes the old plan's T1 steps. ``activate_in_tx`` does the same inside a caller's
-transaction, epoch-fenced for the planner's ``auto`` activations.
+transaction, epoch-fenced for the planner's ``auto`` activations, which also never replace a plan whose approved
+steps have not run yet.
 """
 
 from __future__ import annotations
@@ -80,7 +86,8 @@ log = logging.getLogger(__name__)
 ReportBuilder = Callable[..., Awaitable[SituationReport]]  # (conn, tenant_id, incident, now_biz_ms, **inputs)
 MINUTE_MS = 60_000
 SYSTEM = "system"
-DECIDABLE = frozenset({"proposed", "executing", "done"})  # with a step still pending a decision
+DECIDABLE = frozenset({"proposed", "approved", "executing", "done"})  # with a step still pending a decision
+EXPIRABLE = frozenset({"proposed", "done"})  # the TTL closes pending decisions; never under a running execution
 CLOSED_INCIDENT = frozenset({"resolved", "dismissed"})
 
 
@@ -116,6 +123,31 @@ def has_pending(plan: Plan) -> bool:
     return any(step.decision == "pending" for step in plan.steps)
 
 
+def unrun_approved(plan: Plan) -> list[PlanStep]:
+    """Approved steps that have not started: a human's decision the executor still owes."""
+    return [step for step in plan.steps if step.decision == "approved" and step.status == "proposed"]
+
+
+def check_open(stored: StoredPlan, now: int, ttl_min: int, *, approving: bool, deadline: bool = True) -> None:
+    """409 unless ``stored`` can take a decision (``approving``) or an activation now (expired, decided, another
+    status, a preview); ``deadline=False`` leaves the real-time TTL to the caller."""
+    plan = stored.plan
+    if plan.status == "expired":
+        raise Conflict("This plan expired", code="plan_expired")
+    if approving:
+        if plan.status == "rejected" or (plan.status in DECIDABLE and not has_pending(plan)):
+            raise Conflict("This plan was already decided", code="already_decided")
+        if plan.status not in DECIDABLE:
+            raise Conflict(f"A {plan.status} plan cannot be decided", code="state_conflict")
+        if plan.role != "active":
+            raise Conflict("A preview is never approvable: activate it first", code="state_conflict",
+                           details={"reason": "preview"})
+    elif plan.role == "active" or plan.status != "proposed":
+        raise Conflict("This plan is already active or decided", code="already_decided")
+    if deadline and now >= stored.deadline_ms(ttl_min):
+        raise Conflict("This plan expired", code="plan_expired")
+
+
 async def load_plan(conn: AsyncConnection, plan_id: str) -> StoredPlan:
     r = (await conn.execute(select(t.plans).where(t.plans.c.id == plan_id))).one_or_none()
     if r is None:
@@ -148,8 +180,9 @@ async def load_incident(conn: AsyncConnection, tenant_id: str, incident_id: str,
 
 async def build_situation_report(conn: AsyncConnection, tenant_id: str, incident: Incident, now_biz_ms: int,
                                  **inputs: Any) -> SituationReport:
-    """The default report builder: P22's ``gm.situation.build`` with the planner's inputs (``observe``, ``policy``
-    limits, ``repo``, ``po_spent_today_cents``). Fails closed (503 ``not_wired``) while P22 is absent."""
+    """The default report builder: P22's ``gm.situation.build`` with the planner's inputs (``observe``, ``trigger``,
+    ``policy`` limits, ``repo``, ``po_spent_today_cents``, ``tz``) and ``exclude_plan_id``. Fails closed (503
+    ``not_wired``) while P22 is absent."""
     try:
         from restaurantos.gm import situation
     except ModuleNotFoundError as exc:
@@ -180,8 +213,9 @@ async def activate_in_tx(tx: TxPort, ledger: LedgerPort, stored: StoredPlan, *, 
     """Make ``stored`` its incident's one active plan, inside the caller's write transaction.
 
     ``manual`` ("Use playbook") bumps ``incidents.plan_epoch`` and writes a DECIDE row for ``actor``. ``auto`` (the
-    planner's proposal) bumps nothing and activates only while ``plan_epoch`` still equals ``expected_epoch``;
-    otherwise it returns None and the caller keeps the plan as a preview (epoch fencing, CONTRACTS §6).
+    planner's proposal) bumps nothing and activates only while ``plan_epoch`` still equals ``expected_epoch`` and the
+    active plan owes no approved step (``unrun_approved``); otherwise it returns None and the caller keeps the plan as
+    a preview (epoch fencing, CONTRACTS §6).
     """
     conn, tid, plan = tx.conn, stored.tenant_id, stored.plan
     inc, pl = t.incidents, t.plans
@@ -189,28 +223,26 @@ async def activate_in_tx(tx: TxPort, ledger: LedgerPort, stored: StoredPlan, *, 
     current = (await conn.execute(select(inc.c.plan_epoch).where(*mine))).scalar_one_or_none()
     if current is None:
         raise NotFound(f"unknown incident {plan.incident_id!r}")
+    others = [await load_plan(conn, other_id) for other_id in (await conn.execute(select(pl.c.id).where(
+        pl.c.tenant_id == tid, pl.c.incident_id == plan.incident_id, pl.c.role == "active", pl.c.id != plan.id)
+        .order_by(pl.c.created_ms))).scalars().all()]
     if by == "auto":
         if expected_epoch is None:
             raise ValueError("an auto activation is fenced: pass the epoch the plan was made under")
-        if current != expected_epoch:
+        if current != expected_epoch or any(unrun_approved(other.plan) for other in others):
             return None
         epoch = current
     else:
         epoch = current + 1
         await conn.execute(update(inc).where(*mine).values(plan_epoch=epoch))
     replaced = None
-    others = await conn.execute(select(pl.c.id).where(pl.c.tenant_id == tid, pl.c.incident_id == plan.incident_id,
-                                                      pl.c.role == "active", pl.c.id != plan.id)
-                                .order_by(pl.c.created_ms))
-    for other_id in others.scalars().all():
-        other = await load_plan(conn, other_id)
+    for other in others:
         await save_plan(conn, tid, other.plan.model_copy(update={"role": "preview"}))
-        replaced = other_id
+        replaced = other.plan.id
     activated = plan.model_copy(update={"role": "active", "epoch": epoch})
     await save_plan(conn, tid, activated)
     if by == "manual":
-        await ledger.append(tx, tenant_id=tid, kind="DECIDE", actor=actor, plan_id=plan.id,
-                            authorizer=f"allow:{actor}",
+        await ledger.append(tx, tenant_id=tid, kind="DECIDE", actor=actor, plan_id=plan.id, authorizer=f"allow:{actor}",
                             payload={"plan_id": plan.id, "decision": "activate", "selected_idxs": [], "digest": None,
                                      "method": method, "epoch": epoch, "replaced_plan_id": replaced})
     await tx.append_event(tid, "plan.activated", {"plan_id": plan.id, "incident_id": plan.incident_id, "epoch": epoch,
@@ -258,66 +290,72 @@ class Approvals:
             claims = tokens.peek("qr_approve", qr_token, c.settings, now)
             if claims.pid != plan_id or claims.tid != stored.tenant_id:
                 raise Forbidden("This approval link is for another plan", code="wrong_tenant")
-        await self._check_open(conn, stored, now, approving=True)
+        self._check_open(stored, now, approving=True)
         try:
             steps = approval_steps(stored.plan, idxs)
         except ValueError as exc:
             raise BadRequest(str(exc), details={"selected_idxs": idxs}) from None
-        if decision == "approve" and approver.role not in OWNER_ROLES and any(self._tier(s) == "T3" for s in steps):
-            raise Forbidden("A T3 step needs the owner", details={"needs": "owner"})
+        deciding = self._deciding(stored.plan, steps, decision, approver)
         expected, code = approval_digest(stored.plan, idxs)
         if not hmac.compare_digest(expected.encode(), digest.encode()):
             raise _Refused(Conflict("The plan changed since it was shown: review it again", code="digest_mismatch"),
                            "digest_mismatch", by=approver.approver_id)
-        if decision == "approve" and (changes := await self._drift(conn, tenant, stored, steps, now)):
+        if decision == "approve" and (changes := await self._drift(conn, tenant, stored, deciding, now)):
             raise _Refused(Conflict("Things changed since this plan was made", code="state_changed",
                                     details={"replan_suggested": True, "changes": changes}),
                            "state_changed", by=approver.approver_id, changes=changes)
         if qr_token is not None:
             await tokens.consume(tx, "qr_approve", qr_token, c.settings, now)
-        return await self._record(tx, stored, decision, steps, expected, code, approver, now)
+        return await self._record(tx, stored, decision, steps, deciding, expected, code, approver, now)
 
-    async def _check_open(self, conn: AsyncConnection, stored: StoredPlan, now: int, *, approving: bool) -> None:
-        plan = stored.plan
-        if plan.status == "expired":
-            raise Conflict("This plan expired", code="plan_expired")
-        if approving:
-            decided = (await conn.execute(select(t.approvals.c.id).where(t.approvals.c.tenant_id == stored.tenant_id,
-                                                                         t.approvals.c.plan_id == plan.id)
-                                          .limit(1))).first()
-            if decided is not None or plan.status in ("approved", "rejected") or (
-                    plan.status in DECIDABLE and not has_pending(plan)):
-                raise Conflict("This plan was already decided", code="already_decided")
-            if plan.status not in DECIDABLE:
-                raise Conflict(f"A {plan.status} plan cannot be decided", code="state_conflict")
-            if plan.role != "active":
-                raise Conflict("A preview is never approvable: activate it first", code="state_conflict",
-                               details={"reason": "preview"})
-        elif plan.role == "active" or plan.status != "proposed":
-            raise Conflict("This plan is already active or decided", code="already_decided")
+    def _check_open(self, stored: StoredPlan, now: int, *, approving: bool) -> None:
+        check_open(stored, now, self._ttl_min(), approving=approving, deadline=False)
         if now >= stored.deadline_ms(self._ttl_min()):
             raise _Refused(Conflict("This plan expired", code="plan_expired"), "expired")
+
+    def _deciding(self, plan: Plan, selected: list[PlanStep], decision: ApprovalDecision,
+                  approver: Approver) -> list[PlanStep]:
+        """The steps this decision decides (module docstring, 4); anything else stays pending."""
+        owner = approver.role in OWNER_ROLES
+        if decision == "approve":
+            if not selected:
+                raise BadRequest("Tick a step to approve", details={"selected_idxs": []})
+            deciding = [step for step in selected if step.decision == "pending"]
+            if not owner and any(self._tier(step) == "T3" for step in deciding):
+                raise Forbidden("A T3 step needs the owner", details={"needs": "owner"})
+        else:
+            deciding = [step for step in plan.steps if step.decision == "pending" and step.tier in APPROVAL_TIERS
+                        and (owner or self._tier(step) != "T3")]
+            if not deciding and has_pending(plan):
+                raise Forbidden("Only the owner can decide what is left: a T3 step", details={"needs": "owner"})
+        if not deciding:
+            raise Conflict("These steps were already decided", code="already_decided")
+        return deciding
 
     def _tier(self, step: PlanStep) -> str:
         """The stricter of the stored tier and the policy's context-free reading of the step."""
         return stricter(step.tier, require(self._c, "policy").classify(step, PolicyContext()).tier)
 
     async def _record(self, tx: TxPort, stored: StoredPlan, decision: ApprovalDecision, steps: list[PlanStep],
-                      digest: str, code: str, approver: Approver, now: int) -> Approval:
-        selected = sorted(s.idx for s in steps)
+                      deciding: list[PlanStep], digest: str, code: str, approver: Approver, now: int) -> Approval:
+        selected, decided = sorted(s.idx for s in steps), sorted(s.idx for s in deciding)
         approval = Approval(id=self._c.ids.new_id("apr"), plan_id=stored.plan.id, decision=decision,
                             selected_idxs=selected, digest=digest, short_code=code, approver_id=approver.approver_id,
                             approver_role=approver.role, method=approver.method, created_at=utc_from_ms(now))
-        allow, deny = f"allow:{approver.approver_id}", f"deny:{approver.approver_id}"
-        decided = []
-        for step in stored.plan.steps:
-            if step.decision == "pending" and step.tier in APPROVAL_TIERS:
-                ok = decision == "approve" and step.idx in selected
-                step = step.model_copy(update={"decision": "approved" if ok else "rejected",
-                                               "authorizer": allow if ok else deny})
-            decided.append(step)
-        plan = stored.plan.model_copy(update={"steps": decided, "digest": digest, "short_code": code,
-                                              "status": "approved" if decision == "approve" else "rejected"})
+        ok, previous = decision == "approve", stored.plan.status
+        authorizer = f"allow:{approver.approver_id}" if ok else f"deny:{approver.approver_id}"
+        steps_now = [step.model_copy(update={"decision": "approved" if ok else "rejected", "authorizer": authorizer})
+                     if step.idx in decided else step for step in stored.plan.steps]
+        waiting = any(step.decision == "pending" for step in steps_now)  # a running execution picks new steps up
+        status = (("approved" if previous in ("proposed", "done") else previous) if ok
+                  else "rejected" if previous == "proposed" and not waiting else previous)
+        epoch, inc = stored.plan.epoch, t.incidents
+        if ok:  # fences a run in flight: its plan stays a preview, never replacing what was just approved
+            mine = (inc.c.tenant_id == stored.tenant_id, inc.c.id == stored.plan.incident_id)
+            epoch = (await tx.conn.execute(select(inc.c.plan_epoch).where(*mine))).scalar_one() + 1
+            await tx.conn.execute(update(inc).where(*mine).values(plan_epoch=epoch))
+        plan = stored.plan.model_copy(update={"steps": steps_now, "digest": digest, "short_code": code,
+                                              "status": status, "epoch": epoch})
         await tx.conn.execute(insert(t.approvals).values(
             tenant_id=stored.tenant_id, id=approval.id, plan_id=plan.id, decision=decision, selected_idxs=selected,
             digest=digest, approver_id=approver.approver_id, approver_role=approver.role, method=approver.method,
@@ -325,9 +363,9 @@ class Approvals:
         await save_plan(tx.conn, stored.tenant_id, plan)
         await require(self._c, "ledger").append(
             tx, tenant_id=stored.tenant_id, kind="DECIDE", actor=approver.approver_id, plan_id=plan.id,
-            authorizer=allow if decision == "approve" else deny, digest=digest,
+            authorizer=authorizer, digest=digest,
             payload={"plan_id": plan.id, "decision": decision, "selected_idxs": selected, "digest": digest,
-                     "method": approver.method, "approval_id": approval.id})
+                     "method": approver.method, "approval_id": approval.id, "decided_idxs": decided})
         await tx.append_event(stored.tenant_id, "approval.decided", {"approval": approval}, approver.approver_id,
                               correlation_id=plan.id)
         return approval
@@ -336,7 +374,8 @@ class Approvals:
 
     async def _drift(self, conn: AsyncConnection, tenant: TenantInfo, stored: StoredPlan, steps: list[PlanStep],
                      now_real_ms: int) -> list[str]:
-        """What changed since the plan was made; empty when the approval may go ahead."""
+        """What changed since the plan was made (empty: go ahead), rebuilt with the planner's inputs as of now and
+        without the plan's own POs (an earlier decision of it placed them): module docstring, 6."""
         plan, tz = stored.plan, self._c.settings.tenant_timezone
         now_biz = self._c.clock.for_tenant(tenant.clock).now_biz_ms()
         incident, stored_report = await load_incident(conn, tenant.id, plan.incident_id, tz)
@@ -345,11 +384,13 @@ class Approvals:
                 incident.report_digest == plan.report_digest:
             observe = ObserveContext.model_validate(stored_report["observe"])
         policy, repo = require(self._c, "policy"), self._repo()
-        spent = await po_spent_today_cents(conn, tenant.id, now_real_ms)  # the planner's inputs, as of now
-        report = await self._build_report(conn, tenant.id, incident, now_biz, observe=observe, policy=policy.limits,
-                                          repo=repo, po_spent_today_cents=spent)
+        spent = await po_spent_today_cents(conn, tenant.id, now_real_ms)
+        report = await self._build_report(conn, tenant.id, incident, now_biz, observe=observe, trigger=plan.trigger,
+                                          policy=policy.limits, repo=repo, po_spent_today_cents=spent, tz=tz,
+                                          exclude_plan_id=plan.id)
         changes = [f"incident {incident.status}"] if incident.status in CLOSED_INCIDENT else []
-        if decision_digest(report) != plan.decision_digest:
+        ran = any(step.decision == "approved" for step in plan.steps)  # its effects moved the candidates since
+        if not ran and decision_digest(report) != plan.decision_digest:
             changes.append("decision_digest")
         current = [step_signature(candidate) for candidate in report.candidates]
         changes += [f"step {s.idx}: params" for s in steps if step_signature(s) not in current]
@@ -369,7 +410,7 @@ class Approvals:
                     raise Forbidden("That plan belongs to another tenant", code="wrong_tenant")
                 check_approver(approver, await self._repo().tenant(tx.conn, stored.tenant_id),
                                self._c.settings.admin_tokens)
-                await self._check_open(tx.conn, stored, self._c.clock.now_real_ms(), approving=False)
+                self._check_open(stored, self._c.clock.now_real_ms(), approving=False)
                 activated = await activate_in_tx(tx, require(self._c, "ledger"), stored, by="manual",
                                                  actor=approver.approver_id, method=approver.method)
         except _Refused as refused:
@@ -379,20 +420,18 @@ class Approvals:
         return activated
 
     async def expire_due(self, tenant_id: str | None = None) -> list[str]:
-        """Expire every plan whose TTL has passed while a step still waits for a decision (a sweep for the GM
-        ticker; ``decide`` and ``activate`` also expire lazily). Returns the plan ids."""
+        """Expire every plan past its TTL whose step still waits for a decision while nothing approved is queued or
+        running (``EXPIRABLE``; what ran stands): the GM ticker's sweep, beside the lazy expiry. Returns the ids."""
         now, ttl_ms = self._c.clock.now_real_ms(), self._ttl_min() * MINUTE_MS
         pl, done = t.plans, []
         async with require(self._c, "store").write() as tx:
-            query = select(pl.c.id).where(pl.c.status.in_(sorted(DECIDABLE)),
+            query = select(pl.c.id).where(pl.c.status.in_(sorted(EXPIRABLE)),
                                           or_(pl.c.expires_ms <= now, pl.c.created_ms <= now - ttl_ms))
             if tenant_id is not None:
                 query = query.where(pl.c.tenant_id == tenant_id)
             for plan_id in (await tx.conn.execute(query.order_by(pl.c.created_ms))).scalars().all():
                 stored = await load_plan(tx.conn, plan_id)
-                approved = (await tx.conn.execute(select(t.approvals.c.id).where(
-                    t.approvals.c.tenant_id == stored.tenant_id, t.approvals.c.plan_id == plan_id))).first()
-                if has_pending(stored.plan) and approved is None:
+                if has_pending(stored.plan):
                     await self._expire(tx, stored, {"plan_id": plan_id, "idx": None, "reason": "expired"})
                     done.append(plan_id)
         return done
@@ -426,7 +465,8 @@ class Approvals:
                 if refused.reason != "expired":
                     await self._abort(tx, stored, payload)
                 elif stored.plan.status in DECIDABLE and has_pending(stored.plan):  # else expired or decided meanwhile
-                    await self._expire(tx, stored, payload)
+                    running = stored.plan.status not in EXPIRABLE  # the sweep expires it once its execution is done
+                    await (self._abort if running else self._expire)(tx, stored, payload)
         except Exception:  # the 409 still goes out; only its audit row is missing
             log.exception("could not record the refused decision on plan %s", plan_id)
 

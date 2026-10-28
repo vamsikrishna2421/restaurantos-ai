@@ -211,3 +211,34 @@ def test_generate_is_deterministic_and_note_blind() -> None:
     again = cands.generate(plain.inputs, servings_free=plain.servings_free, tz=TZ)
     assert plain.candidates == poisoned.candidates == again
     assert all(POISON[:20] not in c.model_dump_json() for c in poisoned.candidates)
+
+
+def test_po_candidates_net_stock_on_order() -> None:
+    """Stock already on order (open POs, ``gm.incoming``) counts: landing before the window ends it shrinks the
+    same-day quantities, so the order already placed is never offered again (here the bridge 3 kg is in: only the
+    1 kg top-up to close is left, and Fresh Dairy's $25 minimum no longer makes sense); landing after close it
+    shrinks the next-day restock. The effects say so, the decision digest moves, the playbook follows."""
+    from restaurantos.gm.incoming import Incoming
+    from restaurantos.governance.digest import decision_digest
+
+    def with_lots(*lots: Incoming) -> situation.Situation:
+        return situation.derive(replace(rush_snapshot(), incoming=lots), incident(), I3, tz=TZ)
+
+    plain = situation.report(rush_situation())
+    bridge = Incoming("po_1", 1001, "SUP_PATEL", 3000, I3 + 40 * MIN, "pln_A")  # the bridge, sent: lands 19:28
+    held = with_lots(bridge)
+    got = pos(held.candidates)
+    assert set(got) == {("SUP_PATEL", 1), ("SUP_FRESHDAIRY", 6)}
+    assert got[("SUP_PATEL", 1)].effect.endswith("to close (22:00) × 1.2, net of 3 kg projected free at arrival, "
+                                                 "counting 3 kg already on order")
+    assert decision_digest(situation.report(held)) != decision_digest(plain)
+    assert situation.report(held).ingredient.formula.endswith("; on order: 3 kg (PO #1001, ≈19:28)")
+    assert [c.target for c in held.candidates if c.id in held.baseline_ids
+            and c.action_type == "create_purchase_order"] == ["SUP_PATEL"]  # the top-up, not 4 kg more
+
+    restock = Incoming("po_2", 1002, "SUP_FRESHDAIRY", 6000, I3 + 12 * 60 * MIN, "pln_A")  # tomorrow 06:48
+    assert set(pos(with_lots(bridge, restock).candidates)) == {("SUP_PATEL", 1)}  # par is covered for tomorrow
+    early = Incoming("po_3", 1003, "SUP_PATEL", 1000, I3 + 10 * MIN, None)  # 1 kg lands before any new order
+    assert set(pos(with_lots(early).candidates)) == {("SUP_PATEL", 2), ("SUP_PATEL", 3), ("SUP_FRESHDAIRY", 3),
+                                                     ("SUP_FRESHDAIRY", 6)}
+    assert pos(with_lots().candidates) == pos(rush_situation().candidates)  # nothing on order: unchanged

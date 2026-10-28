@@ -9,9 +9,11 @@ and station names, kitchen labels and the few ``WORDS`` below). For the incident
   with the top 2 of ``availability.group_alternatives`` (price closeness, then servings free); every dish using the
   ingredient is excluded (T1);
 - **bridge / to-close PO**: for each viable same-day supplier, the packs covering the current burn from arrival to
-  21:00 / close × 1.2, net of the free stock projected at arrival, raised to the supplier's minimum order. When both
-  need the same packs they merge into one to-close candidate;
-- **next-day PO**: the cheapest ``next_day`` supplier, restocking to par what is projected to be left at close;
+  21:00 / close × 1.2, net of the free stock projected at arrival and of stock already on order (``gm.incoming``)
+  landing by then, raised to the supplier's minimum order. When both need the same packs they merge into one
+  to-close candidate;
+- **next-day PO**: the cheapest ``next_day`` supplier, restocking to par what is projected to be left at close, net of
+  stock on order landing after it;
 - **notify**: each on-shift cook at an affected station, plus on-shift FOH when a same-day pickup PO is offered (T1);
 - **quote**: ``adjust_quote_time(station, +5)`` for an affected station whose queue is over 12 min (T1);
 - **callback**: ``flag_ticket_for_callback`` for each order a shelf count left uncovered (T1).
@@ -27,11 +29,11 @@ from __future__ import annotations
 import math
 from collections.abc import Collection, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
-from datetime import datetime, time, timedelta
+from datetime import datetime
 from fractions import Fraction
 from zoneinfo import ZoneInfo
 
-from restaurantos.contracts.common import DEFAULT_TZ, Band, Model, SpeakLang, Tier, Unit, biz_from_ms, ms_from_dt
+from restaurantos.contracts.common import DEFAULT_TZ, Band, Model, SpeakLang, Tier, biz_from_ms
 from restaurantos.contracts.gm import (
     CANDIDATE_IDS,
     MAX_CANDIDATES,
@@ -51,6 +53,8 @@ from restaurantos.contracts.kitchen import LocalizedLabel, Staff
 from restaurantos.contracts.orders import Order
 from restaurantos.domain import availability, detectors
 from restaurantos.domain.i18n_kitchen import item_name, label, station_name
+from restaurantos.gm import incoming as on_order
+from restaurantos.gm.fmt import hhmm, local_ms, quantity, short_name, speak_lang, usd
 
 LANGS: tuple[SpeakLang, ...] = ("en", "te", "ta", "es")
 LANG_NAMES = {"en": "English", "te": "Telugu", "ta": "Tamil", "es": "Spanish"}
@@ -79,45 +83,7 @@ WORDS: dict[str, dict[str, str]] = {
 }
 
 
-# ----- formatting (integers in, text out; never a float) ----------------------------------------------------------
-
-def usd(cents: int) -> str:
-    """``3300`` → ``$33.00``."""
-    sign = "-" if cents < 0 else ""
-    return f"{sign}${abs(cents) // 100:,}.{abs(cents) % 100:02d}"
-
-
-def quantity(qty: int, unit: Unit) -> str:
-    """``3000 g`` → ``3 kg``, ``180 g`` → ``180 g``, ``4000 ml`` → ``4 L``, ``2 portion`` → ``2 portions``."""
-    if unit in ("g", "ml") and qty and qty % 1000 == 0:
-        return f"{qty // 1000:,} {'kg' if unit == 'g' else 'L'}"
-    if unit == "portion":
-        return f"{qty:,} portion{'' if qty == 1 else 's'}"
-    return f"{qty:,} {unit}"
-
-
-def hhmm(ms: int, tz: str) -> str:
-    return f"{biz_from_ms(ms, tz):%H:%M}"
-
-
-def local_ms(now_biz_ms: int, local: str, tz: str, *, days: int = 0) -> int:
-    """Business epoch ms of the local time ``HH:MM`` on the business date of ``now`` (plus ``days``)."""
-    hour, minute = (int(part) for part in local.split(":"))
-    day = biz_from_ms(now_biz_ms, tz).date() + timedelta(days=days)
-    return ms_from_dt(datetime.combine(day, time(hour, minute), tzinfo=ZoneInfo(tz)))
-
-
-def speak_lang(person: Staff) -> SpeakLang:
-    """The language a person reads on the KDS: the first in their profile, else English."""
-    return person.languages[0] if person.languages else "en"
-
-
-def short_name(supplier: Supplier) -> str:
-    """``Patel Cash & Carry (sample, staff pickup)`` → ``Patel Cash & Carry``."""
-    return supplier.name.split(" (")[0]
-
-
-# ----- generation -------------------------------------------------------------------------------------------------
+# ----- generation (the formatting lives in gm.fmt: integers in, text out; never a float) -------------------------
 
 @dataclass
 class _Ctx:
@@ -125,6 +91,7 @@ class _Ctx:
     servings_free: dict[str, int]
     tz: str
     close_ms: int
+    incoming: tuple[on_order.Incoming, ...] = ()  # open POs of the ingredient: stock already on its way
     station_of: dict[str, str] = field(init=False)  # item code -> station id
     suppliers: dict[str, Supplier] = field(init=False)
 
@@ -174,16 +141,18 @@ def _candidate(action_type: ActionType, target: str, params: Model, tier: Tier, 
 
 def generate(inputs: CandidateInputs, *, servings_free: Mapping[str, int] | None = None,
              at_risk: Sequence[Order] = (), new_supplier_ids: Collection[str] = (), po_spent_today_cents: int = 0,
-             close_local: str = CLOSE_LOCAL, tz: str = DEFAULT_TZ) -> list[Candidate]:
+             close_local: str = CLOSE_LOCAL, tz: str = DEFAULT_TZ,
+             incoming: Sequence[on_order.Incoming] = ()) -> list[Candidate]:
     """The incident's candidates: at most 16, numbered ``C01``… in output order (86s, alternatives, POs, notify,
     quotes, callbacks).
 
     ``servings_free`` (item code → servings the stock allows) filters and ranks alternatives; ``at_risk`` are the open
     orders a count left uncovered (callback flags); ``new_supplier_ids`` (``PolicyContext``) make their POs T3;
-    ``po_spent_today_cents`` drops a PO that would pass ``po_daily_cap_cents``. When more than 16 qualify, POs,
-    notices and the first callbacks are kept first, then 86s by grams per hour, alternatives, quotes, other callbacks.
+    ``po_spent_today_cents`` drops a PO that would pass ``po_daily_cap_cents``; ``incoming`` (open POs) is stock the PO
+    quantities are net of. When more than 16 qualify, POs, notices and the first callbacks are kept first, then 86s by
+    grams per hour, alternatives, quotes, other callbacks.
     """
-    ctx = _Ctx(inputs, dict(servings_free or {}), tz, local_ms(inputs.now_biz_ms, close_local, tz))
+    ctx = _Ctx(inputs, dict(servings_free or {}), tz, local_ms(inputs.now_biz_ms, close_local, tz), tuple(incoming))
     slots = [*_eighty_six(ctx), *_alternatives(ctx), *_purchase_orders(ctx, new_supplier_ids, po_spent_today_cents),
              *_quotes(ctx), *_callbacks(ctx, at_risk)]
     pickup = any(s.candidate is not None and s.kind == "po" and _pickup_today(ctx, s.candidate) for s in slots)
@@ -255,44 +224,51 @@ def _packs(ctx: _Ctx, need: Fraction, supplier: Supplier, item: SupplierItem) ->
 
 
 def _purchase_orders(ctx: _Ctx, new_supplier_ids: Collection[str], spent: int) -> list[_Slot]:
-    ing, fc, now = ctx.inputs.ingredient, ctx.inputs.forecast, ctx.now
+    ing, fc, now, lots = ctx.inputs.ingredient, ctx.inputs.forecast, ctx.now, ctx.incoming
     free, burn = Fraction(fc.free), Fraction(max(0, fc.burn_per_h))
-    bridge_ms = min(local_ms(now, BRIDGE_END_LOCAL, ctx.tz), ctx.close_ms)
+    ends = {"bridge": min(local_ms(now, BRIDGE_END_LOCAL, ctx.tz), ctx.close_ms), "close": ctx.close_ms}
     out: list[_Slot] = []
     for supplier in ctx.inputs.suppliers:
         item = _catalog_item(supplier, ing.id)
         option = detectors.viable(supplier, ing.id, now, tz=ctx.tz) if item is not None else None
         if item is None or option is None:
             continue
-        projected = max(Fraction(0), free - burn * option.lead_min / 60)
+        arrives = option.arrives_biz_ms
+        projected = on_order.free_at(lots, free, burn, now, arrives)  # stock on order landing first counts
         packs: dict[str, tuple[int, bool]] = {}
-        for kind, end_ms in (("bridge", bridge_ms), ("close", ctx.close_ms)):
-            span_min = Fraction(end_ms - option.arrives_biz_ms, _MIN)
-            need = burn * span_min / 60 * SAFETY - projected
+        for kind, end_ms in ends.items():
+            span_min = Fraction(end_ms - arrives, _MIN)
+            need = burn * span_min / 60 * SAFETY - projected - on_order.landing(lots, arrives, end_ms)
             if span_min > 0 and need > 0 and (found := _packs(ctx, need, supplier, item)) is not None:
                 packs[kind] = found
         if "bridge" in packs and packs["bridge"][0] == packs.get("close", (0, False))[0]:
             del packs["bridge"]  # the same order covers both: offer it once, as the to-close quantity
         for kind, (n, raised) in packs.items():
             cover = f"to {BRIDGE_END_LOCAL}" if kind == "bridge" else f"to close ({hhmm(ctx.close_ms, ctx.tz)})"
-            why = f"covers demand {cover} × 1.2" + (f", net of {quantity(math.floor(projected), ing.unit)} "
-                                                    "projected free at arrival" if projected > 0 else "")
-            out += _po_slot(ctx, supplier, item, n, raised, option.arrives_biz_ms, option.cutoff_biz_ms, why,
-                            new_supplier_ids, spent, len(out))
+            why = (f"covers demand {cover} × 1.2" + (f", net of {quantity(math.floor(projected), ing.unit)} "
+                                                     "projected free at arrival" if projected > 0 else "")
+                   + _held(ctx, on_order.landing(lots, None, ends[kind])))
+            out += _po_slot(ctx, supplier, item, n, raised, arrives, option.cutoff_biz_ms, why, new_supplier_ids,
+                            spent, len(out))
     options = [(Fraction(item.pack_price_cents, item.pack_qty), supplier.lead_min, supplier.id)
                for supplier in ctx.inputs.suppliers
                if supplier.next_day_local and (item := _catalog_item(supplier, ing.id)) is not None]
     if options:
         supplier = ctx.suppliers[min(options)[2]]
         item = _catalog_item(supplier, ing.id)
-        left = max(Fraction(0), free - burn * max(0, Fraction(ctx.close_ms - now, _MIN)) / 60)
-        found = _packs(ctx, ing.par - left, supplier, item) if item is not None and ing.par > left else None
+        left = on_order.free_at(lots, free, burn, now, ctx.close_ms)
+        gap = ing.par - left - on_order.landing(lots, ctx.close_ms, None)  # what lands after close counts too
+        found = _packs(ctx, gap, supplier, item) if item is not None and gap > 0 else None
         if item is not None and supplier.next_day_local and found is not None:
             eta = local_ms(now, supplier.next_day_local, ctx.tz, days=1)
             why = (f"restocks to par ({quantity(ing.par, ing.unit)}) from "
-                   f"{quantity(math.floor(left), ing.unit)} left at close")
+                   f"{quantity(math.floor(left), ing.unit)} left at close" + _held(ctx, sum(lot.qty for lot in lots)))
             out += _po_slot(ctx, supplier, item, *found, eta, None, why, new_supplier_ids, spent, len(out))
     return out
+
+
+def _held(ctx: _Ctx, qty: int) -> str:
+    return f", counting {quantity(qty, ctx.inputs.ingredient.unit)} already on order" if qty > 0 else ""
 
 
 def _po_slot(ctx: _Ctx, supplier: Supplier, item: SupplierItem, packs: int, raised: bool, eta_ms: int,

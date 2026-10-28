@@ -121,3 +121,23 @@ def test_horizon() -> None:
     assert short.horizon_min == 30 and short.stockout_biz_without is None  # runs out at +40: beyond 30 minutes
     with pytest.raises(ValueError):
         simulate.dry_run(state, [], 0, tz=TZ)
+
+
+def test_stock_on_order_lands_in_both_runs() -> None:
+    """An open PO (``gm.incoming``) is no step of the plan: it lands at its ETA with and without the steps, so doing
+    nothing no longer runs out at 19:28 when 3 kg are already on their way, and the panel lists it as an
+    assumption; a plan's own steps still add their PO on top."""
+    from restaurantos.gm.incoming import Incoming
+
+    s = rush_situation()
+    state = simulate.state_for(s)
+    lot = Incoming("po_1", 1001, "SUP_PATEL", 3000, I3 + 40 * MIN, "pln_A")
+    held = simulate.dry_run(state, [], tz=TZ, incoming=[lot])
+    assert (held.stockout_biz_without, held.stockout_biz_with, held.expected_lost_without_x10) == (None, None, 0)
+    assert held.assumptions[-1] == "3 kg already on order (PO #1001) lands ≈19:28" and held.po_cost_cents == 0
+    assert held.open_orders_protected == held.open_orders_total == 5
+    late = Incoming("po_2", 1002, "SUP_FRESHDAIRY", 3000, I3 + 90 * MIN, None)  # past the horizon: no help
+    assert simulate.dry_run(state, [], tz=TZ, incoming=[late]).stockout_biz_without == s.inputs.forecast.eta_biz
+    [dairy] = pick(s, ("create_purchase_order", "SUP_FRESHDAIRY", 3))
+    both = simulate.dry_run(state, steps([dairy]), tz=TZ, incoming=[lot])
+    assert (both.stockout_biz_with, both.po_cost_cents) == (None, 2850) and len(both.assumptions) == 5

@@ -103,8 +103,12 @@ def test_cp1_boots_every_landed_provider_and_loads_the_seed(caplog):
             assert all(getattr(c, name) is not None for name in loaded.entry.sets), loaded.entry.module
         assert {name: type(getattr(c, name)).__name__ for name in PROVIDED} == PROVIDED
         assert c.repo.__name__ == "restaurantos.store.repo"
-        assert c.bus.started and {s.name for s in c.bus.subscriptions} == HANDLERS
-        assert [e.module for e in (loaded.entry for loaded in reports["STARTUP_SYNC"].loaded)] == ["seed.materialize"]
+        # every registered bus handler subscribed under its own name, the CP1 ones among them (obs.metrics, also a
+        # HANDLERS entry, subscribes to the SpendGuard instead)
+        on_bus = {loaded.entry.module for loaded in reports["HANDLERS"].loaded if loaded.entry.subscribes}
+        assert HANDLERS <= on_bus and c.bus.started and {s.name for s in c.bus.subscriptions} == on_bus
+        assert [e.module for e in (loaded.entry for loaded in reports["STARTUP_SYNC"].loaded)] == [
+            "seed.materialize", "governance.resume"]  # P25's crash resume after the seed (CP2)
         assert client.get("/api/health").json()["status"] == "ok"
 
         seed = load_seed()

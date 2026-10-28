@@ -1,7 +1,8 @@
 """The situation report (ARCHITECTURE §6.2, CONTRACTS §8.1): deterministic, integers only, from one read snapshot.
 
 - ``read_snapshot`` makes the repo reads of one run (CONTRACTS_RUNTIME §10.2) inside the caller's ``store.read()`` or
-  ``tx.conn``, so every number comes from one consistent snapshot.
+  ``tx.conn``, so every number comes from one consistent snapshot, the ingredient's open POs (``gm.incoming``) too:
+  the PO candidates are net of that stock on order, so a re-plan never orders it again.
 - ``derive`` is pure: the real forecast (``domain.forecast``, with the seed's demand curve as the prior), station
   loads (``domain.load``), the incident's dishes, servings free, the demand per dish (the current burn split by the
   demand curve), at-risk orders, the candidates (``gm.candidates``) and the playbook's choice: a ``Situation``.
@@ -53,6 +54,7 @@ from restaurantos.contracts.menu import Availability, MenuItem, MenuSnapshot
 from restaurantos.contracts.orders import Order
 from restaurantos.domain import detectors, forecast, load
 from restaurantos.gm import candidates as cands
+from restaurantos.gm import incoming as on_order
 from restaurantos.seed.loader import load_seed
 
 if TYPE_CHECKING:
@@ -86,6 +88,7 @@ class Snapshot:
     tickets: list[Ticket]  # open: queued, cooking, ready, recalled
     offsets: list[QuoteOffset]  # active, unexpired
     reservations: list[tuple[int, int]]  # (placed_biz_ms, qty) of the ingredient since now − 30 business min
+    incoming: tuple[on_order.Incoming, ...] = ()  # the ingredient's open POs: stock already on order
 
 
 @dataclass(frozen=True)
@@ -104,11 +107,13 @@ class Situation:
     active_offsets: list[QuoteOffset]
     close_biz_ms: int
     tz: str
+    incoming: tuple[on_order.Incoming, ...] = ()  # open POs the candidates are net of; the dry run lands them
 
 
 async def read_snapshot(conn: AsyncConnection, tenant_id: str, ingredient_id: str, now_biz_ms: int, *,
-                        repo: RepoPort | None = None) -> Snapshot:
-    """Every read ``derive`` needs, through ``repo`` (default: the store's repo module)."""
+                        repo: RepoPort | None = None, exclude_plan_id: str | None = None) -> Snapshot:
+    """Every read ``derive`` needs, through ``repo`` (default: the store's repo module); the open POs come straight
+    from ``conn`` (none without one: a repo fake serving a snapshot). ``exclude_plan_id``: see ``gm.incoming.read``."""
     if repo is None:
         from restaurantos.store import repo as store_repo  # lazy: importing gm never opens the store
 
@@ -119,7 +124,9 @@ async def read_snapshot(conn: AsyncConnection, tenant_id: str, ingredient_id: st
         suppliers=await repo.suppliers(conn, tenant_id), staff=await repo.staff(conn, tenant_id),
         open_orders=await repo.open_orders(conn, tenant_id), tickets=await repo.open_tickets(conn, tenant_id),
         offsets=await repo.active_offsets(conn, tenant_id, now_biz_ms),
-        reservations=await repo.reservations_since(conn, tenant_id, ingredient_id, now_biz_ms - WINDOW_MS))
+        reservations=await repo.reservations_since(conn, tenant_id, ingredient_id, now_biz_ms - WINDOW_MS),
+        incoming=() if conn is None else await on_order.read(conn, tenant_id, ingredient_id,
+                                                             exclude_plan_id=exclude_plan_id))
 
 
 def derive(snapshot: Snapshot, incident: Incident, now_biz_ms: int, *, observe: ObserveContext | None = None,
@@ -164,26 +171,28 @@ def derive(snapshot: Snapshot, incident: Incident, now_biz_ms: int, *, observe: 
     at_risk = _at_risk(ingredient, uses, snapshot.open_orders, snapshot.tickets)
     candidates = cands.generate(inputs, servings_free=servings_free, at_risk=at_risk,
                                 new_supplier_ids=new_supplier_ids, po_spent_today_cents=po_spent_today_cents,
-                                close_local=close_local, tz=tz)
+                                close_local=close_local, tz=tz, incoming=snapshot.incoming)
     cooks = {person.id for person in inputs.staff_on_shift if person.role == "cook"}
     chosen = cands.playbook(candidates, band=fc.band, now_biz=biz_from_ms(now, tz), cook_ids=cooks)
     return Situation(
         tenant_id=menu.tenant_id, trigger=trigger or (observe.trigger if observe is not None else "act"),
         inputs=inputs, candidates=candidates, baseline_ids=[c.id for c in chosen], servings_free=servings_free,
         demand_per_h={code: _round(value) for code, value in servings.items()}, open_orders=snapshot.open_orders,
-        at_risk=at_risk, active_offsets=snapshot.offsets, close_biz_ms=cands.local_ms(now, close_local, tz), tz=tz)
+        at_risk=at_risk, active_offsets=snapshot.offsets, close_biz_ms=cands.local_ms(now, close_local, tz), tz=tz,
+        incoming=snapshot.incoming)
 
 
 async def load_situation(conn: AsyncConnection, tenant_id: str, incident: Incident, now_biz_ms: int, *,
                          observe: ObserveContext | None = None, trigger: PlanTrigger | None = None,
                          policy: PolicyLimits | None = None, repo: RepoPort | None = None,
                          new_supplier_ids: Collection[str] = (), po_spent_today_cents: int = 0,
-                         tz: str | None = None) -> Situation:
+                         tz: str | None = None, exclude_plan_id: str | None = None) -> Situation:
     """``read_snapshot`` + ``derive``: the situation the planner (P23a) and the preview simulation (P26) start from.
     Pass ``tz=settings.tenant_timezone`` (default: the seed's zone, the same for Spice Route)."""
     if incident.ingredient_id is None:
         raise ValueError(f"incident {incident.id} has no ingredient: the situation report is ingredient-level")
-    snapshot = await read_snapshot(conn, tenant_id, incident.ingredient_id, now_biz_ms, repo=repo)
+    snapshot = await read_snapshot(conn, tenant_id, incident.ingredient_id, now_biz_ms, repo=repo,
+                                   exclude_plan_id=exclude_plan_id)
     return derive(snapshot, incident, now_biz_ms, observe=observe, trigger=trigger, policy=policy,
                   new_supplier_ids=new_supplier_ids, po_spent_today_cents=po_spent_today_cents, tz=tz)
 
@@ -192,12 +201,13 @@ async def build(conn: AsyncConnection, tenant_id: str, incident: Incident, now_b
                 observe: ObserveContext | None = None, trigger: PlanTrigger | None = None,
                 policy: PolicyLimits | None = None, repo: RepoPort | None = None,
                 new_supplier_ids: Collection[str] = (), po_spent_today_cents: int = 0,
-                tz: str | None = None) -> SituationReport:
+                tz: str | None = None, exclude_plan_id: str | None = None) -> SituationReport:
     """The report of ``incident`` at ``now_biz_ms`` (CONTRACTS_RUNTIME §10.8). Raises ``UntrustedNote`` for a note
     from any source but ``supplier_seed``."""
     return report(await load_situation(conn, tenant_id, incident, now_biz_ms, observe=observe, trigger=trigger,
                                        policy=policy, repo=repo, new_supplier_ids=new_supplier_ids,
-                                       po_spent_today_cents=po_spent_today_cents, tz=tz))
+                                       po_spent_today_cents=po_spent_today_cents, tz=tz,
+                                       exclude_plan_id=exclude_plan_id))
 
 
 def report(situation: Situation) -> SituationReport:
@@ -207,13 +217,15 @@ def report(situation: Situation) -> SituationReport:
     notes = notes_for(inputs.suppliers, ing.id)
     items = {item.code: item for item in inputs.menu.items}
     using = {dish.code for dish in inputs.dishes}
+    held = on_order.describe(situation.incoming, ing.unit, tz)  # the report has no field for stock on order yet
     return SituationReport(
         incident=ReportIncident(id=incident.id, kind=incident.kind, ingredient_id=ing.id, band=fc.band,
                                 plan_epoch=incident.plan_epoch, trigger=situation.trigger),
         now_biz=biz_from_ms(now, tz), close_biz=biz_from_ms(situation.close_biz_ms, tz),
         ingredient=ReportIngredient(id=ing.id, name=ing.names["en"], unit=ing.unit, on_hand=ing.on_hand,
                                     reserved=ing.reserved, free=fc.free, par=ing.par, burn_per_h=fc.burn_per_h,
-                                    eta_min=fc.eta_min, eta_biz=fc.eta_biz, formula=fc.formula),
+                                    eta_min=fc.eta_min, eta_biz=fc.eta_biz,
+                                    formula=f"{fc.formula}; {held}" if held else fc.formula),
         dishes=list(inputs.dishes),
         at_risk_orders=[ReportAtRiskOrder(order_no=o.order_no, channel=o.channel, language=o.language,
                                           item_codes=list(dict.fromkeys(ln.item_code for ln in o.lines
