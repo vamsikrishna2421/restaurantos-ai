@@ -1,0 +1,104 @@
+# "What doesn't work yet" (P36; MASTER_PLAN §5; CONTRACTS_API §3 #49): served by GET /api/proof/known-limits
+# (api/routes_proof.py) to the action page and /proof, as a list of {area, limit, workaround?}.
+#
+# Rules: every entry is documented in DECISIONS.md or in the published eval report
+# (config/evals/published/latest.json, run e1_20261028), and the comment above it names that source. A measured number
+# appears only with its N, quoted from that source. Delete an entry when its fix ships.
+
+# Source: latest.json (run e1_20261028): every cell has source "synthetic"; caveats "Text only: no speech recognition
+# in the loop (E2 adds audio)", "No A/B run on muse-spark-1.2 yet", "GM eval (E3) and keyword lift (E2) are not in
+# this report yet". Its speech learnings come from scripts/measure/asr_accuracy.py (a FLEURS sample of read sentences,
+# data class public_dataset) and scripts/measure/endpointing_latency.py (the same FLEURS sample plus two synthesized
+# order probes, scripts/measure/common.py order_probes).
+- area: Accuracy numbers
+  limit: >-
+    The order-accuracy table comes from synthetic text that a model wrote, parsed as text with no speech recognition
+    in the loop. No order-accuracy results on audio (E2) or on real consented clips, no AI GM vs Playbook eval (E3)
+    and no Muse Spark 1.2 A/B are published yet. The speech-recognition facts under "What we learned" were measured on
+    read sentences from the public FLEURS set (the endpointing timings also on two synthesized order clips), not on
+    real orders.
+  workaround: Try it yourself on the main screen; /proof lists every miss and caveat of the run.
+
+# Source: DECISIONS.md D36(h) (bare "naan" gets a clarifying question although the menu lists it as a Butter Naan
+# alias; 5 of the 6 E1 misses; kept as a published miss) and latest.json misses (6 misses over 360 cases).
+- area: Ordering naan
+  limit: >-
+    Asking for just "naan" gets a clarifying question instead of a Butter Naan: 5 of the 6 misses in the text eval
+    (N=360).
+  workaround: Say "butter naan".
+
+# Source: DECISIONS.md D32 (G1: Tamil clips returned in Kannada or Malayalam script) and latest.json learnings ("Tamil
+# speech returned in a non-Tamil script (16 kHz, languageBias on)": value 269 pct_x10, n 26, scripts/measure/
+# asr_accuracy.py).
+- area: Tamil speech
+  limit: >-
+    Tamil is the hardest language for speech recognition here: 26.9% of Tamil test clips (N=26) came back in another
+    script, such as Kannada or Malayalam.
+  workaround: Nothing is ordered until the read-back is confirmed, and you can type or tap the item buttons instead.
+
+# Source: DECISIONS.md D9 (speak only reviewed languages; speak_languages starts as ["en"]); the Telugu, Tamil and
+# Spanish phrase files are still review_status: unreviewed.
+- area: Spoken replies
+  limit: >-
+    The AI host understands Telugu, Tamil, Spanish and English, but replies in English only until a fluent speaker
+    has reviewed the Telugu, Tamil and Spanish replies.
+
+# Source: latest.json (run e1_20261028) learnings "Order parse latency p50 (muse-spark-1.3, effort minimal, strict
+# JSON schema)": 1838 ms, and "... p95 ...": 2909 ms, both n 360, scripts/eval.py; DECISIONS.md D4 (a deterministic
+# fast path with carrier words runs first; the schema has a closing flag).
+- area: Order speed
+  limit: >-
+    Turning what a guest said into cart lines with Muse Spark takes about two seconds per turn (p50 1.84 s, p95
+    2.91 s, N=360 synthetic text parses, run e1_20261028).
+  workaround: Simple orders and words like "yes" or "that's all" are understood in code first, with no model call.
+
+# Source: DECISIONS.md D5 (a deterministic baseline at t+0.1 s, then one streamed plan) and D32 (G3), with
+# latest.json learnings ("GM plan stream (Responses API, concise reasoning summary), first action, p50": 8958 ms,
+# n 10, scripts/measure/gm_schema_ab.py).
+- area: AI GM speed
+  limit: >-
+    The AI GM's plan streams in over several seconds: its first step arrives after about 9 s (p50 8,958 ms, N=10).
+  workaround: The rule-based Playbook appears at once, and the AI's steps show up one by one as they arrive.
+
+# Source: DECISIONS.md D36(a): a spoken yes confirms only a voiced, heard read-back; a read-back that could only be
+# voiced as silence (no live TTS, no stitched segments, no cached phrase) is never confirmable, so degraded_phone
+# follows and the call ends tts_unavailable. The kiosk fallback is ARCHITECTURE_OPS §14 (browser speech, captions).
+- area: Phone orders without a voice
+  limit: >-
+    On the phone an order is placed only after its read-back was heard. If no voice can be played at all, the call
+    ends without an order.
+  workaround: Order on the kiosk, which falls back to the browser's own voice and always shows captions.
+
+# Source: DECISIONS.md D32 (G1: some realtime sessions end abnormally, closed 1007 on an invalid UTF-8 frame or
+# "backend temporarily unavailable"; the kiosk falls back to the file endpoint, the phone reopens the session). The
+# rate there has no N, so no number is quoted.
+- area: Speech sessions
+  limit: Now and then Meta's realtime speech-recognition session ends abnormally in the middle of a turn.
+  workaround: >-
+    The kiosk transcribes the recorded turn from a file instead; on the phone a new session opens and the caller may
+    be asked to repeat.
+
+# Source: DECISIONS.md D35 and D36(h): the phone approval page shows raw item codes until ApproveView carries display
+# names (deferred).
+- area: Phone approval page
+  limit: The approval page on your phone names dishes by their menu codes (for example PNR_TIKKA), not their names.
+  workaround: The GM console (/gm) shows the same plan with dish names.
+
+# Source: DECISIONS.md D36(f) and D36(h): a swept sandbox (idle 24 h, ARCHITECTURE_OPS §13) is reported on /; a
+# read-only tab can outlive it; any Start makes a new one.
+- area: Idle kitchens
+  limit: >-
+    A kitchen nobody has used for 24 hours is deleted with everything in it. A tab left open on it can keep showing
+    the old kitchen.
+  workaround: Press Start on the main screen for a fresh kitchen; the page says when the old one is gone.
+
+# Source: DECISIONS.md D30(b): one Twilio number for judges and the public; calls start on the public lane, and an
+# armed sandbox's code reaches the judge lane through the <Gather> path (CONTRACTS_API §6). With the judge lane full
+# too, the call is refused with <Reject reason="busy"/> (CONTRACTS_API §6 "Over a cap").
+- area: Phone line
+  limit: >-
+    Judges and the public share one phone number. When its public lines are full, callers get a busy message (or a
+    busy signal when every line is taken).
+  workaround: >-
+    A judge can still get through: press "Call now" on the main screen, call, and enter # and the 6-digit code while
+    the busy message plays.
