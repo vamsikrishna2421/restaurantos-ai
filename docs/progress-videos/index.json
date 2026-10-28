@@ -6,5 +6,21 @@
   "seconds": 159,
   "file": "001-meet-restaurantos.mp4",
   "summary": "The big picture - what the product is, its four parts, what works today and what is waiting."
+ },
+ {
+  "number": 2,
+  "title": "The whole story in two clicks (what judges see)",
+  "date": "2026-10-28",
+  "seconds": 152,
+  "file": "002-full-story-in-two-clicks.mp4",
+  "summary": "A walk through the judge page's live story - dinner rush, order, shortage, AI plan, approval, checks and ledger."
+ },
+ {
+  "number": 3,
+  "title": "Ordering at the kiosk (how a guest orders)",
+  "date": "2026-10-28",
+  "seconds": 123,
+  "file": "003-ordering-at-the-kiosk.mp4",
+  "summary": "How a guest orders on the kiosk - tap, type or talk, the read-back, saying yes, and switching languages."
  }
 ]
