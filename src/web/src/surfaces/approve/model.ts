@@ -189,8 +189,9 @@ export function progressSummary(status: ApproveStatus, selected: readonly number
   const done = states.filter((st) => STEP_STATUS[st].done).length
   if (done < selected.length) return `${done} of ${selected.length} approved steps done…`
   const verified = states.filter((st) => st === 'verified').length
-  return verified === selected.length ? `All ${selected.length} approved steps verified.`
-    : `Done: ${verified} of ${selected.length} approved steps verified.`
+  const of = `${selected.length} approved step${selected.length === 1 ? '' : 's'}`
+  if (verified === selected.length) return selected.length === 1 ? 'The approved step is verified.' : `All ${of} verified.`
+  return `Done: ${verified} of ${of} verified.`
 }
 
 // ----- refusals -------------------------------------------------------------------------------------------------

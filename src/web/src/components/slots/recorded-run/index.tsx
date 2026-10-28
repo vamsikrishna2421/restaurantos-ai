@@ -57,7 +57,7 @@ export function recordedLine(env: EventEnvelope): string | null {
     case 'plan.proposed': {
       const plan = inner('plan')
       const steps = Array.isArray(plan.steps) ? plan.steps.length : 0
-      return `${plan.source === 'ai' ? `AI plan (${str(plan.model)})` : 'Playbook'}: ${steps} steps`
+      return `${plan.source === 'ai' ? `AI plan (${str(plan.model)})` : 'Playbook'}: ${steps} step${steps === 1 ? '' : 's'}`
     }
     case 'approval.decided': {
       const a = inner('approval')

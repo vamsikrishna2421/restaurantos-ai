@@ -37,6 +37,7 @@ const RAIL: readonly { stage: StoryStage; title: string; hint: string }[] = [
 const str = (v: unknown) => (typeof v === 'string' ? v : null)
 const num = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? v : null)
 const strs = (v: unknown) => (Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : [])
+const steps = (n: number) => `${n} step${n === 1 ? '' : 's'}`
 /** "SUP_PATEL" → "Patel", "STF_CARLOS" → "Carlos". */
 const fromId = (id: string) => id.replace(/^[A-Z]+_/, '').split('_').filter(Boolean)
   .map((w) => w.charAt(0) + w.slice(1).toLowerCase()).join(' ') || id
@@ -79,7 +80,7 @@ function hintOf(beat: (typeof RAIL)[number], state: string, view: StoryView, via
     return `Order #${view.order.order_no} placed${quote ? `, quoted ${quote} min` : ''}`
   }
   if (state === 'done' && beat.stage === 'planning' && view.focus) {
-    return `${view.focus.source === 'ai' ? 'AI plan' : 'Playbook'}: ${view.focus.steps.length} steps` +
+    return `${view.focus.source === 'ai' ? 'AI plan' : 'Playbook'}: ${steps(view.focus.steps.length)}` +
       `${view.focus.model ? ` from ${view.focus.model}` : ''}`
   }
   return beat.stage === 'order' && via === 'typed' ? TYPED_HINT : beat.hint
@@ -181,7 +182,7 @@ function Beat({ view, data }: { view: StoryView; data: TenantData | null }) {
     case 'approve':
       return view.focus && data ? <ApproveHere view={view} data={data} /> : null
     case 'verifying':
-      return <Muted>{`${view.verified} of ${view.total} steps verified…`}</Muted>
+      return <Muted>{`${view.verified} of ${steps(view.total)} verified…`}</Muted>
     default:
       return null
   }
@@ -239,10 +240,10 @@ function PlanningBeat({ view }: { view: StoryView }) {
   return (
     <div className="flex flex-col gap-2 text-sm">
       {view.playbook && <p><Check aria-hidden className="mr-1 inline size-4 text-ok" />
-        {`Playbook ready: ${view.playbook.steps.length} steps, from code`}</p>}
+        {`Playbook ready: ${steps(view.playbook.steps.length)}, from code`}</p>}
       <p className="flex flex-wrap items-center gap-2">
         <LoaderCircle aria-hidden className="size-4 text-ai motion-safe:animate-spin" />
-        {`AI GM planning${streamed > 0 ? ` · ${streamed} steps so far` : '…'}`}
+        {`AI GM planning${streamed > 0 ? ` · ${steps(streamed)} so far` : '…'}`}
         {gm && <ModelChip {...chipOf(gm)} />}
       </p>
       {ticker && <p className="line-clamp-2 italic text-muted">{`…${ticker}`}</p>}
@@ -380,7 +381,7 @@ function Done({ view }: { view: StoryView }) {
   return (
     <div className="mt-1 flex flex-col gap-3 border-t border-line pt-3 text-sm" data-testid="story-done">
       <p className="text-base font-semibold text-ok">
-        {`${view.verified} of ${view.total} steps verified`}
+        {`${view.verified} of ${steps(view.total)} verified`}
         {view.running > 0 && <span className="font-normal text-muted">{` · ${view.running} still checking`}</span>}
       </p>
       {view.soldOut.length > 0 && (
