@@ -1,0 +1,168 @@
+number: 2
+slug: full-story-in-two-clicks
+title: The whole story in two clicks (what judges see)
+date: 2026-10-28
+summary: A walk through the judge page's live story - dinner rush, order, shortage, AI plan, approval, checks and ledger.
+voice: Samantha
+rate: 172
+scenes:
+  - type: title
+    hero: true
+    kicker: Progress video 002 · Oct 28
+    title: The whole story in two clicks
+    subtitle: What a judge sees, step by step - and how to approve the AI's plan
+    say: >-
+      This is progress video number two. I'll walk you through the live story on the judge page: a dinner rush, a
+      guest's order, an ingredient running short, the AI's plan, and your approval. All of this works today.
+
+  - type: steps
+    heading: How to start it
+    items:
+      - Open the front page from the dev link
+      - Click "Run the full story live"
+      - Watch the steps tick off, about one minute
+      - When it asks, approve the AI's plan
+    say: >-
+      Starting it is easy. Open the front page. Click Run the full story live. Watch the steps tick off, which takes
+      about a minute. And when it asks, approve the AI's plan.
+
+  - type: screen
+    image: story/02-rush.png
+    label: Step 1 · A busy dinner rush
+    url: our dev link /
+    marks:
+      - box: [175, 548, 545, 80]
+        label: Simulated walk-in orders fill the kitchen
+        at: 0.12
+      - box: [706, 10, 242, 35]
+        label: Restaurant time runs 10x faster
+        at: 0.45
+      - box: [951, 10, 237, 35]
+        label: AI cost so far
+        at: 0.72
+    say: >-
+      First, the story starts a busy Saturday dinner rush. The restaurant's clock runs ten times faster, and
+      simulated walk-in orders fill the kitchen. The meter at the top shows exactly how much the AI has cost so far.
+
+  - type: screen
+    image: story/03-order.png
+    label: Step 2 · An order, and paneer runs short
+    url: our dev link /
+    zoom: [140, 420, 840, 260]
+    zoomAt: 0.2
+    marks:
+      - box: [175, 436, 370, 52]
+        label: The guest's order went through the real AI
+        at: 0.12
+      - box: [175, 498, 370, 50]
+        label: Paneer will run out before a delivery
+        at: 0.42
+      - box: [214, 588, 300, 56]
+        label: A rule-based plan appears at once
+        at: 0.68
+    say: >-
+      Next, a guest's order goes through the real AI and lands in the kitchen. That order uses paneer, and the stock
+      forecast says paneer will run out before a delivery can arrive. That is the moment to act. A rule-based
+      playbook appears instantly, and the AI general manager starts thinking.
+
+  - type: screen
+    image: story/07-gm-plan.png
+    label: Step 3 · The AI's plan
+    url: our dev link /gm
+    zoom: [0, 410, 990, 490]
+    zoomAt: 0.15
+    marks:
+      - box: [35, 522, 925, 147]
+        label: You can read the AI's reasoning
+        at: 0.15
+      - box: [35, 683, 912, 48]
+        label: The plan, in one sentence
+        at: 0.45
+      - box: [35, 741, 797, 155]
+        label: Where the AI and the playbook disagree
+        at: 0.7
+        above: true
+    say: >-
+      In about twelve seconds, the AI finishes its plan, and you can read its reasoning. Here it worked out that the
+      paneer lasts until a supplier pickup at seven twenty-seven. So it keeps every paneer dish on the menu, and
+      orders three kilos from Patel instead of the playbook's four. Each chip shows where the AI and the playbook
+      disagree.
+
+  - type: screen
+    image: story/05-approval.png
+    label: Step 4 · Your approval
+    url: our dev link /
+    zoom: [190, 440, 680, 300]
+    zoomAt: 0.2
+    marks:
+      - box: [221, 552, 618, 56]
+        label: Matches the code on the manager's screen
+        at: 0.3
+        above: true
+      - box: [221, 650, 198, 53]
+        label: Approve here
+        at: 0.55
+      - box: [429, 650, 246, 53]
+        label: Or on your phone
+        at: 0.75
+    say: >-
+      Then the plan stops and waits for a person. This step spends thirty-three dollars, so it needs a manager. The
+      short code matches the one on the manager's own screen, so you know you're approving the same plan. Approve it
+      here, or scan a QR code and approve it on your phone.
+
+  - type: screen
+    image: story/10-chain.png
+    label: Step 5 · Checked, and written down for good
+    url: our dev link /
+    zoom: [100, 380, 800, 120]
+    zoomAt: 0.2
+    marks:
+      - box: [179, 400, 610, 64]
+        label: Every approved step is checked, then recorded
+        at: 0.25
+    say: >-
+      After you approve, each step runs, and then gets checked to make sure it really happened. Every action is
+      written to a ledger where each line is locked to the one before it. Verify the chain proves that nothing was
+      changed afterwards.
+
+  - type: screen
+    image: story/11-supplier.png
+    label: Where the purchase order goes
+    url: our dev link /supplier
+    marks:
+      - box: [400, 187, 640, 216]
+        label: The AI's order for 3 packs of paneer
+        at: 0.15
+      - box: [506, 336, 150, 51]
+        label: Stands in for the delivery
+        at: 0.55
+    say: >-
+      The purchase order lands in the supplier inbox. This supplier is simulated, so no real money moves. Pressing
+      Received stands in for the delivery, and the paneer stock goes back up.
+
+  - type: screen
+    image: story/12-gm-ledger.png
+    label: The full audit trail
+    url: our dev link /gm
+    zoom: [960, 400, 470, 370]
+    zoomAt: 0.25
+    marks:
+      - box: [992, 424, 432, 328]
+        label: Proposed, reviewed, decided, done, verified
+        at: 0.2
+        above: true
+    say: >-
+      On the GM console, the ledger lists every step in order. The AI proposed. The system reviewed. A judge
+      decided. Then the system did it, and checked it. Anyone can audit this trail.
+
+  - type: bullets
+    heading: Good to know
+    items:
+      - Every judge gets a private copy of the sample restaurant
+      - A full run costs about two to three cents of AI credit
+      - Reset starts your kitchen over, just before the rush
+      - The kitchen display and kiosk links sit under the story
+    say: >-
+      A few good things to know. Every judge gets a private copy of the sample restaurant, so nobody gets in each
+      other's way. A full run costs about two to three cents of AI credit. Reset starts your kitchen over, just
+      before the rush. And the kitchen display and kiosk links sit right under the story. Thanks for watching!

@@ -1,0 +1,204 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>RestaurantOS progress video</title>
+<style>
+  :root {
+    --ink: #070a12; --panel: #0f1626; --panel-2: #141d31; --line: rgba(255, 255, 255, 0.09);
+    --text: #eef2f8; --muted: #9aa8bd; --accent: #ff8a3d; --accent-2: #ffc861; --ai: #9b8cff;
+    --ok: #34d17e; --warn: #f5b041; --bad: #ff6262; --blue: #4f7cff;
+    --sans: -apple-system, "SF Pro Display", "Helvetica Neue", "Kohinoor Telugu", "Tamil Sangam MN", sans-serif;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; width: 1920px; height: 1080px; overflow: hidden; background: var(--ink); }
+  #stage { position: relative; width: 1920px; height: 1080px; overflow: hidden; font-family: var(--sans); color: var(--text);
+    background: radial-gradient(70rem 40rem at var(--gx, 10%) -10%, rgba(79, 124, 255, 0.16), transparent 60%),
+                radial-gradient(60rem 36rem at var(--hx, 95%) 0%, rgba(255, 138, 61, 0.12), transparent 60%), var(--ink); }
+  .brand { position: absolute; top: 44px; left: 64px; display: flex; align-items: center; gap: 16px; font-size: 30px; font-weight: 600; letter-spacing: -0.01em; }
+  .brand img { width: 52px; height: 52px; border-radius: 12px; }
+  .brand b { color: var(--accent); font-weight: 600; }
+  .tag { position: absolute; top: 50px; right: 64px; display: flex; gap: 14px; align-items: center; color: var(--muted); font-size: 22px; }
+  .dots { display: flex; gap: 8px; }
+  .dots i { width: 12px; height: 12px; border-radius: 50%; background: rgba(255, 255, 255, 0.15); }
+  .dots i.on { background: var(--accent); }
+  .scene { position: absolute; inset: 0; display: none; }
+  .center { position: absolute; left: 160px; right: 160px; top: 170px; bottom: 210px; display: flex; flex-direction: column; justify-content: center; gap: 30px; }
+  .kicker { color: var(--accent); font-size: 26px; font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase; }
+  .title { font-size: 92px; font-weight: 750; line-height: 1.04; letter-spacing: -0.025em; max-width: 1500px; }
+  .subtitle { font-size: 38px; color: var(--muted); line-height: 1.35; max-width: 1400px; }
+  .hero-hat { position: absolute; right: 170px; top: 300px; width: 380px; height: 380px; border-radius: 48px;
+    box-shadow: 0 0 120px rgba(255, 138, 61, 0.35), 0 0 80px rgba(79, 124, 255, 0.3); }
+  .heading { font-size: 64px; font-weight: 720; letter-spacing: -0.02em; line-height: 1.1; max-width: 1600px; }
+  .list { display: flex; flex-direction: column; gap: 26px; margin-top: 10px; }
+  .item { display: flex; gap: 26px; align-items: flex-start; font-size: 40px; line-height: 1.3; max-width: 1560px; }
+  .item .dot { flex: none; width: 22px; height: 22px; border-radius: 50%; margin-top: 15px; background: linear-gradient(135deg, var(--accent), var(--accent-2)); box-shadow: 0 0 22px rgba(255, 138, 61, 0.6); }
+  .item .num { flex: none; width: 64px; height: 64px; border-radius: 18px; display: grid; place-items: center; font-weight: 750; font-size: 34px;
+    background: linear-gradient(135deg, var(--accent), var(--accent-2)); color: #1a1006; }
+  .item small { display: block; color: var(--muted); font-size: 30px; margin-top: 6px; }
+  .chip { flex: none; width: 250px; text-align: center; padding: 8px 18px; border-radius: 999px; font-size: 26px; font-weight: 650; border: 2px solid currentColor; margin-top: 4px; }
+  .chip.done { color: var(--ok); } .chip.soon { color: var(--muted); border-style: dashed; } .chip.you { color: var(--accent); } .chip.wip { color: var(--warn); }
+  .window { position: absolute; left: 388px; right: 388px; top: 140px; bottom: 170px; border-radius: 26px; overflow: hidden; background: var(--panel);
+    border: 1px solid var(--line); box-shadow: 0 30px 120px rgba(0, 0, 0, 0.55), 0 0 0 1px rgba(79, 124, 255, 0.12); }
+  .bar { height: 54px; display: flex; align-items: center; gap: 12px; padding: 0 22px; background: var(--panel-2); border-bottom: 1px solid var(--line); }
+  .bar i { width: 15px; height: 15px; border-radius: 50%; background: rgba(255, 255, 255, 0.18); }
+  .bar span { margin-left: 18px; font-size: 21px; color: var(--muted); background: rgba(255, 255, 255, 0.06); padding: 6px 18px; border-radius: 10px; }
+  .view { position: absolute; left: 0; right: 0; top: 54px; bottom: 0; overflow: hidden; }
+  .cam { position: absolute; left: 0; top: 0; transform-origin: 0 0; }
+  .cam img { display: block; }
+  .mark { position: absolute; border: 4px solid var(--accent); border-radius: 16px; box-shadow: 0 0 0 6px rgba(255, 138, 61, 0.18), 0 0 40px rgba(255, 138, 61, 0.55); }
+  .overlay { position: absolute; inset: 0; pointer-events: none; }
+  .mlabel { position: absolute; left: 0; top: 0; white-space: nowrap; background: var(--accent); color: #1a1006; font-size: 28px; font-weight: 720;
+    padding: 10px 20px; border-radius: 14px; box-shadow: 0 10px 40px rgba(0, 0, 0, 0.45); }
+  .label { position: absolute; left: 388px; top: 96px; font-size: 26px; font-weight: 650; color: var(--accent-2); letter-spacing: 0.04em; }
+  .caption { position: absolute; left: 50%; bottom: 40px; transform: translateX(-50%); max-width: 1500px; text-align: center; font-size: 34px; line-height: 1.35;
+    padding: 16px 30px; border-radius: 18px; background: rgba(7, 10, 18, 0.82); border: 1px solid var(--line); }
+  .progress { position: absolute; left: 0; bottom: 0; height: 6px; background: linear-gradient(90deg, var(--blue), var(--ai), var(--accent)); }
+</style>
+</head>
+<body>
+<div id="stage">
+  <div class="brand"><img id="hat" alt=""><span>RestaurantOS <b>AI</b></span></div>
+  <div class="tag"><span id="vid"></span><div class="dots" id="dots"></div></div>
+  <div id="scenes"></div>
+  <div class="caption" id="cap"></div>
+  <div class="progress" id="prog"></div>
+</div>
+<script>
+const T = /*TIMELINE*/null;
+const $ = (tag, cls, html) => { const e = document.createElement(tag); if (cls) e.className = cls; if (html != null) e.innerHTML = html; return e; };
+const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const clamp = (x) => Math.max(0, Math.min(1, x));
+const ease = (x) => 1 - Math.pow(1 - clamp(x), 3);
+const inOut = (x) => { x = clamp(x); return x < 0.5 ? 4 * x * x * x : 1 - Math.pow(-2 * x + 2, 3) / 2; };
+
+document.getElementById('hat').src = T.hat;
+document.getElementById('vid').textContent = T.label;
+const dots = document.getElementById('dots');
+T.scenes.forEach(() => dots.appendChild($('i')));
+
+// Build every scene's DOM once; render(t) only sets opacity and transforms.
+const built = T.scenes.map((sc) => {
+  const root = $('div', 'scene');
+  const anim = []; // {el, at, kind}
+  const add = (el, at, kind = 'up') => { anim.push({ el, at, kind }); return el; };
+  if (sc.type === 'title') {
+    const c = $('div', 'center');
+    if (sc.kicker) c.appendChild(add($('div', 'kicker', esc(sc.kicker)), 0.1));
+    c.appendChild(add($('div', 'title', esc(sc.title)), 0.25));
+    if (sc.subtitle) c.appendChild(add($('div', 'subtitle', esc(sc.subtitle)), 0.6));
+    root.appendChild(c);
+    if (sc.hero) { const img = $('img', 'hero-hat'); img.src = T.hat; root.appendChild(add(img, 0.4, 'pop')); c.style.right = '620px'; }
+  } else if (sc.type === 'bullets' || sc.type === 'steps' || sc.type === 'status') {
+    const c = $('div', 'center');
+    c.appendChild(add($('div', 'heading', esc(sc.heading)), 0.05));
+    const list = $('div', 'list');
+    const items = sc.items || [];
+    items.forEach((it, i) => {
+      const at = sc.times ? sc.times[i] : 0.12 + (0.72 * i) / Math.max(1, items.length);
+      const row = $('div', 'item');
+      const label = typeof it === 'string' ? it : it.text;
+      const sub = typeof it === 'string' ? '' : (it.sub || '');
+      if (sc.type === 'steps') row.appendChild($('div', 'num', String(i + 1)));
+      else if (sc.type === 'status') row.appendChild($('div', 'chip ' + (it.state || 'soon'), esc(it.chip || it.state)));
+      else row.appendChild($('div', 'dot'));
+      row.appendChild($('div', '', esc(label) + (sub ? '<small>' + esc(sub) + '</small>' : '')));
+      list.appendChild(add(row, at, 'left'));
+    });
+    c.appendChild(list);
+    root.appendChild(c);
+  } else if (sc.type === 'screen') {
+    if (sc.label) root.appendChild(add($('div', 'label', esc(sc.label)), 0.0, 'fade'));
+    const win = $('div', 'window');
+    const bar = $('div', 'bar', '<i></i><i></i><i></i><span>' + esc(sc.url || '') + '</span>');
+    const view = $('div', 'view');
+    const cam = $('div', 'cam');
+    const img = $('img'); img.src = sc.image; img.width = sc.space[0]; img.height = sc.space[1];
+    cam.appendChild(img);
+    const overlay = $('div', 'overlay');
+    // Boxes ride the camera; labels sit in screen space at a constant size, one at a time, kept inside the view.
+    const marks = [...(sc.marks || [])].sort((a, b) => (a.at ?? 0.3) - (b.at ?? 0.3)).map((m) => {
+      const box = $('div', 'mark');
+      box.style.left = m.box[0] + 'px'; box.style.top = m.box[1] + 'px';
+      box.style.width = m.box[2] + 'px'; box.style.height = m.box[3] + 'px';
+      cam.appendChild(box);
+      const label = m.label ? $('div', 'mlabel', esc(m.label)) : null;
+      if (label) overlay.appendChild(label);
+      return { m, box, label, at: m.at ?? 0.3 };
+    });
+    view.appendChild(cam); view.appendChild(overlay); win.appendChild(bar); win.appendChild(view); root.appendChild(win);
+    root._cam = { cam, view, marks };
+  }
+  document.getElementById('scenes').appendChild(root);
+  return { root, anim, cam: root._cam };
+});
+
+function placeMarks(sc, b, p, s, x, y) {
+  const vw = b.cam.view.clientWidth, vh = b.cam.view.clientHeight, marks = b.cam.marks;
+  marks.forEach((mk, k) => {
+    const next = marks[k + 1] ? marks[k + 1].at : 2;
+    const on = ease((p - mk.at) / Math.max(0.06, 0.5 / sc.dur));
+    const off = next <= 1 ? ease((p - next + 0.02) / Math.max(0.05, 0.4 / sc.dur)) : 0;
+    mk.box.style.opacity = String(on * (1 - 0.6 * off));
+    mk.box.style.transform = `scale(${0.94 + 0.06 * on})`;
+    if (!mk.label) return;
+    const lab = mk.label;
+    lab.style.opacity = String(on * (1 - off));
+    const [bx, by, bw, bh] = mk.m.box;
+    const sx = x + bx * s, sy = y + by * s, sw = bw * s, sh = bh * s;
+    const lw = lab.offsetWidth, lh = lab.offsetHeight, gap = 14;
+    let top = mk.m.above ? sy - lh - gap : sy + sh + gap;
+    if (top + lh > vh - 10) top = sy - lh - gap;          // no room below: above
+    if (top < 10) top = Math.min(vh - lh - 10, sy + sh + gap); // no room above: below
+    if (top < 10 || top + lh > vh - 10) top = Math.max(10, Math.min(vh - lh - 10, sy + 10)); // inside the box
+    const left = Math.max(10, Math.min(vw - lw - 10, sx));
+    lab.style.transform = `translate(${left}px, ${top}px)`;
+  });
+}
+
+function camera(sc, b, p) {
+  const vw = b.cam.view.clientWidth, vh = b.cam.view.clientHeight;
+  const [W, H] = sc.space;
+  const full = (() => { const s = Math.min(vw / W, vh / H); return { s, x: (vw - W * s) / 2, y: (vh - H * s) / 2 }; })();
+  let s = full.s, x = full.x, y = full.y;
+  if (sc.zoom) {
+    const [zx, zy, zw, zh] = sc.zoom;
+    const zs = Math.min(vw / zw, vh / zh);
+    const tx = vw / 2 - (zx + zw / 2) * zs, ty = vh / 2 - (zy + zh / 2) * zs;
+    const q = inOut((p - (sc.zoomAt ?? 0.15)) / (sc.zoomDur ?? 0.45));
+    s = full.s + (zs - full.s) * q; x = full.x + (tx - full.x) * q; y = full.y + (ty - full.y) * q;
+  }
+  b.cam.cam.style.transform = `translate(${x}px, ${y}px) scale(${s})`;
+  placeMarks(sc, b, p, s, x, y);
+}
+
+window.render = (t) => {
+  let i = T.scenes.findIndex((sc) => t < sc.start + sc.dur);
+  if (i < 0) i = T.scenes.length - 1;
+  const sc = T.scenes[i], b = built[i];
+  built.forEach((x, j) => { x.root.style.display = j === i ? 'block' : 'none'; });
+  const local = t - sc.start, p = local / sc.dur;
+  b.root.style.opacity = String(ease(local / 0.35));
+  for (const a of b.anim) {
+    const q = ease((p - a.at) / Math.max(0.06, 0.55 / sc.dur));
+    a.el.style.opacity = String(q);
+    if (a.kind === 'up') a.el.style.transform = `translateY(${(1 - q) * 34}px)`;
+    if (a.kind === 'left') a.el.style.transform = `translateX(${(1 - q) * -40}px)`;
+    if (a.kind === 'pop') a.el.style.transform = `scale(${0.92 + 0.08 * q})`;
+  }
+  if (b.cam) camera(sc, b, p);
+  [...dots.children].forEach((d, j) => d.classList.toggle('on', j === i));
+  const cap = (sc.captions || []).find((c) => local >= c.from && local < c.to);
+  const capEl = document.getElementById('cap');
+  capEl.textContent = cap ? cap.text : '';
+  capEl.style.display = cap ? 'block' : 'none';
+  document.getElementById('prog').style.width = (100 * t / T.total).toFixed(2) + '%';
+  const stage = document.getElementById('stage');
+  stage.style.setProperty('--gx', (10 + 8 * Math.sin(t / 6)).toFixed(2) + '%');
+  stage.style.setProperty('--hx', (92 - 6 * Math.sin(t / 7)).toFixed(2) + '%');
+  return true;
+};
+window.ready = Promise.all([...document.images].map((im) => im.complete ? 1 : new Promise((r) => { im.onload = r; im.onerror = r; })));
+</script>
+</body>
+</html>

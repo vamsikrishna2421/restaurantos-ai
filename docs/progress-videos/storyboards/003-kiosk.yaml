@@ -1,0 +1,144 @@
+number: 3
+slug: ordering-at-the-kiosk
+title: Ordering at the kiosk (how a guest orders)
+date: 2026-10-28
+summary: How a guest orders on the kiosk - tap, type or talk, the read-back, saying yes, and switching languages.
+voice: Samantha
+rate: 172
+scenes:
+  - type: title
+    hero: true
+    kicker: Progress video 003 · Oct 28
+    title: Ordering at the kiosk
+    subtitle: How a guest orders by tapping, typing or talking - in four languages
+    say: >-
+      This is progress video number three. I'll show you how a guest orders food at the kiosk, the self-service
+      screen at the counter. It works today, in English, Telugu, Tamil and Spanish.
+
+  - type: screen
+    image: kiosk/01-gate.png
+    label: 1 · The welcome screen
+    url: our dev link /kiosk
+    zoom: [440, 260, 560, 380]
+    zoomAt: 0.2
+    marks:
+      - box: [581, 418, 278, 26]
+        label: Four languages
+        at: 0.3
+      - box: [608, 466, 224, 59]
+        label: Tap to start
+        at: 0.6
+    say: >-
+      The guest walks up and sees this welcome screen. It says the kiosk understands English, Telugu, Tamil and
+      Spanish. They tap Tap to start. The microphone only listens while they hold the talk button, so nothing is sent
+      by accident.
+
+  - type: screen
+    image: kiosk/02-kiosk.png
+    label: 2 · Three ways to order
+    url: our dev link /kiosk
+    marks:
+      - box: [16, 218, 227, 158]
+        label: Tap a dish and its plus button
+        at: 0.12
+      - box: [994, 230, 126, 130]
+        label: Hold and speak
+        at: 0.42
+      - box: [1129, 320, 110, 22]
+        label: Or type instead
+        at: 0.72
+    say: >-
+      Now the guest has three ways to order. They can tap a dish and its plus button. They can press and hold the big
+      orange microphone, and simply say what they want, in any of the four languages, even mixed together. Or they
+      can type, using Type instead.
+
+  - type: screen
+    image: kiosk/03-typed.png
+    label: 3 · Saying it in their own words
+    url: our dev link /kiosk
+    zoom: [960, 160, 470, 300]
+    zoomAt: 0.2
+    marks:
+      - box: [1001, 367, 337, 53]
+        label: Two samosa and one mango lassi, that is all
+        at: 0.25
+      - box: [1347, 367, 59, 53]
+        label: Send
+        at: 0.65
+    say: >-
+      Here the guest typed: two samosa and one mango lassi, that is all. Saying that is all tells the kiosk the
+      order is finished. Simple orders like this one are understood instantly, without even calling the AI.
+
+  - type: screen
+    image: kiosk/04-readback.png
+    label: 4 · The kiosk reads it back
+    url: our dev link /kiosk
+    marks:
+      - box: [1001, 193, 406, 101]
+        label: Items, total and waiting time
+        at: 0.12
+      - box: [985, 566, 438, 235]
+        label: The order, line by line
+        at: 0.45
+      - box: [1119, 811, 288, 59]
+        label: Yes, place order
+        at: 0.72
+    say: >-
+      The kiosk reads the order back: two samosa and one mango lassi, twenty dollars and thirty cents, about fifteen
+      minutes. The order also appears line by line on the right, where the guest can change quantities. If it's
+      right, they say yes, or tap Yes, place order.
+
+  - type: screen
+    image: kiosk/05-placed.png
+    label: 5 · Order placed
+    url: our dev link /kiosk
+    zoom: [960, 440, 470, 380]
+    zoomAt: 0.2
+    marks:
+      - box: [985, 475, 438, 314]
+        label: Order number and ready time
+        at: 0.25
+      - box: [1110, 710, 190, 50]
+        label: Next guest
+        at: 0.7
+    say: >-
+      Done! The guest gets an order number and a ready time, and the tickets appear on the kitchen display at the
+      same moment. Start a new order resets the kiosk for the next guest.
+
+  - type: screen
+    image: kiosk/06-telugu.png
+    label: 6 · The whole menu in Telugu
+    url: our dev link /kiosk
+    marks:
+      - box: [957, 14, 368, 28]
+        label: Pick a language
+        at: 0.12
+      - box: [19, 219, 224, 157]
+        label: Dish names in Telugu, English underneath
+        at: 0.45
+    say: >-
+      At the top, the guest can switch the whole screen to Telugu, Tamil or Spanish. Dish names appear in that
+      language, with the English name underneath, so staff and guests always agree on what was ordered.
+
+  - type: status
+    heading: What works, and what is waiting
+    items:
+      - text: Tapping, typing and talking in four languages
+        chip: Working
+        state: done
+      - text: Read-back, change, and confirm
+        chip: Working
+        state: done
+      - text: Spoken replies in a natural voice
+        sub: Text and the browser's voice for now; needs the paid ElevenLabs voice
+        chip: Waiting on you
+        state: you
+      - text: Showing the order number as digits on screen
+        sub: It currently spells it out for the voice; a small fix
+        chip: Next fix
+        state: wip
+    say: >-
+      So, what works and what is waiting. Tapping, typing and talking work in all four languages, and so do the
+      read-back and the confirmation. Spoken replies in a natural voice wait on the paid ElevenLabs voice. Until
+      then, replies show as text and the browser reads them aloud. And one small fix is coming: the order number
+      will show as digits on screen. Thanks for watching!

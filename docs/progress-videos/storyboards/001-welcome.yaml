@@ -1,0 +1,157 @@
+number: 1
+slug: meet-restaurantos
+title: Meet RestaurantOS AI, and where it stands
+date: 2026-10-28
+summary: The big picture - what the product is, its four parts, what works today and what is waiting.
+voice: Samantha
+rate: 172
+scenes:
+  - type: title
+    hero: true
+    kicker: Progress video 001 · Oct 28
+    title: Meet RestaurantOS AI
+    subtitle: What we are building, what works today, and what comes next
+    say: >-
+      Hi! This is progress video number one. In about three minutes, I'll show you what RestaurantOS AI is,
+      what already works, and what is left before we submit on November fourth.
+
+  - type: bullets
+    heading: The idea, in plain words
+    items:
+      - An AI general manager for small restaurants
+      - Guests order by voice in Telugu, Tamil, Spanish or English
+      - The kitchen sees every ticket in each cook's own language
+      - When an ingredient runs low, the AI plans the fix, and asks before it acts
+    say: >-
+      The idea is simple. RestaurantOS is an AI general manager for small restaurants where people speak many
+      languages. Guests can order by voice in Telugu, Tamil, Spanish or English. The kitchen sees every ticket in
+      each cook's own language. And when an ingredient is about to run out, the AI plans the fix, and waits for a
+      manager to say yes before it does anything important.
+
+  - type: screen
+    image: story/01-home.png
+    label: 1 · The front page for judges
+    url: our dev link /
+    zoom: [140, 330, 1170, 420]
+    zoomAt: 0.35
+    marks:
+      - box: [856, 398, 258, 68]
+        label: One click runs the whole story
+        at: 0.25
+      - box: [154, 398, 698, 68]
+        label: Or hear a single order
+        at: 0.55
+        above: true
+    say: >-
+      This is the front door. Judges land here. One button runs the whole story with real Meta AI models: a busy
+      dinner rush, a guest's order, an ingredient running short, and the AI's plan. It takes about two minutes, and
+      every AI call is metered, so we always know what it costs.
+
+  - type: screen
+    image: kiosk/04-readback.png
+    label: 2 · The ordering kiosk
+    url: our dev link /kiosk
+    zoom: [960, 160, 470, 720]
+    zoomAt: 0.3
+    marks:
+      - box: [16, 219, 229, 158]
+        label: Tap a dish
+        at: 0.1
+      - box: [1001, 193, 406, 101]
+        label: The AI reads the order back
+        at: 0.45
+      - box: [1119, 811, 288, 59]
+        label: Guest says yes
+        at: 0.75
+        above: true
+    say: >-
+      Second, the ordering kiosk. A guest can tap dishes, type, or hold the big orange button and simply talk. The AI
+      reads the order back, with the total and the waiting time. When the guest says yes, the order goes straight to
+      the kitchen.
+
+  - type: screen
+    image: story/08-kds.png
+    label: 3 · The kitchen display
+    url: our dev link /kds
+    zoom: [0, 150, 720, 450]
+    zoomAt: 0.3
+    marks:
+      - box: [16, 163, 336, 256]
+        label: A ticket in Telugu for the tandoor cook
+        at: 0.2
+      - box: [229, 181, 109, 42]
+        label: Time waiting
+        at: 0.5
+        above: true
+      - box: [29, 346, 310, 61]
+        label: Tap when the dish is done
+        at: 0.7
+    say: >-
+      Third, the kitchen display. Every order is split into tickets for each cooking station, written in that
+      cook's own language. The timer shows how long the guest has been waiting. When a dish is ready, the cook taps
+      the big green button.
+
+  - type: screen
+    image: story/06-gm.png
+    label: 4 · The AI general manager
+    url: our dev link /gm
+    marks:
+      - box: [16, 106, 960, 205]
+        label: Paneer will run out at 7:27 PM
+        at: 0.15
+      - box: [995, 106, 428, 400]
+        label: The plan waits for a manager's yes
+        at: 0.5
+    say: >-
+      Fourth, the AI general manager. It tracks every ingredient in every recipe. Here it sees that paneer will run
+      out at seven twenty-seven. It suggests a plan, like ordering three kilos from a supplier, and waits for a
+      manager to approve it. Everything it does is written to a log that cannot be changed later.
+
+  - type: status
+    heading: Where things stand today
+    items:
+      - text: Ordering, kitchen display, inventory, AI manager, judge page
+        chip: Working
+        state: done
+      - text: More than 1,500 automatic checks run and pass
+        chip: Tested
+        state: done
+      - text: The new look, with your hat logo and banner
+        chip: Done today
+        state: done
+      - text: Phone ordering line
+        sub: Needs a paid ElevenLabs voice
+        chip: Waiting on you
+        state: you
+      - text: A public website for the judges
+        sub: Needs a Fly.io account by Oct 31
+        chip: Waiting on you
+        state: you
+    say: >-
+      Here is where things stand. Ordering, the kitchen display, inventory, the AI manager and the judge page all
+      work today, and more than fifteen hundred automatic checks pass. The new look with your hat logo is done. Two
+      things are waiting on you. The phone line needs a paid ElevenLabs voice. And the public website for judges
+      needs a Fly account, by October thirty-first.
+
+  - type: steps
+    heading: How to try it yourself
+    items:
+      - Open the dev link (it runs on your laptop)
+      - Click "Run the full story live" and watch
+      - Approve the AI's plan when it asks
+      - Open the kitchen display or the kiosk from the links under the story
+    say: >-
+      To try it yourself: open the dev link. Click Run the full story live, and watch. When the AI asks, approve
+      its plan. Then open the kitchen display or the kiosk from the links under the story.
+
+  - type: bullets
+    heading: Coming next
+    items:
+      - Proof, Status and Privacy pages · Oct 30
+      - More safety tests and a load test · Oct 30 to 31
+      - Feature freeze · Oct 31
+      - Filming · Nov 1, and submission · Nov 4
+    say: >-
+      Next come the proof and status pages, more safety tests, and the feature freeze on October thirty-first. Then
+      we film on November first, and submit on November fourth. I'll make a short video like this one every time
+      something new is ready, and the status dashboard always shows the full picture. Thanks for watching!
