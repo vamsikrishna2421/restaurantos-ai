@@ -92,7 +92,35 @@ async def kiosk(p: Page, base: str, out: Path) -> None:
     await p.shot(out / "06-telugu.png")
 
 
-SCENARIOS = {"story": story, "kiosk": kiosk}
+async def proof(p: Page, base: str, out: Path) -> None:
+    """The /proof, /status and /privacy pages, with a sample kitchen whose rush has just started (no model call)."""
+    await p.goto(base + "/", 4)
+    await p.click("Explore further")
+    await asyncio.sleep(1)
+    await p.click("Start the rush")
+    await asyncio.sleep(5)
+    await p.goto(base + "/proof", 5)
+    await p.shot(out / "01-proof.png")
+    sections = [("Fast path, with and without", "02-fastpath"), ("What we learned", "03-learned"),
+                ("Misses", "04-misses"), ("Your kitchen's shift receipt", "05-receipt"),
+                ("What doesn't work yet", "06-limits")]
+    for heading, name in sections:
+        await p.scroll_to_text(heading)
+        await asyncio.sleep(0.5)
+        await p.shot(out / f"{name}.png")
+    await p.goto(base + "/status", 5)
+    await p.shot(out / "07-status.png")
+    await p.scroll_to_text("Live AI Ops")
+    await asyncio.sleep(0.5)
+    await p.shot(out / "08-ops.png")
+    await p.goto(base + "/privacy", 3)
+    await p.shot(out / "09-privacy.png")
+    await p.scroll_to_text("Who else handles your data")
+    await asyncio.sleep(0.5)
+    await p.shot(out / "10-processors.png")
+
+
+SCENARIOS = {"story": story, "kiosk": kiosk, "proof": proof}
 
 
 async def main(base: str, scenario: str) -> None:

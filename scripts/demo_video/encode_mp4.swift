@@ -125,4 +125,10 @@ let done = DispatchSemaphore(value: 0)
 writer.finishWriting { done.signal() }
 done.wait()
 if writer.status != .completed { fail("encode failed: \(String(describing: writer.error))") }
+// The network-optimised rewrite can leave its first-pass "<out>.sb-…" draft beside the video: remove it.
+let folder = outURL.deletingLastPathComponent()
+for name in (try? FileManager.default.contentsOfDirectory(atPath: folder.path)) ?? []
+    where name.hasPrefix(outURL.lastPathComponent + ".sb-") {
+    try? FileManager.default.removeItem(at: folder.appendingPathComponent(name))
+}
 print("encoded \(frames.count) frames to \(outURL.path)")

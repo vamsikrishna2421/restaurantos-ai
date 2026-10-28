@@ -1,0 +1,164 @@
+number: 4
+slug: proof-status-privacy
+title: The Proof, Status and Privacy pages
+date: 2026-10-28
+summary: New today - the honesty pages judges can check - measured accuracy with N, live system status, and what data is kept.
+voice: Samantha
+rate: 172
+scenes:
+  - type: title
+    hero: true
+    kicker: Progress video 004 · Oct 28
+    title: Proof, Status and Privacy
+    subtitle: Three new pages that show judges our numbers, our health and our data rules - nothing claimed, everything measured
+    say: >-
+      This is progress video number four. Today I finished three new pages: Proof, Status and Privacy. They let a
+      judge check our numbers, see whether everything is working right now, and read exactly what data we keep.
+
+  - type: steps
+    heading: How to open them
+    items:
+      - Scroll to the bottom of the front page
+      - Click Proof, Status or Privacy in the footer
+      - Or add /proof, /status or /privacy to the dev link
+    say: >-
+      To open them, scroll to the bottom of the front page and click Proof, Status or Privacy. Or add slash proof,
+      slash status, or slash privacy to the end of the link.
+
+  - type: screen
+    image: proof/01-proof.png
+    label: Proof · accuracy, measured
+    url: our dev link /proof
+    marks:
+      - box: [160, 240, 1120, 136]
+        label: Real recordings come first - none scored yet, and it says so
+        at: 0.12
+      - box: [304, 414, 230, 21]
+        label: Clearly labelled as synthetic
+        at: 0.45
+      - box: [525, 496, 83, 320]
+        label: Exact match per language, with N
+        at: 0.68
+    say: >-
+      The Proof page shows how accurately the AI understands orders. Real recordings come first. We haven't scored
+      any yet, so the page simply says so. Below are three hundred and sixty test orders written by a model, clearly
+      labelled synthetic, with the number of cases behind every score. Exact match is above ninety-three percent in
+      every language.
+
+  - type: screen
+    image: proof/03-learned.png
+    label: Proof · what we learned about Meta's models
+    url: our dev link /proof
+    marks:
+      - box: [160, 259, 552, 141]
+        label: Not measured yet? It says so, no fake zeros
+        at: 0.12
+      - box: [179, 494, 536, 115]
+        label: Every fact with N, date and the script that measured it
+        at: 0.5
+    say: >-
+      Anything we haven't measured yet is marked not measured, instead of showing a zero. And the What we learned
+      section lists every fact we measured about Meta's Muse models: for example, an order is parsed in about one point
+      eight seconds. Each fact shows how many cases it is based on, when it was measured, and which script did it.
+
+  - type: screen
+    image: proof/04-misses.png
+    label: Proof · every mistake, listed
+    url: our dev link /proof
+    zoom: [140, 400, 1160, 500]
+    zoomAt: 0.15
+    marks:
+      - box: [179, 525, 1085, 91]
+        label: What the guest said, what we expected, what came back
+        at: 0.3
+    say: >-
+      We also list every mistake. There are six, and five of them are the same thing: when a guest says just naan,
+      the AI asks which naan they mean, instead of picking butter naan. Showing our misses openly makes the rest of
+      the numbers believable.
+
+  - type: screen
+    image: proof/06-limits.png
+    label: Proof · your kitchen, and what doesn't work yet
+    url: our dev link /proof
+    marks:
+      - box: [547, 112, 344, 53]
+        label: Simulated walk-ins kept apart from real orders
+        at: 0.15
+      - box: [160, 426, 1120, 474]
+        label: Known limits, each with a workaround
+        at: 0.5
+    say: >-
+      Further down, your own kitchen's receipt counts today's orders, AI spend and plans, and keeps the simulated
+      walk-ins apart from real guests. Then comes What doesn't work yet: eleven honest limits, each with a
+      workaround, like replies being spoken in English until a fluent speaker approves the other languages.
+
+  - type: screen
+    image: proof/07-status.png
+    label: Status · is everything working right now?
+    url: our dev link /status
+    marks:
+      - box: [288, 77, 864, 440]
+        label: Each part, live
+        at: 0.12
+      - box: [307, 288, 829, 67]
+        label: Voice replies degraded - and what still works
+        at: 0.45
+      - box: [288, 723, 864, 106]
+        label: Every AI call in your kitchen
+        at: 0.75
+    say: >-
+      The Status page shows, live, whether each part is working: the AI models, speech recognition, voice replies,
+      the phone line and the database. Right now voice replies show degraded, because we are waiting on the paid
+      ElevenLabs voice, and the page explains what still works meanwhile. At the bottom, Live AI Ops lists every
+      AI call in your kitchen.
+
+  - type: screen
+    image: proof/09-privacy.png
+    label: Privacy · what we keep, and for how long
+    url: our dev link /privacy
+    marks:
+      - box: [288, 138, 864, 326]
+        label: The short version
+        at: 0.12
+      - box: [288, 490, 864, 410]
+        label: Every store, with how long it is kept
+        at: 0.55
+    say: >-
+      The Privacy page starts with the short version. Spice Route is a sample restaurant. No voice recordings are
+      kept except our own consented test calls and clips. Phone numbers are never stored, only a scrambled code and the last four digits. Then a table
+      lists every kind of data, and exactly how long we keep it.
+
+  - type: screen
+    image: proof/10-processors.png
+    label: Privacy · who else handles data
+    url: our dev link /privacy
+    marks:
+      - box: [288, 426, 864, 474]
+        label: Meta, ElevenLabs, Twilio, hosting, Google Fonts
+        at: 0.2
+    say: >-
+      Finally, it names everyone else who touches data: Meta for the AI, ElevenLabs for the voice, Twilio for the
+      phone, the hosting provider, and even Google Fonts. You and your co-founder need to read and approve this
+      privacy text before we submit.
+
+  - type: status
+    heading: Where this leaves us
+    items:
+      - text: Proof, Status and Privacy pages, live on the dev server
+        chip: Done today
+        state: done
+      - text: 243 screen checks pass, including 16 new ones
+        chip: Tested
+        state: done
+      - text: Read and approve the privacy text
+        sub: Before the Oct 31 freeze
+        chip: Waiting on you
+        state: you
+      - text: Real recording results on the Proof page
+        sub: Needs your recorded clips and test calls
+        chip: Waiting on you
+        state: you
+    say: >-
+      So: the three pages are done and live on the dev server, and all two hundred and forty-three screen checks
+      pass. Two things for you: please read and approve the privacy text before the October thirty-first freeze, and
+      record a few clips and test calls, so the Proof page can show real-recording results too. Thanks for watching!

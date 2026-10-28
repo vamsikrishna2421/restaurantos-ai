@@ -22,5 +22,13 @@
   "seconds": 123,
   "file": "003-ordering-at-the-kiosk.mp4",
   "summary": "How a guest orders on the kiosk - tap, type or talk, the read-back, saying yes, and switching languages."
+ },
+ {
+  "number": 4,
+  "title": "The Proof, Status and Privacy pages",
+  "date": "2026-10-28",
+  "seconds": 180,
+  "file": "004-proof-status-privacy.mp4",
+  "summary": "New today - the honesty pages judges can check - measured accuracy with N, live system status, and what data is kept."
  }
 ]
