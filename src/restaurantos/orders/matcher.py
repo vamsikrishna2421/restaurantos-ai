@@ -9,7 +9,8 @@ the turn goes to the Order Agent, which keeps precision high by construction.
 - **Items** (``kind="items"``, intent ``order``): ``(qty? alias modifier*)+ done_phrase?`` once the closed,
   affirmative-only carriers are stripped. A quantity is a number word in any of the four languages or digits;
   "to"/"too" counts as 2 only directly before a dish alias; a trailing done phrase sets ``closing``. Each group
-  becomes one ``add`` op whose modifiers apply to that line.
+  becomes one ``add`` op whose modifiers apply to that line. A Telugu or Tamil modifier comes before its dish, so
+  one between two dish groups is a miss: the LLM decides which dish it means.
 
 The utterance is segmented over a lattice of every phrase the alias index knows, and every segmentation the grammar
 accepts is kept. A leftover token, a negation outside a modifier alias or done phrase, or two segmentations that mean
@@ -42,6 +43,7 @@ _MAX_PATHS = 8  # segmentations kept per lattice node; more means the utterance 
 _INDEX_CACHE_SIZE = 16
 
 _EN, _TE, _TA, _ES = (frozenset({lang}) for lang in ("en", "te", "ta", "es"))
+_DRAVIDIAN = _TE | _TA  # modifiers in these languages come before their dish
 _PURE: dict[str, Lang] = {"te": "te", "ta": "ta", "es": "es"}
 _MIXED: dict[str, Lang] = {"te": "te-en", "ta": "ta-en", "es": "es-en"}
 _ARTICLES = frozenset({"a", "an", "un", "una"})  # number words that are almost always articles
@@ -386,6 +388,23 @@ def fast_path(text: str, menu: MenuSnapshot, lexicons: Lexicons, cart: Cart | No
     if parsed is None:
         return None
     (groups, closing), path, matched, carriers = parsed
+    language = _language(path, lang_hint, cart)
+    if _modifier_before_a_dish(path, dravidian=language.split("-")[0] in ("te", "ta")):
+        return None  # Telugu and Tamil put a modifier before its dish: which dish it belongs to is the LLM's call
     ops = [CartOp(op="add", item_code=code, qty=qty, modifiers=list(mods)) for code, qty, mods in groups]
-    return FastPathResult(kind="items", intent="order", ops=ops, closing=closing,
-                          language=_language(path, lang_hint, cart), matched=matched, carriers_stripped=carriers)
+    return FastPathResult(kind="items", intent="order", ops=ops, closing=closing, language=language,
+                          matched=matched, carriers_stripped=carriers)
+
+
+def _modifier_before_a_dish(path: Path, *, dravidian: bool) -> bool:
+    """Whether a Telugu or Tamil modifier is followed by another dish group ("…మటన్ ఉల్లిపాయ లేకుండా ఒక పనీర్…").
+
+    A romanized alias ("vellulli lekunda") carries no language of its own: in a Telugu or Tamil utterance it counts.
+    """
+    after_modifier = False
+    for _end, unit, _phrase in path:
+        if unit.kind == "modifier" and (unit.native or unit.langs & _DRAVIDIAN or (dravidian and not unit.langs)):
+            after_modifier = True
+        elif after_modifier and unit.kind in ("number", "before_alias", "item"):
+            return True
+    return False

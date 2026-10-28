@@ -206,7 +206,8 @@ async def test_asr_reopens_after_abnormal_close_and_1008_alerts():
         await until(lambda: any(e.type == "final" for e in sup.turns.events))
         assert len(factory.calls) == 2 and sup.asr_opens == 2 and first.exited and not call.task.done()
         assert factory.calls[1].max_seconds <= factory.calls[0].max_seconds  # what is left of the call
-        assert [e.type for e in sup.turns.events] == ["speech_start", "partial", "final"]
+        events = [(e.type, e.code) for e in sup.turns.events]  # the turn logic hears the first session's end
+        assert events == [("closed", 1007), ("speech_start", None), ("partial", None), ("final", None)]
         assert sup.turns.started  # greeted once, not per session
     bad = ScriptedASR([closed(1008, at_ms=80)], mode="ENDPOINTING")
     factory = FakeASRFactory(bad)

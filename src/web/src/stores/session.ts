@@ -1,8 +1,9 @@
 /**
  * `useSession`: the `ros_sess` session (CONTRACTS_API §1) and the one-time judge passcode.
  *
- * - `load()` only reads (`GET /api/session`; 401 means "no session yet"). The session and its paused sandbox are
- *   created by `start()` (`POST /api/session`) on the first Start click, never on page load.
+ * - `load()` only reads (`GET /api/session`; 401 means "no session yet", and `error` keeps it only when the reason is
+ *   `sandbox_gone`). The session and its paused sandbox are created by `start()` (`POST /api/session`) on the first
+ *   Start click, never on page load.
  * - `capturePasscode()` runs before the first render: it moves `?k=<passcode>` out of the address bar at once
  *   (`history.replaceState`, other params and the hash kept) into memory and this tab's sessionStorage, so a reload
  *   before Start keeps it. `start()` sends it and forgets it once the exchange succeeds.
@@ -107,8 +108,10 @@ export const useSession = create<SessionStore>()((set, get) => {
         },
         (err: unknown) => {
           if (seen !== changes) return get().info
-          if (isApiError(err) && err.status === 401) set({ info: null, status: 'none', error: null })
-          else set({ status: 'error', error: asApiError(err) })
+          // a swept sandbox is worth saying (details.reason 'sandbox_gone'); a first visit's 401 is not
+          if (isApiError(err) && err.status === 401) {
+            set({ info: null, status: 'none', error: err.details.reason === 'sandbox_gone' ? err : null })
+          } else set({ status: 'error', error: asApiError(err) })
           return null
         },
       ).finally(() => {

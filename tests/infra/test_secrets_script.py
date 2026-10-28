@@ -14,6 +14,7 @@ import os
 import re
 import secrets
 import signal
+import socket
 import stat
 import subprocess
 import sys
@@ -191,6 +192,13 @@ def test_backup_refuses_a_destination_inside_the_repo(tmp_path: Path) -> None:
 # ----- dev.sh -----------------------------------------------------------------------------------------------------
 
 
+def _free_port() -> str:
+    """A port nothing on this machine listens on now (dev.sh refuses one in use; a fixed one collides)."""
+    with socket.socket() as s:
+        s.bind(("127.0.0.1", 0))
+        return str(s.getsockname()[1])
+
+
 def test_dev_sh_starts_the_tunnel_first_and_prints_no_secrets(tmp_path: Path) -> None:
     url = "https://smoke-test-words.trycloudflare.com"
     cloudflared = tmp_path / "cloudflared"
@@ -210,16 +218,16 @@ def test_dev_sh_starts_the_tunnel_first_and_prints_no_secrets(tmp_path: Path) ->
         return subprocess.run(["bash", str(SCRIPTS / "dev.sh"), *args], env=env, text=True, capture_output=True,
                               timeout=90, check=False)
 
-    pid = None
+    pid, port = None, _free_port()
     try:
-        first = dev("--tunnel", "--no-build", "--port", "8765")
+        first = dev("--tunnel", "--no-build", "--port", port)
         assert first.returncode == 0, first.stderr
         assert _pairs((tmp_path / "app.env").read_text(encoding="utf-8")) == {
-            "RESTOS_BEHIND_PROXY": "cloudflare", "RESTOS_HOST": "127.0.0.1", "RESTOS_PORT": "8765",
+            "RESTOS_BEHIND_PROXY": "cloudflare", "RESTOS_HOST": "127.0.0.1", "RESTOS_PORT": port,
             "RESTOS_PUBLIC_BASE_URL": url}
         assert url in first.stdout
         pid = int((tmp_path / "state" / "tunnel.pid").read_text(encoding="utf-8"))
-        again = dev("--tunnel", "--no-build", "--port", "8765")
+        again = dev("--tunnel", "--no-build", "--port", port)
         assert again.returncode == 0 and "reusing the running tunnel" in again.stdout
         assert int((tmp_path / "state" / "tunnel.pid").read_text(encoding="utf-8")) == pid
         for result in (first, again):

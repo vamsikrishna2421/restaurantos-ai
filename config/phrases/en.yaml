@@ -9,9 +9,10 @@
 #   spelled out when spoken, digits in the caption; {order_no}: read digit by digit; {url}: the public site.
 # - `words` holds the vocabulary those formatters need in this language.
 #
-# Keys from the CONTRACTS_SEED §13 table keep the contract text verbatim. Keys marked "P14" were added by the dialogue
-# package (sold-out offer with one alternative, small talk, off-topic, answers and prompts the table did not cover);
-# a founder read-through of those is still welcome.
+# Keys from the CONTRACTS_SEED §13 table keep the contract text verbatim, except that greet_phone also says "This
+# call is transcribed." (the disclosure MASTER_PLAN "Privacy" and ARCHITECTURE_OPS §13 require). Keys marked "P14"
+# were added by the dialogue package (sold-out offer with one alternative, small talk, off-topic, answers and prompts
+# the table did not cover); a founder read-through of those is still welcome.
 lang: en
 review_status: reviewed
 reviewer: canonical
@@ -42,7 +43,7 @@ words:
   spice: [not spicy, mildly spicy, medium spicy, very spicy]
 
 templates:
-  greet_phone: "Hi, thanks for calling Spice Route. I'm an AI ordering assistant on a demo line — no food is actually prepared. What would you like?"
+  greet_phone: "Hi, thanks for calling Spice Route. I'm an AI ordering assistant on a demo line — no food is actually prepared. This call is transcribed. What would you like?"
   greet_kiosk: "Hi! Hold the button and tell me your order — English, Telugu, Tamil or Spanish."
   backchannel: "Okay…"  # every language: never a control word of any lexicon, so its echo cannot answer a read-back
   ack_added: "{items}. Anything else?"
@@ -94,3 +95,5 @@ templates:
   cart_empty: "Okay, your order is empty now. What would you like?"
   buttons_offer: "Sorry, I'm having trouble understanding. Tap the dishes on the screen, or type your order."
   goodbye_kiosk: "Thanks for your order. Enjoy your meal!"
+  readback_kiosk: "{items}. {total}, about {minutes} minutes. Say yes to place the order."
+  confirm_reprompt_kiosk: "Please say yes to place the order, or say no to change it."

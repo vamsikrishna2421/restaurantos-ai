@@ -277,6 +277,11 @@ class Settings(BaseSettings):
     twilio_auth_token: SecretStr | None = None
     twilio_minutes_per_day: int = 300
     record_calls: bool = False
+    phone_speculation: bool = True  # G2b kill switch: False never parses a phone turn before its final
+    canary_enabled: bool = False  # the daily 09:00 test call (judge.canary)
+    canary_from: str | None = Field(default=None, repr=False)  # E.164; default: phone_numbers["judge"]
+    canary_to: str | None = Field(default=None, repr=False)  # E.164; default: phone_numbers["public"]
+    canary_require_order: bool = True  # False: the canary checks connectivity only
 
     # TTS (ElevenLabs)
     elevenlabs_api_key: SecretStr | None = None

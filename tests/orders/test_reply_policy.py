@@ -195,8 +195,11 @@ def test_offers_questions_and_injection_decisions() -> None:
     assert policy.decide(turn, s, MENU, Availability()) is False and (turn.state, turn.then_reprompt) == ("confirm",
                                                                                                          True)
     reply = policy.choose(wait, None, turn.state, "en", TEMPLATES, view=view(s.cart, minutes=25, then_reprompt=True))
-    assert reply.text_en == ("New orders are ready in about 25 minutes right now. Please say yes or press 1 to place "
-                             "the order, or say no or press 2 to change it.")
+    assert reply.text_en == ("New orders are ready in about 25 minutes right now. Please say yes to place the order, "
+                             "or say no to change it.")  # the kiosk has no keypad
+    phone = view(s.cart, minutes=25, then_reprompt=True, channel="phone")
+    assert policy.choose(wait, None, turn.state, "en", TEMPLATES, view=phone).text_en.endswith(
+        "Please say yes or press 1 to place the order, or say no or press 2 to change it.")
     # An injection never changes the lines but flags the cart, so the order carries it to staff.
     s = session("take_order")
     turn = turn_for(s, canned("injection"), path="llm")

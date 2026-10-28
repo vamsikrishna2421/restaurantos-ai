@@ -129,8 +129,8 @@ async def test_all_state_transitions() -> None:
         ("chicken biryani", "take_order", "ack_added"),
         ("does the chicken biryani have nuts", "answer", "allergen_listed"),
         ("one paneer butter masala", "sold_out_offer", "sold_out_offer"),
-        ("no", "readback", "readback"),
-        ("hmm okay go ahead", "confirm", "confirm_reprompt"),
+        ("no", "readback", "readback_kiosk"),  # the kiosk variants never say "press 1"
+        ("hmm okay go ahead", "confirm", "confirm_reprompt_kiosk"),
         ("yes", "placed", "placed_kiosk"),
         ("that's all", "closed", "goodbye_kiosk"),
         ("samosa", "take_order", "ack_added"),
@@ -158,7 +158,7 @@ async def test_placed_only_after_explicit_confirm() -> None:
                   make_turn("en", "smalltalk", utterance_en="thanks"))
     for text in ("sure, go ahead", "that's all", "thanks"):  # a model "yes", "done", small talk: none places
         result = await env.say(text)
-        assert (result.placed, result.state, result.reply.template_key) == (False, "confirm", "confirm_reprompt")
+        assert (result.placed, result.state, result.reply.template_key) == (False, "confirm", "confirm_reprompt_kiosk")
         assert (await env.say("repeat")).state == "readback"  # re-read: also resets the confirm failure count
     tapped = await env.d.handle_cart_ops([add_op("SAMOSA")], turn_id="tap")
     assert not tapped.placed and lines_of(tapped.cart) == lines_of(first.cart) and not env.orders.places
@@ -229,8 +229,8 @@ async def test_cancel_mid_parse_leaves_cart_unchanged() -> None:
 async def test_items_plus_done_goes_straight_to_readback() -> None:
     env = make()
     result = await env.say("two samosas, that's all")
-    assert result.closing and result.state == "readback" and result.reply.template_key == "readback"
-    assert result.reply.text_en == "2 Samosa. $14.96, about 25 minutes. Say yes or press 1."
+    assert result.closing and result.state == "readback" and result.reply.template_key == "readback_kiosk"
+    assert result.reply.text_en == "2 Samosa. $14.96, about 25 minutes. Say yes to place the order."
     assert result.path == "fastpath" and env.agent.calls == [] and len(env.orders.updates) == 1
     assert (await make().say(CANONICAL)).state == "readback"
     ack = await make().say("two samosas")
@@ -241,8 +241,9 @@ async def test_readback_confirm_accept_control_only() -> None:
     env = make()
     cart = lines_of((await env.say(CANONICAL)).cart)
     spoken = await env.say("two samosas")  # echoed or spoken dishes never act in the read-back
-    assert (spoken.state, spoken.reply.template_key, lines_of(spoken.cart)) == ("confirm", "confirm_reprompt", cart)
-    assert (await env.say("repeat")).reply.template_key == "readback"
+    assert (spoken.state, spoken.reply.template_key, lines_of(spoken.cart)) == ("confirm", "confirm_reprompt_kiosk",
+                                                                                 cart)
+    assert (await env.say("repeat")).reply.template_key == "readback_kiosk"
     env.agent.add(canned("en"))
     modelled = await env.say(CASES["en"].utterance)
     assert modelled.state == "confirm" and lines_of(modelled.cart) == cart and not modelled.rejected

@@ -1,0 +1,56 @@
+# "What we learned about Muse models": gate measurements published with the E1 report (P31a; MASTER_PLAN §6).
+#
+# scripts/eval.py report reads every value below from the newest data/measure file matching `file` (written by
+# `script`), by dotted path (list items by index): value = value [/ per] * scale, rounded. n is a path or a number.
+# The date comes from the file's started_at (else the UTC stamp in its name). A missing file drops the fact; nothing
+# here is a number typed by hand. The facts the E1 run itself measured come first in the report.
+- claim: Push-to-talk release to final transcript, p50 (realtime ASR, 16 kHz, languageBias on)
+  file: g1_asr_accuracy_*.json
+  value: ptt_latency_s.16k-bias.p50
+  scale: 1000
+  unit: ms
+  n: ptt_latency_s.16k-bias.n
+  script: scripts/measure/asr_accuracy.py
+- claim: languageBias change in Telugu character error rate, 16 kHz (negative is better)
+  file: g1_asr_accuracy_*.json
+  value: bias_minus_none.16k.te.delta
+  scale: 1000
+  unit: pct_points_x10
+  n: bias_minus_none.16k.te.n
+  script: scripts/measure/asr_accuracy.py
+- claim: Tamil speech returned in a non-Tamil script (16 kHz, languageBias on)
+  file: g1_asr_accuracy_*.json
+  value: table.16k-bias.ta.wrong_script
+  per: table.16k-bias.ta.n
+  scale: 1000
+  unit: pct_x10
+  n: table.16k-bias.ta.n
+  script: scripts/measure/asr_accuracy.py
+- claim: ENDPOINTING on 8 kHz mu-law phone audio, speech offset to speechComplete, p50
+  file: g1_endpointing_*.json
+  value: by_channel.ulaw.offset_to_complete_s.p50
+  scale: 1000
+  unit: ms
+  n: by_channel.ulaw.offset_to_complete_s.n
+  script: scripts/measure/endpointing_latency.py
+- claim: ENDPOINTING speechEnd to speechComplete gap, p50 (8 kHz mu-law; the two events arrive together)
+  file: g1_endpointing_*.json
+  value: by_channel.ulaw.speech_end_to_complete_s.p50
+  scale: 1000
+  unit: ms
+  n: by_channel.ulaw.speech_end_to_complete_s.n
+  script: scripts/measure/endpointing_latency.py
+- claim: GM plan stream (Responses API, concise reasoning summary), first action, p50
+  file: g3_gm_ab_*.json
+  value: by_arm.ids-concise.first_action_s.p50
+  scale: 1000
+  unit: ms
+  n: by_arm.ids-concise.first_action_s.n
+  script: scripts/measure/gm_schema_ab.py
+- claim: Dropping the reply fields from the strict order schema ('lite'), change in p50 parse latency
+  file: g0_variant_*.json
+  value: comparison.metrics.p50_s.delta
+  scale: 1000
+  unit: ms
+  n: comparison.metrics.n.lite
+  script: scripts/measure/schema_variant.py

@@ -4,7 +4,8 @@ placing an order through the whole app.
 
 Most tests drive ``twilio_media.serve`` over ``tests.fakes.twilio``'s in-memory socket, with P27a's real webhook minting
 the tokens; the simulator test runs the full registry through the real lifespan (P04's store, P10's bus and hub,
-P12's services, P14's Dialogue, P16a's fake ASR, P15a's TTS without a key).
+P12's services, P14's Dialogue, P16a's fake ASR) with a fake voice: P15a's adapter has no key here, and a read-back
+said only as silence is never confirmed (P28).
 """
 
 from __future__ import annotations
@@ -251,6 +252,7 @@ def test_sim_call_places_order_after_dtmf1():
     call_supervisor.reset()
 
     async def place(c: Any) -> tuple[Any, str, list[dict], dict, list[Any]]:
+        c.tts = FakeTTS(ms_per_char=1)  # the read-back must be voiced for key 1 to confirm it
         call_sid = sim.new_call_sid()
         async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url=BASE) as http:
             token = await sim.fetch_token(http, public_base_url=BASE, auth_token=TOKEN, call_sid=call_sid,

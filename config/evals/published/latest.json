@@ -1,0 +1,366 @@
+{
+ "run_id": "e1_20261028",
+ "date": "2026-10-28",
+ "models": {
+  "headline": "muse-spark-1.3",
+  "ab": null
+ },
+ "cells": [
+  {
+   "language": "en",
+   "channel": "phone",
+   "source": "synthetic",
+   "n": 30,
+   "exact_match_pct_x10": 967,
+   "item_f1_x1000": 990,
+   "modifier_f1_x1000": 947,
+   "qty_f1_x1000": 990,
+   "p50_ms": 1668,
+   "p95_ms": 3054,
+   "cost_micros_per_order": 1918
+  },
+  {
+   "language": "en",
+   "channel": "kiosk",
+   "source": "synthetic",
+   "n": 30,
+   "exact_match_pct_x10": 933,
+   "item_f1_x1000": 976,
+   "modifier_f1_x1000": 1000,
+   "qty_f1_x1000": 976,
+   "p50_ms": 1519,
+   "p95_ms": 2679,
+   "cost_micros_per_order": 1851
+  },
+  {
+   "language": "te-en",
+   "channel": "phone",
+   "source": "synthetic",
+   "n": 30,
+   "exact_match_pct_x10": 1000,
+   "item_f1_x1000": 1000,
+   "modifier_f1_x1000": 1000,
+   "qty_f1_x1000": 1000,
+   "p50_ms": 1706,
+   "p95_ms": 2544,
+   "cost_micros_per_order": 2028
+  },
+  {
+   "language": "te-en",
+   "channel": "kiosk",
+   "source": "synthetic",
+   "n": 30,
+   "exact_match_pct_x10": 1000,
+   "item_f1_x1000": 1000,
+   "modifier_f1_x1000": 1000,
+   "qty_f1_x1000": 1000,
+   "p50_ms": 1919,
+   "p95_ms": 3263,
+   "cost_micros_per_order": 2141
+  },
+  {
+   "language": "te",
+   "channel": "phone",
+   "source": "synthetic",
+   "n": 30,
+   "exact_match_pct_x10": 1000,
+   "item_f1_x1000": 1000,
+   "modifier_f1_x1000": 1000,
+   "qty_f1_x1000": 1000,
+   "p50_ms": 1918,
+   "p95_ms": 2401,
+   "cost_micros_per_order": 2135
+  },
+  {
+   "language": "te",
+   "channel": "kiosk",
+   "source": "synthetic",
+   "n": 30,
+   "exact_match_pct_x10": 1000,
+   "item_f1_x1000": 1000,
+   "modifier_f1_x1000": 1000,
+   "qty_f1_x1000": 1000,
+   "p50_ms": 2001,
+   "p95_ms": 3045,
+   "cost_micros_per_order": 2121
+  },
+  {
+   "language": "ta-en",
+   "channel": "phone",
+   "source": "synthetic",
+   "n": 30,
+   "exact_match_pct_x10": 967,
+   "item_f1_x1000": 987,
+   "modifier_f1_x1000": 1000,
+   "qty_f1_x1000": 987,
+   "p50_ms": 2118,
+   "p95_ms": 2909,
+   "cost_micros_per_order": 2123
+  },
+  {
+   "language": "ta-en",
+   "channel": "kiosk",
+   "source": "synthetic",
+   "n": 30,
+   "exact_match_pct_x10": 933,
+   "item_f1_x1000": 976,
+   "modifier_f1_x1000": 1000,
+   "qty_f1_x1000": 976,
+   "p50_ms": 1937,
+   "p95_ms": 2941,
+   "cost_micros_per_order": 2121
+  },
+  {
+   "language": "es",
+   "channel": "phone",
+   "source": "synthetic",
+   "n": 30,
+   "exact_match_pct_x10": 1000,
+   "item_f1_x1000": 1000,
+   "modifier_f1_x1000": 1000,
+   "qty_f1_x1000": 1000,
+   "p50_ms": 1659,
+   "p95_ms": 2159,
+   "cost_micros_per_order": 1782
+  },
+  {
+   "language": "es",
+   "channel": "kiosk",
+   "source": "synthetic",
+   "n": 30,
+   "exact_match_pct_x10": 1000,
+   "item_f1_x1000": 1000,
+   "modifier_f1_x1000": 1000,
+   "qty_f1_x1000": 1000,
+   "p50_ms": 1851,
+   "p95_ms": 2607,
+   "cost_micros_per_order": 1937
+  },
+  {
+   "language": "es-en",
+   "channel": "phone",
+   "source": "synthetic",
+   "n": 30,
+   "exact_match_pct_x10": 1000,
+   "item_f1_x1000": 1000,
+   "modifier_f1_x1000": 1000,
+   "qty_f1_x1000": 1000,
+   "p50_ms": 1783,
+   "p95_ms": 4050,
+   "cost_micros_per_order": 2172
+  },
+  {
+   "language": "es-en",
+   "channel": "kiosk",
+   "source": "synthetic",
+   "n": 30,
+   "exact_match_pct_x10": 1000,
+   "item_f1_x1000": 1000,
+   "modifier_f1_x1000": 1000,
+   "qty_f1_x1000": 1000,
+   "p50_ms": 1906,
+   "p95_ms": 2936,
+   "cost_micros_per_order": 2021
+  }
+ ],
+ "keyword_lift": [],
+ "fast_path": {
+  "coverage_x1000": 6,
+  "precision_x1000": 1000,
+  "coverage_with_carriers_x1000": 550
+ },
+ "gm": {
+  "n": 0,
+  "win_rate_x1000": 0,
+  "checks": []
+ },
+ "misses": [
+  {
+   "id": "e1-en-039",
+   "language": "en",
+   "utterance_en": "i want a naan, two idly and i would like two dal please",
+   "expected": "BUTTER_NAAN x1; DAL_TADKA x2; IDLI x2",
+   "got": "DAL_TADKA x2; IDLI x2 | clarify"
+  },
+  {
+   "id": "e1-en-041",
+   "language": "en",
+   "utterance_en": "let me add a single naan and one Egg Biryani please",
+   "expected": "BUTTER_NAAN x1; CHK_TIKKA x2; EGG_BIRY x1; MANGO_LASSI x1",
+   "got": "CHK_TIKKA x2; EGG_BIRY x1; MANGO_LASSI x1 | clarify"
+  },
+  {
+   "id": "e1-en-056",
+   "language": "en",
+   "utterance_en": "can i get two naan with more butter and two veg samosa",
+   "expected": "BUTTER_NAAN x2 [EXTRA_BUTTER]; SAMOSA x2",
+   "got": "SAMOSA x2 | clarify"
+  },
+  {
+   "id": "e1-ta_en-020",
+   "language": "ta-en",
+   "utterance_en": "I want two naan give, that is all enough",
+   "expected": "BUTTER_NAAN x2",
+   "got": "(empty cart) | clarify"
+  },
+  {
+   "id": "e1-ta_en-025",
+   "language": "ta-en",
+   "utterance_en": "I want two mutton biryani without coriander, give me one naan",
+   "expected": "BUTTER_NAAN x1; GOAT_BIRY x2 [NO_CILANTRO]",
+   "got": "GOAT_BIRY x2 [NO_CILANTRO] | clarify"
+  },
+  {
+   "id": "e1-ta_en-033",
+   "language": "ta-en",
+   "utterance_en": "want 150 paneer tikka plus give one paneer curry also",
+   "expected": "PNR_BM x1",
+   "got": "(empty cart) | clarify"
+  }
+ ],
+ "learnings": [
+  {
+   "claim": "Order parse latency p50 (muse-spark-1.3, effort minimal, strict JSON schema)",
+   "value": 1838,
+   "unit": "ms",
+   "n": 360,
+   "date": "2026-10-28",
+   "script": "scripts/eval.py"
+  },
+  {
+   "claim": "Order parse latency p95 (muse-spark-1.3, effort minimal, strict JSON schema)",
+   "value": 2909,
+   "unit": "ms",
+   "n": 360,
+   "date": "2026-10-28",
+   "script": "scripts/eval.py"
+  },
+  {
+   "claim": "Input tokens served from the prompt cache (one stable prompt_cache_key per menu)",
+   "value": 983,
+   "unit": "pct_x10",
+   "n": 360,
+   "date": "2026-10-28",
+   "script": "scripts/eval.py"
+  },
+  {
+   "claim": "Reasoning tokens per parse at effort minimal, the lowest effort (mean)",
+   "value": 139,
+   "unit": "tokens",
+   "n": 360,
+   "date": "2026-10-28",
+   "script": "scripts/eval.py"
+  },
+  {
+   "claim": "'to' before a dish read as two (exact match on cases written with 'to')",
+   "value": 1000,
+   "unit": "pct_x10",
+   "n": 8,
+   "date": "2026-10-28",
+   "script": "scripts/eval.py"
+  },
+  {
+   "claim": "Self-corrections resolved to the corrected cart (exact match)",
+   "value": 1000,
+   "unit": "pct_x10",
+   "n": 20,
+   "date": "2026-10-28",
+   "script": "scripts/eval.py"
+  },
+  {
+   "claim": "Split modifiers such as 'two biryanis, one without onions' (exact match)",
+   "value": 1000,
+   "unit": "pct_x10",
+   "n": 20,
+   "date": "2026-10-28",
+   "script": "scripts/eval.py"
+  },
+  {
+   "claim": "Injection attempts flagged (injection_suspected set)",
+   "value": 1000,
+   "unit": "pct_x10",
+   "n": 12,
+   "date": "2026-10-28",
+   "script": "scripts/eval.py"
+  },
+  {
+   "claim": "Closing flag right ('that's all' in the guest's language, or no closing)",
+   "value": 1000,
+   "unit": "pct_x10",
+   "n": 360,
+   "date": "2026-10-28",
+   "script": "scripts/eval.py"
+  },
+  {
+   "claim": "Clarifications that were warranted (an off-menu dish or an absurd quantity)",
+   "value": 650,
+   "unit": "pct_x10",
+   "n": 20,
+   "date": "2026-10-28",
+   "script": "scripts/eval.py"
+  },
+  {
+   "claim": "Push-to-talk release to final transcript, p50 (realtime ASR, 16 kHz, languageBias on)",
+   "value": 82,
+   "unit": "ms",
+   "n": 116,
+   "date": "2026-10-27",
+   "script": "scripts/measure/asr_accuracy.py"
+  },
+  {
+   "claim": "languageBias change in Telugu character error rate, 16 kHz (negative is better)",
+   "value": -32,
+   "unit": "pct_points_x10",
+   "n": 30,
+   "date": "2026-10-27",
+   "script": "scripts/measure/asr_accuracy.py"
+  },
+  {
+   "claim": "Tamil speech returned in a non-Tamil script (16 kHz, languageBias on)",
+   "value": 269,
+   "unit": "pct_x10",
+   "n": 26,
+   "date": "2026-10-27",
+   "script": "scripts/measure/asr_accuracy.py"
+  },
+  {
+   "claim": "ENDPOINTING on 8 kHz mu-law phone audio, speech offset to speechComplete, p50",
+   "value": 385,
+   "unit": "ms",
+   "n": 26,
+   "date": "2026-10-27",
+   "script": "scripts/measure/endpointing_latency.py"
+  },
+  {
+   "claim": "ENDPOINTING speechEnd to speechComplete gap, p50 (8 kHz mu-law; the two events arrive together)",
+   "value": 0,
+   "unit": "ms",
+   "n": 27,
+   "date": "2026-10-27",
+   "script": "scripts/measure/endpointing_latency.py"
+  },
+  {
+   "claim": "GM plan stream (Responses API, concise reasoning summary), first action, p50",
+   "value": 8958,
+   "unit": "ms",
+   "n": 10,
+   "date": "2026-10-27",
+   "script": "scripts/measure/gm_schema_ab.py"
+  },
+  {
+   "claim": "Dropping the reply fields from the strict order schema ('lite'), change in p50 parse latency",
+   "value": -57,
+   "unit": "ms",
+   "n": 20,
+   "date": "2026-10-27",
+   "script": "scripts/measure/schema_variant.py"
+  }
+ ],
+ "caveats": [
+  "Synthetic text: muse-spark-1.3-contributor wrote each utterance from a gold cart decided in code (gold first); the parser under test is the same model family.",
+  "Text only: no speech recognition in the loop (E2 adds audio).",
+  "Exact match needs the whole cart, the injection flag, a clarification for an off-menu dish and the question's dish and allergen; F1 counts only the lines a turn produced or changed.",
+  "No A/B run on muse-spark-1.2 yet.",
+  "GM eval (E3) and keyword lift (E2) are not in this report yet."
+ ]
+}

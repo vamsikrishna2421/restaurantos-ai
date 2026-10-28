@@ -48,7 +48,8 @@ SEED_KEYS: frozenset[str] = frozenset((
     "cancel_ack goodbye notify_default notify_action").split())  # the CONTRACTS_SEED §13 table
 P14_KEYS: frozenset[str] = frozenset((
     "items_prefix sold_out_offer_one allergen_none_listed allergen_which_dish which_dish spice_answer menu_answer "
-    "question_staff smalltalk off_topic what_else nothing_ordered cart_empty buttons_offer goodbye_kiosk").split())
+    "question_staff smalltalk off_topic what_else nothing_ordered cart_empty buttons_offer goodbye_kiosk "
+    "readback_kiosk confirm_reprompt_kiosk").split())  # the kiosk has no keypad: its read-back never says "press 1"
 REQUIRED_KEYS: frozenset[str] = SEED_KEYS | P14_KEYS
 MAX_SPELLED = 999_999
 _KEY = re.compile(r"^[a-z][a-z0-9_]{0,47}$")

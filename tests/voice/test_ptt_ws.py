@@ -286,10 +286,10 @@ def test_play_sample_real_time_pace(monkeypatch) -> None:
         root.mkdir(parents=True)
         for name, ms in (("order", 960), ("long", 6_000)):
             (root / f"{name}.wav").write_bytes(write_wav(bytes_to_pcm16(speech(ms)), 16_000))
-        (root / "index.json").write_text(json.dumps([{
-            "id": "smp_order", "language": "en", "label": "Canonical order", "source": "synthetic_voice",
-            "transcript": ORDER, "transcript_en": ORDER, "wav": "order.wav"}, {"id": "smp_escape", "wav": "../x.wav"},
-            {"id": "smp_long", "wav": "long.wav"}]))
+        clip = {"language": "en", "label": "Canonical order", "source": "synthetic_voice", "transcript": ORDER}
+        (root / "index.json").write_text(json.dumps([  # P30c's rows: judge.samples serves complete ones only
+            clip | {"id": "smp_order", "transcript_en": ORDER, "wav": "order.wav"},
+            {"id": "smp_escape", "wav": "../x.wav"}, clip | {"id": "smp_long", "wav": "long.wav"}]))
         with env.connect("purpose=sample") as ws:
             recv(ws)
             for clip_id in ("smp_missing", "smp_escape", "../order"):

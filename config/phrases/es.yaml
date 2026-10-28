@@ -35,7 +35,7 @@ words:
   spice: [sin picante, poco picante, medio picante, muy picante]
 
 templates:
-  greet_phone: "Hola, gracias por llamar a Spice Route. Soy un asistente de pedidos con IA en una línea de demostración — en realidad no se prepara comida. ¿Qué le gustaría pedir?"
+  greet_phone: "Hola, gracias por llamar a Spice Route. Soy un asistente de pedidos con IA en una línea de demostración — en realidad no se prepara comida. Esta llamada se transcribe. ¿Qué le gustaría pedir?"
   greet_kiosk: "¡Hola! Mantenga presionado el botón y dígame su pedido — en inglés, telugu, tamil o español."
   backchannel: "A ver…"  # never a lexicon control word ("vale" is "yes"): its echo must not confirm a read-back
   ack_added: "{items}. ¿Algo más?"
@@ -86,3 +86,5 @@ templates:
   cart_empty: "Listo, su pedido está vacío ahora. ¿Qué le gustaría?"
   buttons_offer: "Lo siento, me cuesta entenderle. Toque los platos en la pantalla o escriba su pedido."
   goodbye_kiosk: "Gracias por su pedido. ¡Buen provecho!"
+  readback_kiosk: "{items}. {total}, unos {minutes} minutos. Diga sí para hacer el pedido."
+  confirm_reprompt_kiosk: "Por favor, diga sí para hacer el pedido, o diga no para cambiarlo."

@@ -35,10 +35,11 @@ from restaurantos.api.deps import get_container
 from restaurantos.audio import pcm16_to_bytes, read_wav, resample
 from restaurantos.contracts import ws as wsc
 from restaurantos.contracts.common import DEMO_TENANT, CallCtx, is_sandbox
-from restaurantos.contracts.errors import AppError, BadRequest, ChaosDown, Forbidden, NotWired, RateLimited
+from restaurantos.contracts.errors import AppError, BadRequest, ChaosDown, Forbidden, NotFound, NotWired, RateLimited
 from restaurantos.contracts.events import SessionPurpose
 from restaurantos.contracts.ids import CROCKFORD, new_id
 from restaurantos.contracts.orders import TurnResult
+from restaurantos.judge import samples as judge_samples
 from restaurantos.meta.errors import MetaError
 from restaurantos.obs import voice_hooks
 from restaurantos.security import ratelimit
@@ -118,33 +119,31 @@ def kitchen_handler(app: Any) -> KitchenHandler | None:
     return handler if callable(handler) else None
 
 
-class SampleRow(BaseModel):  # one row of data/samples/index.json (CONTRACTS_SEED §15; P30c writes it)
-    model_config = ConfigDict(extra="ignore")
-    id: str
-    wav: str
-
-
 class SampleLibrary:
-    """Judge sample clips: ``index.json`` plus the 16 kHz mono WAVs beside it, read per play."""
+    """Judge sample clips, read per play. Built with the container (``sessions_of``) it plays only what P30c serves now
+    (``judge.samples.wav_path``: a withdrawn consent stops its clip at once); else ``index.json`` and its WAVs."""
 
-    def __init__(self, root: Path) -> None:
-        self.root = root
+    def __init__(self, root: Path, c: Container | None = None) -> None:
+        self.root, self.c = root, c
 
     async def pcm(self, clip_id: str) -> bytes | None:
-        """The clip as PCM16 16 kHz (at most 30 s); None for an unknown or unreadable clip."""
-        try:
-            return await asyncio.to_thread(self._read, clip_id) if CLIP_ID.fullmatch(clip_id) else None
-        except Exception as exc:  # a broken index or WAV is an unknown clip to the client
-            log.warning("sample clip unreadable (%s)", type(exc).__name__)
+        """The clip as PCM16 16 kHz (at most 30 s); None for an unknown, withdrawn or unreadable clip."""
+        try:  # wav_path checks the id like CLIP_ID
+            served = None if self.c is None else await judge_samples.wav_path(self.c, clip_id)
+            return await asyncio.to_thread(self._read, clip_id, served) if CLIP_ID.fullmatch(clip_id) else None
+        except Exception as exc:  # NotFound (unknown or withdrawn), a broken index or WAV: an unknown clip
+            log.log(logging.DEBUG if isinstance(exc, NotFound) else logging.WARNING, "sample clip not played (%s)",
+                    type(exc).__name__)
             return None
 
-    def _read(self, clip_id: str) -> bytes | None:
-        index = self.root / "index.json"
-        rows = json.loads(index.read_text(encoding="utf-8")) if index.is_file() else []
-        row = next((SampleRow.model_validate(r) for r in rows if isinstance(r, dict) and r.get("id") == clip_id), None)
-        path = (self.root / row.wav).resolve() if row is not None else None
-        if path is None or not path.is_relative_to(self.root.resolve()) or not path.is_file():
-            return None
+    def _read(self, clip_id: str, path: Path | None) -> bytes | None:
+        if path is None:  # one row of data/samples/index.json (CONTRACTS_SEED §15; P30c writes it)
+            index = self.root / "index.json"
+            rows = json.loads(index.read_text(encoding="utf-8")) if index.is_file() else []
+            row = next((r for r in rows if isinstance(r, dict) and r.get("id") == clip_id), None)
+            path = (self.root / str(row["wav"])).resolve() if row is not None and row.get("wav") else None
+            if path is None or not path.is_relative_to(self.root.resolve()) or not path.is_file():
+                return None
         samples, rate = read_wav(path.read_bytes())
         audio = pcm16_to_bytes(resample(samples, rate, SAMPLE_RATE) if rate != SAMPLE_RATE else samples)
         return audio[:MAX_TURN_MS * BYTES_PER_MS] or None
@@ -180,9 +179,9 @@ class VoiceSessions:
         return parked[1]
 
 
-def sessions_of(app: Any, settings: Settings) -> VoiceSessions:
+def sessions_of(app: Any, c: Container) -> VoiceSessions:
     if getattr(app.state, "voice_sessions", None) is None:
-        app.state.voice_sessions = VoiceSessions(SampleLibrary(settings.data_dir / "samples"))
+        app.state.voice_sessions = VoiceSessions(SampleLibrary(c.settings.data_dir / "samples", c))
     return app.state.voice_sessions
 
 
@@ -468,7 +467,7 @@ async def voice_socket(websocket: WebSocket, auth: SessionAuth) -> None:
     if query.purpose == "kitchen" and not auth.can("cook"):
         raise Forbidden("The kitchen microphone needs the cook role", details={"needs": ["cook"]})
     ip, owner, tenant_id = ratelimit.client_ip(websocket, c.settings), ratelimit.session_key_for(auth), auth.tenant_id
-    table = sessions_of(websocket.app, c.settings)
+    table = sessions_of(websocket.app, c)
     with ratelimit.ws_slot(ratelimit.ws_key(auth, ip)):
         factory = None if query.purpose == "kitchen" else require(c, "dialogue_factory")
         dialogue: DialoguePort | None = None

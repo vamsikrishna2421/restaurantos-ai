@@ -7,7 +7,7 @@
 # The lead advances `current_cp` at each checkpoint and flips optional packages at their go/no-go
 # (P38: Oct 29 18:00, P40: Oct 30 18:00). Anything not green by Oct 31 14:00 is marked `cut`.
 
-current_cp: CP2  # Oct 27: every REQUIRED module due by CP2 imports (tests/integration/test_cp2.py)
+current_cp: CP3  # Oct 28: every REQUIRED module due by CP3 imports (tests/integration/test_cp3.py)
 
 # "Due at or before current_cp" compares positions in this list.
 checkpoints: [CP0, CP1a, CP1, CP2, CP3, CP4, CP5]

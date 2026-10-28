@@ -30,17 +30,18 @@ from collections.abc import AsyncIterator, Awaitable, Callable, Coroutine
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Literal, Protocol
 
-from sqlalchemy import func, insert, update
+from sqlalchemy import func, insert, select, update
 
 from restaurantos.contracts.common import LIVE_TENANT, PhoneLane, TenantInfo, is_sandbox, utc_from_ms
 from restaurantos.contracts.events import CallBoundPayload, CallEndedPayload, CallStartedPayload, TaskUpdatedPayload
 from restaurantos.contracts.ids import new_id
 from restaurantos.contracts.kitchen import StaffTask
+from restaurantos.meta.asr_realtime import ASREvent
 from restaurantos.meta.errors import BudgetExceeded
 from restaurantos.orders.templates import speak_language
 from restaurantos.services.container import require
 from restaurantos.store import tables as t
-from restaurantos.voice import call_limits
+from restaurantos.voice import call_limits, phone_speech
 from restaurantos.voice.call_limits import ENDED, LineSlot
 from restaurantos.voice.call_registry import CallRegistry
 from restaurantos.voice.session import VoiceSession, voice_deps
@@ -50,14 +51,12 @@ if TYPE_CHECKING:
     from restaurantos.config import Settings
     from restaurantos.contracts.orders import Reply, TurnResult
     from restaurantos.contracts.ports import DialoguePort, RealtimeASRLike, TxPort
-    from restaurantos.meta.asr_realtime import ASREvent
     from restaurantos.services.container import Container
 
 log = logging.getLogger(__name__)
 
 ACTOR = "system"
 FRAME = 160  # 20 ms of μ-law at 8 kHz: every outbound media frame
-SILENCE = b"\xff" * 1_600  # 200 ms of μ-law silence when TTS has nothing, so the mark still comes back
 AUDIO_BACKLOG = 38  # ≈3 s of 80 ms frames wait for a (re)opening ASR session; older ones are dropped
 MARK_GRACE_S, CLEANUP_S, HANGUP_WAIT_S = 5.0, 3.0, 3.0
 HANDOFF_NOTE = "A phone caller asked for a person; the AI handed the call off."
@@ -95,7 +94,7 @@ class TurnBridge(Protocol):
     """The turn logic of a supervised call. Hooks return quickly; long work goes to ``call.spawn``."""
 
     async def start(self) -> None: ...  # the first ASR session is open: greet
-    async def on_asr(self, event: ASREvent) -> None: ...  # every event of the call's sessions, in order
+    async def on_asr(self, event: ASREvent) -> None: ...  # each session's events in order, then ``closed`` at its end
     async def on_dtmf(self, digit: str) -> None: ...  # a key that is not part of a ``#`` code
     async def on_mark(self, name: str) -> None: ...  # Twilio played utterance ``name``: the caller heard it
     async def on_bound(self) -> None: ...  # a code moved the call: ``call.voice`` and ``call.dialogue`` are new
@@ -148,10 +147,6 @@ def _obs_hooks(c: Container, tenant_id: str, call_id: str) -> dict[str, Any]:
         return {}
 
 
-async def _silence() -> AsyncIterator[bytes]:
-    yield SILENCE
-
-
 class CallSupervisor:
     """One phone call (see the module docstring), also the handle the turn logic drives. ``link`` is the socket's
     outbound half (``twilio_media.TwilioLink``: ``media``, ``mark``, ``clear``, ``close``)."""
@@ -178,6 +173,7 @@ class CallSupervisor:
         self._ends: dict[str, tuple[str, asyncio.TimerHandle]] = {}  # end_after: utterance → (reason, lost-mark timer)
         self._asr_failure: Exception | None = None  # why the last ASR session failed (None: it opened and closed)
         self._greeted = False
+        self.tap: Any = None  # P28's audio tap (phone_speech.Speaker): both sides of the audio, for the recorder
         self._attach(tenant)
         self.turns = turns(self)
 
@@ -271,6 +267,11 @@ class CallSupervisor:
             for close in (self.turns.aclose, self.voice.close):
                 with contextlib.suppress(Exception):
                     await close()
+            if self.order_id is None:  # a hang-up can cancel the turn that placed it before ``record_turn``
+                async with require(self.c, "store").read() as conn:
+                    oc = t.orders.c
+                    self.order_id = (await conn.execute(select(oc.id).where(oc.tenant_id == self.tenant_id, oc.call_id
+                                     == self.info.call_id).order_by(oc.created_ms.desc()).limit(1))).scalar()
             now, cc = self.now_ms(), t.calls.c
             values: dict[str, Any] = {"status": ENDED, "ended_ms": now, "duration_s": func.coalesce(
                 cc.duration_s, self.seconds(now)), "meta_cost_micros": cc.meta_cost_micros + self.cost_micros}
@@ -300,6 +301,8 @@ class CallSupervisor:
             self._audio.get_nowait()
             self.dropped_frames += 1
         self._audio.put_nowait(frame)
+        if self.tap is not None:
+            self.tap.caller(frame, self.now_ms())
 
     def on_dtmf(self, digit: str) -> None:
         """A key that is not part of a ``#`` code (``twilio_media`` binds those)."""
@@ -308,6 +311,8 @@ class CallSupervisor:
     def on_mark(self, name: str) -> None:
         """Twilio played everything before the mark ``name``: the caller heard that utterance."""
         self._heard.add(name)
+        if self.tap is not None:  # P28's tap hears it now: a call this mark ends cancels the turn logic's hook
+            self.tap.heard(name, self.now_ms())
         if name in self._ends:
             self.end(self._ends[name][0])
         self.spawn(self.turns.on_mark(name), "mark")
@@ -328,6 +333,8 @@ class CallSupervisor:
             code = await self._listen(asr)
             if self._ended.is_set():
                 return
+            with contextlib.suppress(Exception):  # the turn logic ends the turns this session left open (P28)
+                await self.turns.on_asr(ASREvent("closed", code=code))
             if code == 1008:  # our pacing bug: never retried
                 details = {"call_id": self.info.call_id, "tenant_id": self.tenant_id}
                 if (alert := self.voice.deps.alert) is not None:
@@ -381,14 +388,14 @@ class CallSupervisor:
     # ----- speaking and the turn logic's handle -------------------------------------------------------------------
 
     async def say(self, reply: Reply | None) -> str | None:
-        """Speak ``reply`` (TTS in 160-byte μ-law frames, or 200 ms of silence when TTS has nothing), then a ``mark``
+        """Speak ``reply`` (``phone_speech.audio``: TTS, else stitched, cached or 200 ms of silence), then a ``mark``
         named by the returned utterance id; None when there is nothing to say or the call is over. Cancel it to stop
         mid-utterance, then ``clear`` what Twilio buffered."""
         if reply is None or self._ended.is_set():
             return None
         utterance = new_id("utt")
         async with self._speaking:
-            frames = await self._play(self.voice.say(reply)) or await self._play(_silence())
+            frames = await self._play(phone_speech.audio(self, reply, utterance))
             await self.link.mark(utterance)
         self._played_ms[utterance] = frames * 20
         return utterance

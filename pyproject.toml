@@ -35,6 +35,7 @@ asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
 pythonpath = ["src"]
 addopts = "-q --import-mode=importlib"
+faulthandler_timeout = 300  # a test stuck for 5 min dumps every thread's stack (one hung on Oct 28 and left none)
 
 [tool.ruff]
 line-length = 120

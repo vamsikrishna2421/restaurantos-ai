@@ -80,6 +80,14 @@ def test_contract_text_verbatim() -> None:
     assert en["allergen_listed"].endswith("Please tell our staff about any allergy.")
 
 
+def test_greet_phone_discloses_ai_transcription_no_food(templates: Templates) -> None:
+    # MASTER_PLAN "Privacy", ARCHITECTURE_OPS §13: the greeting every call opens with discloses the AI, the
+    # transcription and that no food is prepared (callers hear the English line until a draft is reviewed).
+    greet = templates.render("greet_phone", "en").text
+    assert "AI ordering assistant" in greet and "This call is transcribed." in greet
+    assert "no food is actually prepared" in greet
+
+
 def test_drafts_unreviewed_english_canonical(templates: Templates) -> None:
     assert templates.review_status("en") == "reviewed"
     assert [templates.review_status(lang) for lang in ("te", "ta", "es")] == ["unreviewed"] * 3

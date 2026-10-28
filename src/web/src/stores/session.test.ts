@@ -34,6 +34,16 @@ test('load reads the session once and treats 401 as "no session yet"', async () 
   expect(fetch.mock.calls[0][1].method).toBe('GET')
 })
 
+test('a 401 keeps its error only when the kitchen was swept (sandbox_gone)', async () => {
+  const gone = json(401, { error: { code: 'no_session', message: 'gone', details: { reason: 'sandbox_gone' } } })
+  vi.stubGlobal('fetch', vi.fn().mockResolvedValueOnce(gone).mockResolvedValueOnce(noSession()))
+  await expect(useSession.getState().load()).resolves.toBeNull()
+  expect(useSession.getState()).toMatchObject({ status: 'none', info: null })
+  expect(useSession.getState().error?.details).toEqual({ reason: 'sandbox_gone' })
+  await useSession.getState().load(true) // a plain 401 is a first visit, not an error
+  expect(useSession.getState()).toMatchObject({ status: 'none', error: null })
+})
+
 test('a server error is kept as status error, never thrown by load', async () => {
   const notWired = { error: { code: 'not_wired', message: 'x', details: {} } }
   vi.stubGlobal('fetch', vi.fn().mockResolvedValue(json(503, notWired)))

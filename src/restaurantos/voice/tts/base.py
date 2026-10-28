@@ -337,7 +337,9 @@ class TTSAdapter:
                 audio += chunk
                 for frame in framer.push(chunk):
                     yield frame
-        except TTSUnavailable:
+        except TTSUnavailable as exc:
+            if exc.reason == "rate_limited":
+                self._alert_rate_limited(exc.retry_after_s)
             raise
         except Exception as exc:  # an engine bug must still end in the caller's fallback, not a dead voice session
             log.exception("TTS engine %s failed", engine.name)
@@ -348,6 +350,17 @@ class TTSAdapter:
         await self.cache.put(profile.key(lang, text, fmt), fmt, bytes(audio))
         for frame in framer.flush():
             yield frame
+
+    def _alert_rate_limited(self, retry_after_s: int | None) -> None:
+        """A vendor 429 (P29's ``tts_429``): through the meter's alert hook, else an ERROR line obs picks up."""
+        hook = getattr(self.meter, "on_alert", None)
+        if hook is None:
+            log.error("ALERT tts_429", extra={"alert": "tts_429"})
+            return
+        try:
+            hook("tts_429", {"retry_after_s": retry_after_s})
+        except Exception:
+            log.exception("TTS: the tts_429 alert hook failed")
 
     # ----- the plan read (the vendor meter's daily job) -----------------------------------------------------------
 

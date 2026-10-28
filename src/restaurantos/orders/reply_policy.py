@@ -62,7 +62,8 @@ _SIMPLE_CUES: Mapping[str, str] = {"change": "change_prompt", "what_else": "what
                                    "didnt_catch": "didnt_catch"}
 _QUESTION_CODES: Mapping[str, str] = {
     "ack_added": "anything_else", "qty_flagged": "anything_else", "sold_out_no_alt": "anything_else",
-    "readback": "readback", "confirm_reprompt": "confirm", "clarify_item": "clarify_item",
+    "readback": "readback", "readback_kiosk": "readback", "confirm_reprompt": "confirm",
+    "confirm_reprompt_kiosk": "confirm", "clarify_item": "clarify_item",
     "clarify_qty": "clarify_qty", "sold_out_offer": "sold_out_offer", "sold_out_offer_one": "sold_out_offer",
     "change_prompt": "change", "placed_phone": "placed", "placed_kiosk": "placed", "goodbye": "closed",
     "goodbye_kiosk": "closed", "greet_phone": "greeting", "greet_kiosk": "greeting",
@@ -305,9 +306,10 @@ def choose(result: OrderTurnLLM | FastPathResult | None, apply_result: ApplyResu
     if state == "readback":
         return say.readback()
     if state == "confirm":
+        reprompt = say("confirm_reprompt" if phone else "confirm_reprompt_kiosk")
         if view.then_reprompt and llm is not None and llm.question is not None:
-            return join(say.answer(llm.question), say("confirm_reprompt"))
-        return say("confirm_reprompt")
+            return join(say.answer(llm.question), reprompt)
+        return reprompt
     if state == "handoff":
         if view.cue == "large_order":
             return say("large_order_handoff")
@@ -389,7 +391,8 @@ class _Say:
         if not cart.lines:
             return self("nothing_ordered")
         total = pricing.totals(cart.lines, self.menu.tax_bp)[2]  # from the lines, never from a stored total
-        return self("readback", items=Items.from_lines(cart.lines, self.menu, explicit=self.view.explicit),
+        key = "readback" if self.view.channel == "phone" else "readback_kiosk"
+        return self(key, items=Items.from_lines(cart.lines, self.menu, explicit=self.view.explicit),
                     total=Money(total), minutes=Count(self.view.minutes or MIN_QUOTE_MIN))
 
     def prefix(self, apply_result: ApplyResult | None) -> Reply | None:

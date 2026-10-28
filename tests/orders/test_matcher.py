@@ -331,6 +331,14 @@ def test_real_seed_menu_names_and_aliases_fast_path():
     # The canonical split-modifier order needs the LLM (one of two biryanis without onion).
     assert fast_path("Naaku rendu chicken biryani kavali, okati onion lekunda, inka oka mango lassi, anthe.",
                      menu, LEX) is None
+    # Telugu puts a modifier before its dish (E1 e1-te-041, e1-te_en-025): between two dishes it is the LLM's call,
+    # while a trailing one still attaches to the dish before it.
+    for text in ("రెండు గోంగూర మటన్ ఇవ్వండి మరియు ఉల్లిపాయ లేకుండా ఒక పనీర్ బటర్ మసాలా కావాలి",
+                 "naku rendu samosa rendu masala dosa vellulli lekunda oka chicken tikka kaavali"):
+        assert fast_path(text, menu, LEX) is None, text
+    assert ops(fast_path("రెండు పనీర్ బటర్ మసాలా ఉల్లిపాయ లేకుండా", menu, LEX)) == [("PNR_BM", 2, ["NO_ONION"])]
+    assert ops(fast_path("two chicken 65 extra spicy and one samosa", menu, LEX)) == [  # English: after its dish
+        ("CHK_65", 2, ["EXTRA_SPICY"]), ("SAMOSA", 1, [])]
 
 
 def _utterances(n: int, rng: random.Random) -> list[str]:

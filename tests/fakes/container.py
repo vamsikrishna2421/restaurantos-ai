@@ -1,6 +1,7 @@
 """``make_test_container(**overrides)``: a Container wired with fakes (CONTRACTS_RUNTIME §10.0, §10.11).
 
-- ``settings`` on a fresh temp data dir (mock AI, no key files) and a real ``SpendGuard`` on that dir's ledger;
+- ``settings`` on a fresh temp data dir (mock AI, no key files) and a real ``SpendGuard`` on that dir's ledger, on the
+  container's clock;
 - ``FakeMetaClient`` (scripted with ``script=``), ``FakeClock``, a seeded ``IdGen`` installed behind ``new_id``,
   ``random.Random(seed)`` and ``NoopChaos``;
 - ``store``: ``FakeStore``, an in-memory SQLite built from ``store/tables.py`` with the §10.2 semantics (one global
@@ -351,8 +352,10 @@ def make_test_container(*, real_store: bool = False, real_bus: bool = False, rea
         return overrides.pop(name) if name in overrides else build()
 
     settings = pick("settings", make_test_settings)
-    guard = pick("guard", lambda: SpendGuard.from_settings(settings))
     clock = pick("clock", lambda: FakeClock(now_ms, tz=settings.tenant_timezone))
+    # The guard reads the fake clock as well: its budget day and phase must match records stamped at FAKE_NOW_MS on
+    # any real date (on the wall clock, "today" stopped being 2026-10-27 at 04:00 ET on the 28th).
+    guard = pick("guard", lambda: SpendGuard.from_settings(settings, clock=lambda: clock.now_real_ms() / 1000))
     meta = pick("meta", lambda: FakeMetaClient(script, guard=guard, clock=clock))
     id_gen = pick("ids", lambda: seeded_idgen(seed, clock=clock.now_real_ms))
     c = Container(settings=settings, guard=guard, meta=meta, clock=clock, ids=id_gen,

@@ -10,8 +10,10 @@
    audio is written to ``--out`` as an 8 kHz WAV.
 
 With ``RESTOS_FAKE_ASR=1`` (dev) the app hears the fake ASR's script, whose first turn orders two chicken biryanis and a
-paneer butter masala, so ``--dtmf 1`` places the order. CI runs the same ``run_call`` in-process with the fake ASR
-(``tests/voice/test_twilio_media.py``).
+paneer butter masala, so ``--dtmf 1`` places the order once the read-back has a voice (live TTS, or stitched from the
+pre-rendered phrase cache). Without either (no ElevenLabs key, no ``build_phrase_cache.py --apply``) the read-back is
+200 ms of silence, which never confirms an order (P1-1): the app says ``degraded_phone`` and ends the call. CI runs
+the same ``run_call`` in-process with the fake ASR and a fake voice (``tests/voice/test_twilio_media.py``).
 
 Usage:
     .venv/bin/python scripts/twilio_sim.py --target http://127.0.0.1:8000 --fast --out /tmp/call.wav
