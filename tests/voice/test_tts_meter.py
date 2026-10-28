@@ -93,6 +93,23 @@ def test_daily_allowance_from_the_plan(tmp_path):
     assert reloaded.plan == meter.plan and reloaded.month_used() == 100_000
 
 
+def test_day_floor_lifts_a_small_plans_allowance(tmp_path):
+    """A free plan (10,000 a month) spread over 24 budget days leaves about 3 replies a day: the floor lifts the day's
+    allowance, and the month's envelope still stops the spend."""
+    clock = FakeClock(et_ms(2026, 10, 28, 18))
+    reset = et_ms(2026, 11, 20, 12) // 1000
+    plain = VendorMeter(None, clock=clock)
+    floored = VendorMeter(None, clock=clock, day_floor_chars=3_000)
+    for meter in (plain, floored):
+        meter.apply_plan(PlanUsage(used=0, limit=10_000, reset_unix=reset, status="free"))
+    assert plain.allowance() == (10_000 // 24, 0) and plain.check_tts(500) == "quota_day"  # Oct 28 .. Nov 20
+    assert floored.allowance() == (3_000, 0) and floored.check_tts(3_000) is None
+    floored.record_tts(9_800, batch=True)  # the month is nearly spent: the floor never outruns the envelope
+    assert floored.allowance() == (3_000, 0) and floored.check_tts(201) == "quota_month"
+    with pytest.raises(ValueError):
+        VendorMeter(None, day_floor_chars=-1)
+
+
 def test_twilio_minutes_per_day(tmp_path):
     clock = FakeClock(et_ms(2026, 10, 30, 3, 50))  # still Oct 29's budget day
     meter = VendorMeter(tmp_path / "vendor_usage.jsonl", clock=clock, twilio_minutes_per_day=10)

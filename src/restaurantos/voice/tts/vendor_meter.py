@@ -10,7 +10,8 @@ shared kill switch (ARCHITECTURE_VOICE_MEDIA §7.5, ARCHITECTURE_OPS §11 and §
 - **Daily allowance:** remaining characters ÷ budget days left in the period, fixed at the later of today's 04:00 ET
   and the latest snapshot (the daily job "sets the day's allowance"); today's live usage counts from that point.
   Batch work (the phrase pre-render, the bake-off) is held to the envelope only: it shrinks later days' allowances,
-  never today's live one.
+  never today's live one. ``tts_day_floor_chars`` raises a day's allowance to at least that many characters (a
+  small plan spread over many days leaves only a few replies a day); the envelope still caps the month.
 - **Alert:** once per period when month usage reaches 60% of the envelope (logged, persisted, ``alert`` callback).
 - **Twilio:** billed minutes (each call rounded up) per budget day against ``twilio_minutes_per_day``.
 - **Kill switch:** the SpendGuard's; while it is on, no vendor spend is allowed (cached audio still plays).
@@ -124,15 +125,16 @@ class VendorMeter:
     """See the module docstring. ``clock`` returns real epoch ms (the container's ``clock.now_real_ms``)."""
 
     def __init__(self, path: Path | None, *, clock: Callable[[], int] | None = None,
-                 month_chars_budget: int | None = None, twilio_minutes_per_day: int = 300,
+                 month_chars_budget: int | None = None, day_floor_chars: int = 0, twilio_minutes_per_day: int = 300,
                  kill_switch: Callable[[], bool] | None = None,
                  alert: Callable[[str, dict[str, Any]], None] | None = None, alert_ratio: float = ALERT_RATIO) -> None:
-        if month_chars_budget is not None and month_chars_budget < 0:
-            raise ValueError("month_chars_budget must be >= 0")
+        if (month_chars_budget is not None and month_chars_budget < 0) or day_floor_chars < 0:
+            raise ValueError("month_chars_budget and day_floor_chars must be >= 0")
         if twilio_minutes_per_day < 0 or not 0 < alert_ratio <= 1:
             raise ValueError("twilio_minutes_per_day must be >= 0 and alert_ratio in (0, 1]")
         self.path = path
         self.month_chars_budget = month_chars_budget
+        self.day_floor_chars = day_floor_chars
         self.twilio_minutes_per_day = twilio_minutes_per_day
         self.alert_ratio = alert_ratio
         self._clock = clock or _wall_ms
@@ -150,7 +152,8 @@ class VendorMeter:
     @classmethod
     def from_settings(cls, settings: Settings, **kwargs: Any) -> VendorMeter:
         return cls(settings.data_dir / "vendor_usage.jsonl", month_chars_budget=settings.tts_month_chars_budget,
-                   twilio_minutes_per_day=settings.twilio_minutes_per_day, **kwargs)
+                   day_floor_chars=settings.tts_day_floor_chars, twilio_minutes_per_day=settings.twilio_minutes_per_day,
+                   **kwargs)
 
     def _now(self, now_ms: int | None = None) -> int:
         return self._clock() if now_ms is None else now_ms
@@ -210,7 +213,7 @@ class VendorMeter:
                 return None, used_today
             before = period.base_used + self._chars(period.start_ms, window)
             days_left = max(1, (budget_date(period.end_ms - 1) - today).days + 1)  # budget days, DST-proof
-            return max(0, envelope - before) // days_left, used_today
+            return max(self.day_floor_chars, max(0, envelope - before) // days_left), used_today
 
     # ----- TTS --------------------------------------------------------------------------------------------------
 

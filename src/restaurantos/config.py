@@ -289,6 +289,7 @@ class Settings(BaseSettings):
     tts_models: dict[SpeakLang, str] = Field(default_factory=lambda: dict(DEFAULT_TTS_MODELS))
     tts_concurrency: int = 2
     tts_month_chars_budget: int | None = None  # None = the plan's monthly limit from the ElevenLabs API
+    tts_day_floor_chars: int = Field(default=0, ge=0)  # a day's TTS allowance is at least this (month still caps)
 
     # Voice, language, orders and GM
     speak_languages: Annotated[list[SpeakLang], NoDecode] = Field(default_factory=lambda: ["en"])
