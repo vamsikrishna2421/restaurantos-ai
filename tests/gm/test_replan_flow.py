@@ -145,7 +145,7 @@ async def test_a_plan_made_before_a_po_cannot_buy_that_stock(world: Build) -> No
             plan_id=None, step_idx=None, created_ms=c.clock.now_real_ms(), eta_biz_ms=0))
     with pytest.raises(Conflict) as err:
         await approve(c, plan, [step.idx])
-    assert err.value.code == "state_changed" and "decision_digest" in err.value.details["changes"]
+    assert err.value.code == "state_changed" and f"step {step.idx}: params" in err.value.details["changes"]
     assert len(await rows(c, t.purchase_orders, tid)) == 1
 
 

@@ -160,7 +160,7 @@ def test_stale_link_decision_suggests_a_replan(app: GmApp) -> None:
     first = app.add_plan("pln_A", 0, 2)
     app.c.clock.advance(minutes=6)
     token = mint(app, first.id)  # minted 6 min into the plan's 15 (real) minutes
-    app.add_plan("pln_B", 0, 1, 2, 6)  # the situation moved on: pln_A's candidates are gone
+    app.add_plan("pln_B", 0, 1, 6)  # the situation moved on: pln_A's candidate 2 is gone
     path = f"/api/approve/{token}"
     r = app.client.post(path, json=body(first, [0, 2]))
     assert error(r) == (409, "state_changed")

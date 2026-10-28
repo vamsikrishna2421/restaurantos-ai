@@ -11,10 +11,10 @@
    pending for a later decision with its own digest: the manager approves the T2 set, the T3 PO waits for the owner;
 5. the approval digest, recomputed server-side (409 ``digest_mismatch``);
 6. drift, on approve: the report rebuilt with the planner's inputs (``gm.situation.build``, P22; zone and trigger
-   included, the plan's own POs left out) must keep the plan's decision digest (on a first decision: the effects of
-   earlier ones move the candidates) and each deciding step's params, and each must still be viable (supplier
-   cutoff, un-86 stock, staff on shift, quote-offset cap, no stricter tier, incident open): else 409
-   ``state_changed`` with ``details.replan_suggested``;
+   included, the plan's own POs left out) must still offer each deciding step with the same params, and each must
+   still be viable (supplier cutoff, un-86 stock, staff on shift, quote-offset cap, no stricter tier, incident
+   open): else 409 ``state_changed`` with ``details.replan_suggested``. The plan's decision digest alone never blocks
+   (D35): unselected candidates move with business time within a minute of a rush;
 7. a QR token (``qr_token=``) is consumed last, so a refused decision never burns it.
 
 It then records the ``approvals`` row, the deciding steps' decisions (``allow:``/``deny:human:<id>``), the plan status
@@ -59,7 +59,6 @@ from restaurantos.governance.digest import (
     APPROVAL_TIERS,
     approval_digest,
     approval_steps,
-    decision_digest,
     step_signature,
 )
 from restaurantos.governance.policy import (
@@ -389,9 +388,7 @@ class Approvals:
                                           policy=policy.limits, repo=repo, po_spent_today_cents=spent, tz=tz,
                                           exclude_plan_id=plan.id)
         changes = [f"incident {incident.status}"] if incident.status in CLOSED_INCIDENT else []
-        ran = any(step.decision == "approved" for step in plan.steps)  # its effects moved the candidates since
-        if not ran and decision_digest(report) != plan.decision_digest:
-            changes.append("decision_digest")
+        # D35: drift is judged per deciding step; candidates nobody selected move with business time in a rush
         current = [step_signature(candidate) for candidate in report.candidates]
         changes += [f"step {s.idx}: params" for s in steps if step_signature(s) not in current]
         return changes + await viability_problems(

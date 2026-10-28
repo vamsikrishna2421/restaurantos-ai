@@ -136,8 +136,28 @@ esac
 # ----- app -------------------------------------------------------------------------------------------------------
 
 [ -x "$PY" ] || die "no Python at $PY: python3.12 -m venv .venv && .venv/bin/pip install -e '.[dev]'"
+# Before any tunnel: a tunnel to a port another program already serves would publish that program.
+"$PY" -c 'import socket, sys
+s = socket.socket()
+s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)  # as uvicorn does: a just-stopped app is not "in use"
+try:
+    s.bind(("127.0.0.1", int(sys.argv[1])))
+except OSError:
+    sys.exit(1)
+finally:
+    s.close()' "$PORT" || die "port $PORT is already in use on 127.0.0.1 (another program?): pick a free one with --port N"
 export RESTOS_HOST=127.0.0.1
 export RESTOS_PORT=$PORT
+# One session secret per laptop (outside the repo, 0600, never printed): a restart keeps sessions and caller hashes.
+if [ -z "${RESTOS_SESSION_SECRET:-}" ]; then
+  mkdir -p "$STATE_DIR"
+  chmod 700 "$STATE_DIR"
+  if [ ! -s "$STATE_DIR/session_secret" ]; then
+    (umask 077 && "$PY" -c 'import secrets; print(secrets.token_urlsafe(48))' > "$STATE_DIR/session_secret")
+  fi
+  RESTOS_SESSION_SECRET=$(cat "$STATE_DIR/session_secret")
+  export RESTOS_SESSION_SECRET
+fi
 if [ "$TUNNEL" = 1 ]; then
   if [ "$NEW_TUNNEL" = 0 ] && tunnel_pid "$PORT" > /dev/null && [ -s "$URL_FILE" ]; then
     say "reusing the running tunnel"

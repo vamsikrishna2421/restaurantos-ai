@@ -160,7 +160,7 @@ export class KioskController {
       return
     }
     this.socket.start()
-    await mic
+    await Promise.race([mic, new Promise((done) => setTimeout(done, 6_000))]) // an unanswered prompt never blocks typing
     const ok = this.capture?.state === 'running'
     this.set({ gate: 'open', mic: this.capture?.state ?? 'unsupported', typed: this.get().typed || !ok })
   }

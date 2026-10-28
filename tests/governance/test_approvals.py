@@ -207,20 +207,16 @@ async def test_decide_state_changed_409() -> None:
     with pytest.raises(Conflict) as err:
         await w.decide(plan, T2_IDXS)
     assert (err.value.code, err.value.details) == ("state_changed", {
-        "replan_suggested": True, "changes": ["decision_digest", "step 2: params"]})
-    w.report = make_report(w.now_biz, staff=("STF_CARLOS", "STF_MEENA"))  # only the staff on shift changed
-    with pytest.raises(Conflict) as err:
-        await w.decide(plan, T2_IDXS)
-    assert err.value.details["changes"] == ["decision_digest"]
-    assert [a.payload["changes"] for a in await w.ledger("ABORT")] == [["decision_digest", "step 2: params"],
-                                                                      ["decision_digest"]]
+        "replan_suggested": True, "changes": ["step 2: params"]})
+    assert [a.payload["changes"] for a in await w.ledger("ABORT")] == [["step 2: params"]]
     assert (await w.load(plan.id)).status == "proposed" and not w.events("approval.decided")
     rejected = await w.decide(plan, T2_IDXS, decision="reject")  # rejecting a plan the world outran is always safe
     assert rejected.decision == "reject" and (await w.load(plan.id)).status == "rejected"
     assert {s.decision for s in (await w.load(plan.id)).steps if s.tier in ("T2", "T3")} == {"rejected"}
 
-    w.report = make_report(w.now_biz)  # the world as it was: approvals go through
+    w.report = make_report(w.now_biz, staff=("STF_CARLOS", "STF_MEENA"))  # D35: a digest-only change never blocks
     assert (await w.decide(await w.add_plan("pln_B"), T2_IDXS)).decision == "approve"
+    w.report = make_report(w.now_biz)
     plan_c = await w.add_plan("pln_C")
     async with w.c.store.write() as tx:
         await tx.conn.execute(update(t.incidents).where(t.incidents.c.id == INC).values(status="resolved"))

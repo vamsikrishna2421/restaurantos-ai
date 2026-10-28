@@ -202,7 +202,7 @@ export function StepCard({ step, planId, ctx, mark, compact = false, busy = fals
   const po = step.action_type === 'create_purchase_order'
     ? ctx.pos.find((x) => x.plan_id === planId && x.step_idx === step.idx) : undefined
   const flag = mark ? MARK[mark] : null
-  const undone = step.status === 'undone' || step.status === 'skipped'
+  const undone = step.status === 'undone' || (step.status === 'skipped' && !canUndo(step)) // carried over: it stands
   return (
     <li data-step={step.idx} data-status={step.status} data-decision={step.decision} data-tier={step.tier}
       aria-label={`Step ${step.idx + 1}: ${title}`}

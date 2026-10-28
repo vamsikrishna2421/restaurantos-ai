@@ -179,10 +179,10 @@ def test_decision_digest_is_ingredient_level():
 async def test_decision_digest_survives_p22_rebuilds_and_the_drift_check() -> None:
     """With P22's real ``gm.situation.build`` on a dinner_rush sandbox: the digest a plan stores at proposal is the
     one decide recomputes (notices embed times and POs their ETA, both outside the signature), so an approval goes
-    through; once the staff on shift change, decide refuses with ``state_changed``."""
+    through; once the staff on shift change the digest moves, yet the 86s and POs still go through (D35: drift is
+    judged per deciding step)."""
     situation = pytest.importorskip("restaurantos.gm.situation")
     from restaurantos.contracts.common import biz_from_ms, utc_from_ms
-    from restaurantos.contracts.errors import Conflict
     from restaurantos.governance.approvals import Approvals, plan_expires_ms
     from restaurantos.seed import materialize
     from restaurantos.store import repo
@@ -232,8 +232,7 @@ async def test_decision_digest_survives_p22_rebuilds_and_the_drift_check() -> No
         async with c.store.write() as tx:
             await tx.conn.execute(t.staff.update().where(t.staff.c.tenant_id == sid, t.staff.c.id == "STF_ARJUN")
                                   .values(on_shift=False))
-        with pytest.raises(Conflict) as err:
-            await approvals.decide("pln_p22_b", "approve", t2, approval_digest(plans["pln_p22_b"], t2)[0], judge)
-        assert err.value.code == "state_changed" and "decision_digest" in err.value.details["changes"]
+        later = await approvals.decide("pln_p22_b", "approve", t2, approval_digest(plans["pln_p22_b"], t2)[0], judge)
+        assert later.selected_idxs == t2  # no deciding step needs Arjun
     finally:
         await c.store.aclose()

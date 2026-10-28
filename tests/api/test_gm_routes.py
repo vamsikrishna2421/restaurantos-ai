@@ -236,7 +236,7 @@ def test_decide_route_executes_and_refuses(app: GmApp) -> None:
 
 def test_stale_decisions_suggest_a_replan(app: GmApp) -> None:
     first = app.add_plan("pln_A", 0, 2)
-    app.add_plan("pln_B", 0, 1, 2, 6)  # the drift check now rebuilds pln_B's report: pln_A's candidates are gone
+    app.add_plan("pln_B", 0, 1, 6)  # the drift check now rebuilds pln_B's report: pln_A's candidate 2 is gone
     r = app.client.post(f"/api/gm/plans/{first.id}/decide", json=decide_body(first, [0, 2]))
     assert error(r) == (409, "state_changed")
     details = r.json()["error"]["details"]
