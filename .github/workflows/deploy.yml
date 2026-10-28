@@ -1,0 +1,71 @@
+# Deploys (ARCHITECTURE §3 release flow): workflow_dispatch on main only; never pull_request_target. staging builds
+# main's commit on Fly's remote builder and smoke-tests it; prod promotes the image staging runs (the same image, no
+# rebuild). GitHub holds only FLY_API_TOKEN (a deploy token that reaches both apps, e.g. `fly tokens create org`) and
+# the read-only RESTOS_OPS_TOKEN: Meta, Twilio and ElevenLabs secrets live in Fly only. Without an admin token the
+# smoke test here is health-only; the full smoke (live typed turn, sockets) runs from the lead's machine.
+name: deploy
+
+on:
+  workflow_dispatch:
+    inputs:
+      target:
+        description: "staging: build main and deploy it; prod: promote the image staging runs"
+        type: choice
+        options: [staging, prod]
+        default: staging
+      confirm:
+        description: "prod only: type restaurantos to confirm"
+        type: string
+        default: ""
+      hotfix:
+        description: "prod from Nov 4 12:00 ET (judging): hotfixes only"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-${{ inputs.target }}
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    environment: ${{ inputs.target }}
+    steps:
+      - name: Confirm a prod promotion
+        if: inputs.target == 'prod' && inputs.confirm != 'restaurantos'
+        run: |
+          echo "::error::type restaurantos in the confirm input to promote to prod"
+          exit 1
+
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Smoke-test dependencies
+        run: python -m pip install "httpx>=0.28" "websockets>=17"
+
+      - uses: superfly/flyctl-actions/setup-flyctl@ed8efb33836e8b2096c7fd3ba1c8afe303ebbff1  # 1.6 (master on 2026-10-27)
+        with:
+          version: 0.4.116  # pinned: released 2026-10-12
+
+      - name: Deploy
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+          RESTOS_OPS_TOKEN: ${{ inputs.target == 'prod' && secrets.RESTOS_OPS_TOKEN || '' }}
+          TARGET: ${{ inputs.target }}
+          HOTFIX: ${{ inputs.hotfix }}
+        run: |
+          set -euo pipefail
+          args=("$TARGET" --ci --yes)
+          if [ "$HOTFIX" = "true" ]; then args+=(--hotfix); fi
+          bash scripts/deploy.sh "${args[@]}"

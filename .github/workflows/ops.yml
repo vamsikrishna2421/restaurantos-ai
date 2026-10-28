@@ -1,0 +1,103 @@
+# Daily ops check (ARCHITECTURE_OPS §12, alerting item 2): prod's /api/health and /api/health/deep with the read-only
+# RESTOS_OPS_TOKEN; any problem opens (or comments on) an issue labelled ops-alert. That token is the only RestaurantOS
+# secret GitHub holds (`scripts/secrets_to_fly.sh prod --github-ops-token` stores it).
+# Enable once prod is up: repository variable RESTOS_OPS_ENABLED=true (RESTOS_PROD_URL overrides the URL).
+name: ops
+
+on:
+  schedule:
+    - cron: "0 13 * * *" # 09:00 EDT, until Nov 1
+    - cron: "0 14 * * *" # 09:00 EST, from Nov 1
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: ops
+  cancel-in-progress: false
+
+jobs:
+  deep-health:
+    if: vars.RESTOS_OPS_ENABLED == 'true' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Check prod
+        id: check
+        env:
+          BASE_URL: ${{ vars.RESTOS_PROD_URL || 'https://restaurantos.fly.dev' }}
+          OPS_TOKEN: ${{ secrets.RESTOS_OPS_TOKEN }}
+        run: |
+          python3 - <<'PY'
+          import json, os, sys, urllib.error, urllib.request
+
+          base = os.environ["BASE_URL"].rstrip("/")
+          token = os.environ.get("OPS_TOKEN", "")
+          problems, notes = [], []
+
+          def get(path, headers=None):
+              request = urllib.request.Request(base + path, headers={"User-Agent": "restaurantos-ops", **(headers or {})})
+              try:
+                  with urllib.request.urlopen(request, timeout=30) as response:
+                      return response.status, json.loads(response.read() or b"{}")
+              except urllib.error.HTTPError as exc:
+                  return exc.code, {}
+              except (urllib.error.URLError, TimeoutError, ValueError) as exc:
+                  return 0, {"error": type(exc).__name__}
+
+          status, health = get("/api/health")
+          if status != 200 or health.get("status") != "ok":
+              problems.append(f"/api/health: HTTP {status}, status={health.get('status')!r}")
+          else:
+              notes.append(f"/api/health ok: git_sha={health.get('git_sha')} phase={health.get('phase')}")
+          if not token:
+              problems.append("the RESTOS_OPS_TOKEN secret is not set")
+          else:
+              status, deep = get("/api/health/deep", {"Authorization": f"Bearer {token}"})
+              if status != 200:
+                  problems.append(f"/api/health/deep: HTTP {status}")
+              else:
+                  if deep.get("db_ok") is not True:
+                      problems.append("db_ok is not true")
+                  if (deep.get("last_canary") or {}).get("ok") is False:
+                      problems.append("the last daily canary call failed")
+                  for name, pool in sorted((deep.get("pools") or {}).items()):
+                      spent, cap = pool.get("phase_usd") or 0, pool.get("phase_cap") or 0
+                      if cap and spent >= 0.8 * cap:
+                          problems.append(f"spend pool {name}: {spent:.2f} of {cap:.2f} USD this phase (>= 80%)")
+                  balance = (deep.get("twilio") or {}).get("balance_cents")
+                  if isinstance(balance, int) and balance < 1000:
+                      problems.append(f"Twilio balance {balance / 100:.2f} USD (< 10)")
+                  if (deep.get("elevenlabs") or {}).get("plan_ok") is False:
+                      problems.append("the ElevenLabs plan is not ok")
+                  notes.append(f"meta_status={deep.get('meta_status')} errors_1h={deep.get('error_classes_1h') or {}}")
+
+          text = "\n".join([f"Ops check of {base}", *(f"- PROBLEM: {p}" for p in problems), *(f"- {n}" for n in notes)])
+          print(text)
+          with open("ops-report.md", "w", encoding="utf-8") as report:
+              report.write(text + "\n")
+          if os.environ.get("GITHUB_STEP_SUMMARY"):
+              with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as summary:
+                  summary.write(text + "\n")
+          sys.exit(1 if problems else 0)
+          PY
+
+      - name: Open or update the ops issue
+        if: failure() && steps.check.outcome == 'failure'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          gh label create ops-alert --color B60205 --description "The daily ops check failed" --force > /dev/null
+          report=$(cat ops-report.md 2> /dev/null || echo "The ops check failed before writing a report.")
+          body=$(printf '%s\n\nRun: %s\n' "$report" "$RUN_URL")
+          number=$(gh issue list --label ops-alert --state open --limit 1 --json number --jq '.[0].number // empty')
+          if [ -n "$number" ]; then
+            gh issue comment "$number" --body "$body"
+          else
+            gh issue create --title "ops: prod health check failed" --label ops-alert --body "$body"
+          fi

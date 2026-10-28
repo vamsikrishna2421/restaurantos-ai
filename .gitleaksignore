@@ -1,0 +1,15 @@
+# Known fake secrets in tests (gitleaks fingerprints: commit:file:rule:line). Each was checked by hand on Oct 28:
+# placeholder tokens, made-up keys and shapes the redaction tests must catch. A new finding still fails CI.
+92b69f00be2f6ae09883931c60bcc4b5503972f0:src/web/src/surfaces/approve/approve.test.tsx:generic-api-key:25
+92b69f00be2f6ae09883931c60bcc4b5503972f0:src/web/src/surfaces/approve/approve.test.tsx:generic-api-key:26
+92b69f00be2f6ae09883931c60bcc4b5503972f0:tests/obs/test_status.py:generic-api-key:28
+9c44caa4653891ae6b5d9f717a86db05c4d7dd2f:tests/security/test_auth.py:generic-api-key:258
+9c44caa4653891ae6b5d9f717a86db05c4d7dd2f:tests/security/test_redact.py:elevenlabs-api-key:108
+9c44caa4653891ae6b5d9f717a86db05c4d7dd2f:tests/security/test_redact.py:elevenlabs-api-key:89
+9c44caa4653891ae6b5d9f717a86db05c4d7dd2f:tests/security/test_redact.py:generic-api-key:107
+9c44caa4653891ae6b5d9f717a86db05c4d7dd2f:tests/security/test_redact.py:generic-api-key:24
+a0fc443491f48c73a47beca0222222ef76f18136:tests/judge/test_canary.py:generic-api-key:39
+dd9530876b318e23822aec0528f8e9d993d4a4b0:tests/contracts/test_events.py:generic-api-key:230
+dd9530876b318e23822aec0528f8e9d993d4a4b0:tests/meta/test_config_secrets.py:generic-api-key:19
+dd9530876b318e23822aec0528f8e9d993d4a4b0:tests/meta/test_deltas_client.py:generic-api-key:144
+dd9530876b318e23822aec0528f8e9d993d4a4b0:tests/meta/test_deltas_client.py:generic-api-key:168
