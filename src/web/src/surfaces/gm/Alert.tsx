@@ -22,6 +22,18 @@ const SCALE_MIN = 180
 const BAND_RANK: Readonly<Record<Band, number>> = { act: 0, watch: 1, ok: 2 }
 const BAND_TONE: Readonly<Record<Band, Tone>> = { act: 'bad', watch: 'warn', ok: 'ok' }
 const BAND_FILL: Readonly<Record<Band, string>> = { act: 'bg-bad', watch: 'bg-warn', ok: 'bg-ok' }
+/** The runway gauge's fill: while stock runs short, a glowing gradient from the band's colour to a calmer one. */
+const RUNWAY_FILL: Readonly<Record<Band, string>> = {
+  act: 'bg-linear-to-r from-bad to-warn shadow-glow-bad-sm',
+  watch: 'bg-linear-to-r from-warn to-accent-2 shadow-glow-warn-sm',
+  ok: 'bg-ok',
+}
+/** The alert's glow, like a toned card's. */
+const BAND_GLOW: Readonly<Record<Band, string>> = {
+  act: 'shadow-glow-bad',
+  watch: 'shadow-glow-warn',
+  ok: 'shadow-glow',
+}
 
 /** Most urgent first: band, then the soonest run-out. */
 export function sortStock(inventory: readonly InventoryItemView[]): InventoryItemView[] {
@@ -57,7 +69,7 @@ function Runway({ eta, band, actAt }: { eta: number | null; band: Band; actAt: n
         aria-valuenow={Math.min(eta ?? SCALE_MIN, SCALE_MIN)}
         aria-valuetext={eta === null ? 'no run-out' : `${eta} min`}
         className="relative h-3 rounded-full bg-ink ring-1 ring-inset ring-line">
-        <div className={cx('h-full rounded-full transition-[width] duration-700 ease-out', BAND_FILL[band])}
+        <div className={cx('h-full rounded-full transition-[width] duration-700 ease-out', RUNWAY_FILL[band])}
           style={{ width: `${fill}%` }} />
         {actAt !== null && (
           <span aria-hidden className="absolute -top-1 -bottom-1 w-0.5 bg-bad" style={{ left: pos(actAt) }} />
@@ -93,7 +105,7 @@ export function IncidentAlert({ stock, incident, report }: IncidentAlertProps) {
   if (stock === null) {
     return (
       <section aria-label="Stock alert" {...panel}
-        className="flex items-center gap-3 rounded-2xl border border-line bg-panel px-5 py-4">
+        className="flex items-center gap-3 rounded-2xl border border-white/8 bg-panel px-5 py-4 shadow-glow">
         <Package aria-hidden className="size-6 text-ok" />
         <p className="text-lg font-semibold">Every ingredient is OK.</p>
         <span className="text-sm text-muted">The GM checks stock on every order and every business minute.</span>
@@ -106,8 +118,8 @@ export function IncidentAlert({ stock, incident, report }: IncidentAlertProps) {
   const fastest = fastestRestock(report, ingredient.id)
   return (
     <section aria-label="Stock alert" {...panel} data-band={band}
-      className={cx('rounded-2xl border px-5 py-4', band === 'act' ? 'border-bad/50 bg-bad/10'
-        : band === 'watch' ? 'border-warn/40 bg-warn/5' : 'border-line bg-panel')}>
+      className={cx('rounded-2xl border px-5 py-4', BAND_GLOW[band], band === 'act' ? 'border-bad/50 bg-bad/10'
+        : band === 'watch' ? 'border-warn/40 bg-warn/5' : 'border-white/8 bg-panel')}>
       <div className="flex flex-wrap items-center gap-3">
         <Badge tone={BAND_TONE[band]} icon={band === 'act' ? <Siren /> : undefined} className="text-sm">{band}</Badge>
         <h2 className="text-2xl font-bold tracking-tight">{`${name} ${HEADLINE[band]}`}</h2>

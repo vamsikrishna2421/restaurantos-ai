@@ -15,7 +15,7 @@
 import { BrainCircuit, TriangleAlert } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import { SampleBadge, SimClock, WallClock } from '../../components/badges'
-import { Card, Chip, cx, toast, Toaster } from '../../components/ui'
+import { BrandHat, Card, Chip, cx, toast, Toaster } from '../../components/ui'
 import type {
   Approval,
   DegradedComponent,
@@ -177,7 +177,7 @@ function GmConsole({ data }: { data: TenantData }) {
       <header className="sticky top-0 z-20 border-b border-line bg-ink/95 backdrop-blur">
         <div className="flex flex-wrap items-center gap-x-4 gap-y-2 px-4 py-3">
           <h1 className="inline-flex items-center gap-2 text-2xl font-bold tracking-tight">
-            <BrainCircuit aria-hidden className="size-7 text-ai" />
+            <BrandHat />
             GM console
           </h1>
           <SampleBadge name={data.tenant.name} compact />

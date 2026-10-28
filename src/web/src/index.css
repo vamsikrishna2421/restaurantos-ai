@@ -14,8 +14,25 @@
   --color-warn: #f5b041;
   --color-bad: #ff5d5d;
   --color-ai: #8b7bff;
+  --color-ai-2: #b39dff;
   --font-sans: 'Inter', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', 'Noto Sans Telugu', 'Noto Sans Tamil', sans-serif;
   --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+  /* Glows, after the hat's blue→orange light. Box-shadows only, never blur filters, so a KDS showing 40+ tickets
+     stays cheap to paint: `glow` lights a card's edge from above (blue left, orange right), `glow-<tone>` haloes a
+     toned card or an urgent ticket, `glow-<tone>-sm` lifts a button or a late timer. The colours repeat the palette
+     plus the hat's blue (also in the body's sky); cx.ts tells tailwind-merge these are shadow sizes. */
+  --shadow-glow: inset 0 1px 0 0 rgb(255 255 255 / 0.05), -12px -8px 36px -24px rgb(30 120 255 / 0.45),
+    12px -8px 36px -24px rgb(255 138 61 / 0.38);
+  --shadow-glow-accent: inset 0 1px 0 0 rgb(255 255 255 / 0.05), 0 0 32px -14px rgb(255 138 61 / 0.55);
+  --shadow-glow-ai: inset 0 1px 0 0 rgb(255 255 255 / 0.05), 0 0 32px -14px rgb(139 123 255 / 0.55);
+  --shadow-glow-ok: inset 0 1px 0 0 rgb(255 255 255 / 0.05), 0 0 32px -14px rgb(46 204 113 / 0.45);
+  --shadow-glow-warn: inset 0 1px 0 0 rgb(255 255 255 / 0.05), 0 0 32px -14px rgb(245 176 65 / 0.5);
+  --shadow-glow-bad: inset 0 1px 0 0 rgb(255 255 255 / 0.05), 0 0 32px -14px rgb(255 93 93 / 0.55);
+  --shadow-glow-accent-sm: 0 2px 16px -5px rgb(255 138 61 / 0.55);
+  --shadow-glow-ai-sm: 0 2px 16px -5px rgb(139 123 255 / 0.55);
+  --shadow-glow-ok-sm: 0 2px 16px -5px rgb(46 204 113 / 0.4);
+  --shadow-glow-warn-sm: 0 2px 16px -5px rgb(245 176 65 / 0.5);
+  --shadow-glow-bad-sm: 0 2px 16px -5px rgb(255 93 93 / 0.5);
 }
 
 html,
@@ -26,7 +43,13 @@ body,
 
 body {
   margin: 0;
-  background: var(--color-ink);
+  /* The night sky: two faint, static glows over the ink (blue top-left, orange top-right). They scroll with the
+     page and never repeat down it. */
+  background:
+    radial-gradient(48rem 32rem at 0% 0%, rgb(30 120 255 / 0.1), transparent 70%),
+    radial-gradient(44rem 30rem at 100% 0%, rgb(255 138 61 / 0.08), transparent 70%),
+    var(--color-ink);
+  background-repeat: no-repeat;
   color: var(--color-text);
   font-family: var(--font-sans);
   -webkit-font-smoothing: antialiased;

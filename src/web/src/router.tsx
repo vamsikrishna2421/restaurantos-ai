@@ -21,6 +21,8 @@ import {
   type MouseEvent,
   type ReactNode,
 } from 'react'
+// the module itself, not the kit's index: the router is in the entry chunk, which stays free of the kit
+import { BrandMark } from './components/ui/BrandMark'
 
 export interface SurfaceProps {
   /** Path parameters, e.g. `{token}` for `/approve/:token`. */
@@ -214,8 +216,8 @@ export function surfaceComponent(loaders: SurfaceLoaders, surface: string) {
 function Page({ children }: { children: ReactNode }) {
   return (
     <main className="flex min-h-full flex-col items-center justify-center gap-3 p-6 text-center">
-      <h1 className="text-3xl font-semibold tracking-tight">
-        RestaurantOS <span className="text-accent">AI</span>
+      <h1 className="flex text-3xl font-semibold tracking-tight">
+        <BrandMark size={32} />
       </h1>
       {children}
     </main>

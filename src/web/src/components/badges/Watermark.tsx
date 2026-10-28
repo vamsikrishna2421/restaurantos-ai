@@ -48,7 +48,7 @@ export function Watermark({ kind, variant = 'overlay', detail, className }: Wate
   const tag = (
     <span
       className={cx(
-        'inline-flex items-center gap-1.5 rounded-md px-2 py-0.5 text-xs font-black uppercase tracking-[0.2em]',
+        'inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-black uppercase tracking-[0.2em]',
         'ring-1 ring-inset',
         info.tag,
       )}

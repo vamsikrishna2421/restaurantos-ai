@@ -18,7 +18,7 @@
 import { ExternalLink, Phone, Play } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { SampleBadge, SimClock } from '../../components/badges'
-import { Button, Card, Toaster } from '../../components/ui'
+import { BrandMark, Button, Card, Toaster } from '../../components/ui'
 import { isApiError } from '../../lib/api'
 import { Link, type SurfaceProps } from '../../router'
 import { Slot } from '../../slots'
@@ -104,7 +104,7 @@ export function ActionPage({ lineDeps = {} }: ActionPageProps) {
     <div className="flex min-h-full flex-col">
       <header className="sticky top-0 z-20 border-b border-line bg-ink/90 backdrop-blur">
         <div className="mx-auto flex w-full max-w-6xl flex-wrap items-center gap-x-3 gap-y-2 px-4 py-3">
-          <span className="text-lg font-bold tracking-tight">RestaurantOS <span className="text-accent">AI</span></span>
+          <BrandMark className="text-lg font-bold tracking-tight" />
           <SampleBadge name={data?.tenant.name} compact />
           <div className="ml-auto flex flex-wrap items-center gap-2">
             {data && <SimClock />}

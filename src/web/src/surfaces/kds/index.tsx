@@ -11,7 +11,7 @@
 import { Bell, BellOff, ChefHat, CircleCheck } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { SampleBadge, SimClock, useNow } from '../../components/badges'
-import { Button, Chip, cx, TabPanel, Tabs, toast, Toaster, type TabItem } from '../../components/ui'
+import { BrandHat, Button, Chip, cx, TabPanel, Tabs, toast, Toaster, type TabItem } from '../../components/ui'
 import type { MenuSnapshot, SpeakLang, StaffNotice, StaffTask, StationLoad, Ticket } from '../../contracts/generated'
 import { bizNowMs } from '../../lib/format'
 import { LANGUAGE_NAMES, SPEAK_LANGS, stationLang, stationName } from '../../lib/i18n'
@@ -134,7 +134,7 @@ function KdsScreen({ data }: { data: TenantData }) {
       <header className="sticky top-0 z-20 border-b border-line bg-ink/95 backdrop-blur">
         <div className="flex flex-wrap items-center gap-x-4 gap-y-2 px-4 pt-3 pb-2">
           <h1 className="inline-flex items-center gap-2 text-2xl font-bold tracking-tight">
-            <ChefHat aria-hidden className="size-7 text-accent" />
+            <BrandHat />
             Kitchen
           </h1>
           <SampleBadge name={data.tenant.name} compact />

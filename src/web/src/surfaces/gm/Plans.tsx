@@ -226,7 +226,7 @@ export function AiCard({ slot, steps, stream, ctx, marks, narration, fallback, p
   const ownNarration = plan?.narration?.length ? plan.narration : narration
   return (
     <Card panel="plan" aria-label="AI plan" tone="ai" aria-busy={streaming || undefined}
-      className={cx(streaming && 'shadow-[0_0_0_1px_rgb(139_123_255/0.35),0_0_32px_-8px_rgb(139_123_255/0.5)]')}
+      className={cx(streaming && 'shadow-[0_0_0_1px_rgb(139_123_255/0.6),0_0_44px_-6px_rgb(139_123_255/0.65)]')}
       title={<span className="inline-flex flex-wrap items-center gap-2">
         <BrainCircuit aria-hidden className="size-5 text-ai" />
         AI GM

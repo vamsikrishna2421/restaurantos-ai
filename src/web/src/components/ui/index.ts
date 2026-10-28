@@ -1,6 +1,7 @@
 /** The UI kit (CONTRACTS_API §8). Surfaces import from here and never edit these modules. */
 
 export { Badge, type BadgeProps } from './Badge'
+export { BrandHat, BrandMark, type BrandHatProps, type BrandMarkProps } from './BrandMark'
 export { Button, type ButtonProps, type ButtonSize, type ButtonVariant } from './Button'
 export { Card, type CardProps } from './Card'
 export { Chip, type ChipProps } from './Chip'

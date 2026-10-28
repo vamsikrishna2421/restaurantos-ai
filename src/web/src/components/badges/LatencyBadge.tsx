@@ -45,13 +45,13 @@ export function LatencyBadge({ ms, targetMs = LATENCY_TARGETS_MS.llmTurn, label,
       data-tone={tone}
       title={`${label ?? 'Latency'} ${value} (target ≤ ${formatLatency(targetMs)})`}
       className={cx(
-        'inline-flex items-center gap-1 whitespace-nowrap rounded-md px-2 py-0.5 font-mono text-xs font-semibold',
+        'inline-flex items-center gap-1 whitespace-nowrap rounded-full px-2.5 py-0.5 font-mono text-xs font-semibold',
         'tabular-nums ring-1 ring-inset',
         TONE_SOFT[tone],
         className,
       )}
     >
-      {label && <span className="font-sans font-medium opacity-80">{label}</span>}
+      {label && <span className="font-sans font-medium">{label}</span>}
       <span>{value}</span>
     </span>
   )

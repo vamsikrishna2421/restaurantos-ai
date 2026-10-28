@@ -58,14 +58,14 @@ export function SimClock({ clock: given, now = Date.now, tickMs = 1000, lang, cl
       data-clock="sim"
       data-speed={clock.speed}
       className={cx(
-        'inline-flex items-center gap-2 whitespace-nowrap rounded-md border border-dashed border-ai/70 bg-ai/10',
-        'px-2.5 py-1 font-mono text-sm font-semibold tabular-nums text-ai',
+        'inline-flex items-center gap-2 whitespace-nowrap rounded-full border border-dashed border-ai/85 bg-ai/10',
+        'px-3 py-1 font-mono text-sm font-semibold tabular-nums text-ai',
         className,
       )}
     >
       <Hourglass aria-hidden className="size-[1em] shrink-0" />
       <span>{`SIM · ${time}`}</span>
-      {speed && <span className="rounded bg-ai/20 px-1.5 text-xs uppercase tracking-wide">{speed}</span>}
+      {speed && <span className="rounded-full bg-ai/20 px-1.5 text-xs uppercase tracking-wide text-ai-2">{speed}</span>}
     </span>
   )
 }

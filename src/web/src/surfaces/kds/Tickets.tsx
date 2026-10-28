@@ -7,7 +7,7 @@
 
 import { Check, CookingPot, FlaskConical, Keyboard, Phone, Play, RotateCcw, Store, Tablet, Undo2 } from 'lucide-react'
 import { useNow } from '../../components/badges'
-import { Badge, Button, Card, cx, TONE_SOFT } from '../../components/ui'
+import { Badge, Button, Card, cx, TONE_SOFT, type Tone } from '../../components/ui'
 import type { Channel, MenuSnapshot, SpeakLang, Ticket } from '../../contracts/generated'
 import { formatBizTime } from '../../lib/format'
 import { kitchenLabel, renderTicket, stationName } from '../../lib/i18n'
@@ -23,6 +23,9 @@ const CHANNELS: Readonly<Record<Channel, { label: string; Icon: typeof Phone }>>
 }
 
 const FLAG = 'px-2.5 py-1 text-sm'
+
+/** A late timer glows in its colour; an on-time one stays calm, so a full rail still reads at a glance. */
+const TIMER_GLOW: Readonly<Partial<Record<Tone, string>>> = { warn: 'shadow-glow-warn-sm', bad: 'shadow-glow-bad-sm' }
 
 /** A ticket timer in minutes and seconds, past an hour too ("62:03"), so it never crowds the order number. */
 export function ticketClock(ms: number): string {
@@ -62,10 +65,11 @@ export function TicketCard({ ticket, menu, lang, bizNow, showStation, isNew, bus
       data-status={ticket.status}
       style={{ borderTop: `6px solid ${accent}` }}
       className={cx(
-        '@container flex min-w-0 flex-col overflow-hidden rounded-2xl border border-line bg-panel shadow-xl',
-        'shadow-black/30',
-        isNew && 'ring-2 ring-accent',
-        ticket.status === 'recalled' && 'ring-2 ring-warn',
+        '@container flex min-w-0 flex-col overflow-hidden rounded-2xl border border-white/8 bg-panel',
+        // urgent rings glow in their colour; only a calm ticket keeps the black drop shadow (its colour tints a glow)
+        !isNew && ticket.status !== 'recalled' && 'shadow-xl shadow-black/30',
+        isNew && 'shadow-glow-accent ring-2 ring-accent',
+        ticket.status === 'recalled' && 'shadow-glow-warn ring-2 ring-warn',
       )}
     >
       <header className="flex items-start justify-between gap-3 px-4 pt-3">
@@ -90,7 +94,7 @@ export function TicketCard({ ticket, menu, lang, bizNow, showStation, isNew, bus
             aria-label={`Waiting ${ticketClock(elapsed)}`}
             data-tone={tone}
             className={cx('rounded-lg px-2 py-0.5 font-mono text-3xl font-bold tabular-nums ring-1 ring-inset',
-              TONE_SOFT[tone])}
+              TONE_SOFT[tone], TIMER_GLOW[tone])}
           >
             {ticketClock(elapsed)}
           </span>

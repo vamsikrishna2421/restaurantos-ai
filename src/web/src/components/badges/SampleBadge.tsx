@@ -32,8 +32,8 @@ export function SampleBadge({ name, compact = false, className }: SampleBadgePro
       title={description}
       data-testid={SAMPLE_BADGE_TEST_ID}
       className={cx(
-        'inline-flex items-center gap-1.5 whitespace-nowrap rounded-md border border-dashed border-accent-2/70',
-        'bg-accent-2/10 px-2 py-0.5 text-xs font-bold uppercase tracking-wider text-accent-2',
+        'inline-flex items-center gap-1.5 whitespace-nowrap rounded-full border border-dashed border-accent-2/85',
+        'bg-accent-2/10 px-2.5 py-0.5 text-xs font-bold uppercase tracking-wider text-accent-2',
         className,
       )}
     >

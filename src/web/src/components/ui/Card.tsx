@@ -2,13 +2,14 @@
  * Card: the panel every surface is built from (CONTRACTS_API §8 UI kit).
  *
  * `title` and `actions` make a header row, `footer` a bottom row, and `tone` colours the left edge (`ai` for model
- * output, `warn`/`bad` for alerts). `panel` names the card for `?video=1&focus=<panel>`: in video mode the named
- * card is the focus panel and the others dim (lib/videoMode.ts).
+ * output, `warn`/`bad` for alerts) and the glow around the card (otherwise the neutral blue→orange edge light).
+ * `panel` names the card for `?video=1&focus=<panel>`: in video mode the named card is the focus panel and the others
+ * dim (lib/videoMode.ts).
  */
 
 import type { HTMLAttributes, ReactNode } from 'react'
 import { panelProps, useVideoMode } from '../../lib/videoMode'
-import { cx, TONE_EDGE, type Tone } from './cx'
+import { cx, TONE_EDGE, TONE_GLOW, type Tone } from './cx'
 
 export interface CardProps extends Omit<HTMLAttributes<HTMLElement>, 'title'> {
   title?: ReactNode
@@ -30,9 +31,10 @@ export function Card({ title, actions, footer, tone, panel, as: Tag = 'section',
     <Tag
       {...panelProps(panel, focus)}
       className={cx(
-        'flex min-w-0 flex-col rounded-xl border border-line bg-panel text-text',
+        'flex min-w-0 flex-col rounded-2xl border border-white/8 bg-panel text-text shadow-glow',
         tone && 'border-l-4',
         tone && TONE_EDGE[tone],
+        tone && TONE_GLOW[tone],
         className,
       )}
       {...rest}
