@@ -1,3 +1,5 @@
+![RestaurantOS AI: a glowing chef's hat above sound waves](docs/assets/banner.jpg)
+
 # RestaurantOS AI
 
 **The AI General Manager for independent, multilingual restaurants.** An entry in the Meta Global AI Developer Hackathon 2026 (Startup track), built Oct 26 – Nov 4, 2026.

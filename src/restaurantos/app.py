@@ -4,7 +4,7 @@
 ``create_app`` mounts every registered router at factory time and hands startup to ``services.wiring.lifespan``
 (CONTRACTS_RUNTIME §10.1). It adds the security headers, the error handlers, ``GET /api/health`` (liveness only)
 and the SPA: files from ``web_dist_dir``, with ``index.html`` for any other GET outside the backend prefixes and
-``/assets/``.
+``/assets/`` (its link-preview URLs made absolute with the origin of ``public_base_url``).
 
 Middleware, outermost first: security headers (on every response, refusals included), the startup gate (503 before
 lifespan step 7), P11's REST rate limit (120/min per IP on ``/api/*``; off in ``test`` unless given a limiter), P11's
@@ -22,7 +22,7 @@ from typing import TYPE_CHECKING
 from urllib.parse import urlsplit
 
 from fastapi import FastAPI, Request
-from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, PlainTextResponse
 from sqlalchemy import text
 
 from restaurantos import __version__
@@ -46,6 +46,7 @@ CSP = ("default-src 'self'; connect-src 'self' {socket}; img-src 'self' data: bl
        "font-src 'self' https://fonts.gstatic.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
        "script-src 'self'; worker-src 'self' blob:; frame-ancestors 'none'")
 NOT_BUILT = "RestaurantOS: the web app is not built yet. Run `npm --prefix src/web run build`, then reload.\n"
+ORIGIN_PLACEHOLDER = "__RESTOS_ORIGIN__"  # in index.html: og:image must be absolute, so the server fills it
 HEALTH_DB_TIMEOUT_S = 2.0
 IMMUTABLE = "public, max-age=31536000, immutable"  # Vite's hashed files under assets/
 
@@ -60,6 +61,11 @@ def public_host(public_base_url: str) -> str:
         raise ValueError(f"public_base_url must be an http(s) URL with a host, got {public_base_url!r}")
     host = f"[{parts.hostname}]" if ":" in parts.hostname else parts.hostname
     return f"{host}:{parts.port}" if parts.port else host
+
+
+def public_origin(public_base_url: str) -> str:
+    """``scheme://host[:port]`` of ``public_base_url`` (any path dropped); ValueError when it has no host."""
+    return f"{urlsplit(public_base_url).scheme}://{public_host(public_base_url)}"
 
 
 def content_security_policy(public_base_url: str) -> str:
@@ -121,10 +127,16 @@ def is_backend_path(path: str) -> bool:
 
 class SpaFiles:
     """Static files from the Vite build, with history fallback to ``index.html`` (answers 404s only). A missing
-    file under ``/assets/`` stays a 404: a stale page or a lazy surface chunk must not get HTML for a script."""
+    file under ``/assets/`` stays a 404: a stale page or a lazy surface chunk must not get HTML for a script.
+    ``index.html`` goes out with ``ORIGIN_PLACEHOLDER`` replaced by ``origin``."""
 
-    def __init__(self, dist: Path) -> None:
+    def __init__(self, dist: Path, origin: str = "") -> None:
         self.dist = dist.resolve()
+        self.origin = origin
+
+    def index(self, index: Path) -> Response:
+        html = index.read_text(encoding="utf-8").replace(ORIGIN_PLACEHOLDER, self.origin)  # a few KB, page-cached
+        return HTMLResponse(html, headers={"Cache-Control": "no-cache"})
 
     def file_for(self, path: str) -> Path | None:
         rel = path.lstrip("/")
@@ -145,10 +157,10 @@ class SpaFiles:
         if not index.is_file():
             return PlainTextResponse(NOT_BUILT, status_code=503)
         file = self.file_for(path)
-        if file is None:
-            if _under(path, ASSETS_PREFIX):
-                return None  # the JSON 404
-            return FileResponse(index, headers={"Cache-Control": "no-cache"})
+        if file is None and _under(path, ASSETS_PREFIX):
+            return None  # the JSON 404
+        if file is None or file == index.resolve():
+            return self.index(index)
         cache = IMMUTABLE if file.is_relative_to(self.dist / "assets") else "no-cache"
         return FileResponse(file, headers={"Cache-Control": cache})
 
@@ -189,7 +201,7 @@ def create_app(settings: Settings | None = None, *, container: Container | None 
     app.state.container = container
     app.state.features = features
     app.state.starting = False
-    spa = SpaFiles(settings.web_dist_dir)
+    spa = SpaFiles(settings.web_dist_dir, public_origin(settings.public_base_url))
     install_error_handlers(app, not_found=spa.not_found)
     app.add_middleware(StagingAdminGate)  # each add wraps the previous ones: see the module docstring for the order
     app.add_middleware(RestRateLimitMiddleware)

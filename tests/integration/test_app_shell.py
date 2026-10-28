@@ -19,6 +19,7 @@ from restaurantos.app import (
     content_security_policy,
     create_app,
     public_host,
+    public_origin,
 )
 from restaurantos.contracts import ids
 from restaurantos.contracts.common import ms_from_dt
@@ -83,6 +84,17 @@ def test_spa_fallback_index(dist):
     assert spa.file_for("/../secret.txt") is None and spa.file_for("/link.txt") is None
     assert spa.file_for("/assets/app-1a2b.js") == (dist / "assets" / "app-1a2b.js").resolve()
     assert spa.file_for("/" + "a" * 300) is None
+
+
+def test_spa_index_gets_the_public_origin(dist):
+    """Link previews (og:image) need an absolute URL: every index.html response names the public origin."""
+    (dist / "index.html").write_text('<meta property="og:image" content="__RESTOS_ORIGIN__/og.jpg"><title>R</title>')
+    with TestClient(make_app(web_dist_dir=dist, public_base_url="https://restaurantos.fly.dev/base")) as client:
+        for path in ("/", "/index.html", "/kiosk"):
+            r = client.get(path)
+            assert '<meta property="og:image" content="https://restaurantos.fly.dev/og.jpg">' in r.text, path
+            assert r.headers["content-type"].startswith("text/html") and r.headers["cache-control"] == "no-cache"
+    assert public_origin("http://[::1]:8000/x?y=1") == "http://[::1]:8000"
 
 
 def test_spa_not_built_page(tmp_path):
