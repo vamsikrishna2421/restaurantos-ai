@@ -45,7 +45,7 @@ from restaurantos.contracts.gm import (
     SituationReport,
 )
 from restaurantos.contracts.hashing import digest, sha256_hex
-from restaurantos.gm import baseline, fallbacks, plan_stream, preplan, simulate, situation
+from restaurantos.gm import baseline, fallbacks, plan_stream, preplan, simulate, situation, validate
 from restaurantos.gm.plan_stream import StreamStalled, Timing
 from restaurantos.gm.trigger import REUSED_DRAFT
 from restaurantos.governance import approvals
@@ -328,10 +328,10 @@ class GMPlanner:
         steps = fallbacks.action_lines(run.situation.inputs, run.report, steps, tz=tz)
         simulation = simulate.dry_run(simulate.state_for(run.situation), [s for s in steps if s.decision != "blocked"],
                                       tz=tz, incoming=run.situation.incoming)
-        questions = [q.strip()[:QUESTION_MAX_CHARS] for q in plan_llm.questions_for_manager if q.strip()]
+        questions = [s[:QUESTION_MAX_CHARS] for q in plan_llm.questions_for_manager if (s := validate.sanitize(q))]
         plan = Plan(id=plan_id, plan_no=plan_no, incident_id=run.incident.id, epoch=run.epoch, trigger=run.trigger,
                     source=source, role="preview", model=model, status="proposed",
-                    summary=(plan_llm.summary.strip() or "".join(run.narration[:1]))[:SUMMARY_MAX],
+                    summary=(validate.sanitize(plan_llm.summary) or "".join(run.narration[:1]))[:SUMMARY_MAX],
                     severity=plan_llm.severity,
                     confidence=plan_llm.confidence, steps=steps, rejected=rejected,
                     questions_for_manager=questions[:QUESTIONS_MAX],
