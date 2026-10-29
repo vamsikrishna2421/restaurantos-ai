@@ -1,0 +1,171 @@
+number: 7
+slug: third-party-services
+title: Our third-party services, explained
+date: 2026-10-28
+summary: Every outside service RestaurantOS relies on besides Meta - what each one does, why we picked it, the alternatives, and what to watch out for.
+voice: Samantha
+rate: 172
+scenes:
+  - type: title
+    hero: true
+    kicker: Progress video 007 · Oct 28
+    title: Our third-party services
+    subtitle: What each outside service does, why we picked it, the alternatives, and what to watch out for
+    say: >-
+      This is progress video number seven. Besides Meta, RestaurantOS relies on a few outside services. For each one,
+      I'll explain what it does, why we picked it, what the alternatives are, and what to watch out for.
+
+  - type: status
+    heading: The full list
+    items:
+      - text: ElevenLabs - speaks the replies
+        chip: In product
+        state: done
+      - text: Twilio - the phone number and the call audio
+        chip: In product
+        state: done
+      - text: Cloudflare Tunnel - puts the laptop online for testing
+        chip: Testing only
+        state: wip
+      - text: Fly.io - will host the app 24/7
+        chip: Your sign-up
+        state: you
+      - text: GitHub, Claude, Google Fonts, Hugging Face
+        sub: Code, the AI engineer, the website fonts, a public speech test set
+        chip: Supporting
+        state: soon
+    say: >-
+      Here is the full list. Two services are inside the product: ElevenLabs, which speaks the replies, and Twilio,
+      which gives us the phone number and carries the call audio. Cloudflare Tunnel puts my laptop online for testing.
+      Fly.io will host the app around the clock, once you sign up. And four supporting services: GitHub for the code,
+      Claude, the AI engineer building it, Google Fonts for the website's lettering, and Hugging Face, where we
+      downloaded a public speech test set.
+
+  - type: bullets
+    heading: ElevenLabs · the voice
+    items:
+      - text: "What it does: turns our reply text into natural speech"
+        sub: Every spoken reply on the phone and at the kiosk
+      - text: "Why we picked it: very natural voices that start speaking fast"
+        sub: Streams audio as it is made; English, Spanish, Tamil and Telugu; phone-quality audio out
+      - text: "Alternatives: Google Cloud, Microsoft Azure, Amazon Polly, OpenAI, Cartesia"
+        sub: Google and Azure also have Telugu and Tamil voices, and are often cheaper at scale
+      - text: "Watch out: our free plan is small"
+        sub: 10,000 characters a month, non-commercial; judging needs a paid plan, from $5 a month
+    say: >-
+      ElevenLabs is our voice. It turns the reply text into natural speech, on the phone and at the kiosk. We picked it
+      because its voices sound very human, and it starts speaking quickly, streaming the audio as it is made, in
+      English, Spanish, Tamil and Telugu. The alternatives are Google Cloud, Microsoft Azure, Amazon Polly, OpenAI and
+      Cartesia. Google and Azure also have Telugu and Tamil voices, and can be cheaper at large volume. What to watch:
+      our free plan is only ten thousand characters a month, for non-commercial use, so judging needs a paid plan,
+      which starts at five dollars a month.
+
+  - type: bullets
+    heading: Twilio · the phone line
+    items:
+      - text: "What it does: our phone number, +1 (508) 709-1967"
+        sub: Answers the call and streams the caller's voice to our server, and our voice back
+      - text: "Why we picked it: the most widely used voice platform"
+        sub: Live two-way call audio over a WebSocket, key presses like press 1, instant US numbers, excellent docs
+      - text: "Alternatives: Telnyx, Vonage, Plivo, SignalWire"
+        sub: Telnyx and Plivo are usually cheaper per minute
+      - text: "Watch out: billed per minute and per number"
+        sub: Turn on auto-recharge before judging, and rotate the auth token
+    say: >-
+      Twilio is our phone line. It owns our number, answers each call, and streams the caller's voice to our server,
+      and our voice back. We picked it because it is the most widely used voice platform: live two-way call audio, key
+      presses like press one to confirm, instant US numbers, and excellent documentation. Alternatives are Telnyx,
+      Vonage, Plivo and SignalWire. Telnyx and Plivo are usually cheaper per minute. What to watch: Twilio bills per
+      minute and per number, so please turn on auto-recharge before judging, and rotate the auth token.
+
+  - type: bullets
+    heading: Cloudflare Tunnel · testing from the laptop
+    items:
+      - text: "What it does: gives the laptop's dev server a public web address"
+        sub: So the phone line, and you, can reach the app while we build it
+      - text: "Why we picked it: free, no account, carries live call audio"
+        sub: Starts in seconds and handles WebSockets
+      - text: "Alternatives: ngrok, Tailscale Funnel, localtunnel"
+        sub: ngrok can keep one fixed address once you have an account
+      - text: "Watch out: testing only"
+        sub: The address changes on every restart, and it stops when the laptop sleeps
+    say: >-
+      Cloudflare Tunnel is how we test from my laptop. It gives the laptop's development server a public web address,
+      so the phone line, and you, can reach it. We use it because it is free, needs no account, starts in seconds, and
+      carries live call audio. Alternatives are ngrok, Tailscale Funnel and localtunnel. What to watch: it is for
+      testing only. The address changes on every restart, so I re-point the phone number, and it stops when the laptop
+      sleeps.
+
+  - type: bullets
+    heading: Fly.io · hosting, 24/7
+    items:
+      - text: "What it does: will run the app on a real server, all day"
+        sub: The website, the phone line's audio and the database, in one place
+      - text: "Why we picked it: always-on machines that hold live connections"
+        sub: Long phone-call WebSockets, a disk for our database, a region near Twilio's US servers, one-command deploys
+      - text: "Alternatives: Railway (our backup choice), Render, Google Cloud Run, AWS"
+        sub: Vercel is great for websites, but cannot hold a phone call's audio or keep a database disk
+      - text: "Watch out: waiting for your sign-up"
+        sub: A small machine costs a few dollars a month
+    say: >-
+      Fly.io will host the app around the clock. It runs the website, the phone audio and the database together on one
+      always-on machine. We picked it because it keeps long phone-call connections open, gives us a disk for the
+      database, has a region near Twilio's US servers, and deploys with one command. Alternatives are Railway, which is
+      our backup choice, Render, Google Cloud Run and AWS. Vercel is excellent for websites, but it cannot hold a phone
+      call's audio stream or keep a database disk, so it does not fit. What to watch: it needs your sign-up, and a
+      small machine costs a few dollars a month.
+
+  - type: bullets
+    heading: Building the product
+    items:
+      - text: "GitHub - stores the code and its history"
+        sub: Judges read the code there; it blocks secret-looking strings. Alternatives - GitLab, Bitbucket
+      - text: "Claude, by Anthropic - the AI engineer"
+        sub: Writes the code, tests, these videos and the dashboard. Alternatives - Meta's Muse Code, GitHub Copilot, Cursor
+      - text: "Open-source building blocks - free, no vendor"
+        sub: FastAPI and SQLite on the server, React for the screens
+    say: >-
+      Building the product uses three more things. GitHub stores the code and its full history. Judges will read the
+      code there, and it blocks pushes that contain secret-looking strings. Alternatives are GitLab and Bitbucket.
+      Claude, made by Anthropic, is the AI engineer: it writes the code, the tests, these videos and the dashboard.
+      Alternatives include Meta's own Muse Code, GitHub Copilot and Cursor. And the app is built on free open-source
+      software: FastAPI and SQLite on the server, and React for the screens.
+
+  - type: bullets
+    heading: Small helpers
+    items:
+      - text: "Google Fonts - the lettering on our website"
+        sub: Each visitor's browser fetches fonts from Google; we could host the font files ourselves for more privacy
+      - text: "Hugging Face - where we downloaded a public speech test set"
+        sub: Google's FLEURS recordings, to test speech recognition in Telugu, Tamil and Spanish; testing only
+      - text: "The Mac's own voice and Chrome - make these videos"
+        sub: Free, so our ElevenLabs characters are saved for guests
+    say: >-
+      And a few small helpers. Google Fonts provides the lettering on our website. Each visitor's browser fetches the
+      fonts from Google, which is why the Privacy page lists it. We could host the font files ourselves for more
+      privacy. Hugging Face is where we downloaded Google's public FLEURS recordings, to test speech recognition in
+      Telugu, Tamil and Spanish. And the Mac's own voice and the Chrome browser make these videos, for free, so our
+      ElevenLabs characters are saved for guests.
+
+  - type: status
+    heading: Your to-do list for these services
+    items:
+      - text: ElevenLabs - a paid plan before judging
+        sub: From $5 a month; the free plan cannot serve judges
+        chip: Waiting on you
+        state: you
+      - text: Fly.io - sign up, then I deploy
+        sub: A few dollars a month
+        chip: Waiting on you
+        state: you
+      - text: Twilio - auto-recharge on, new auth token
+        chip: Waiting on you
+        state: you
+      - text: Google Fonts - host the fonts ourselves?
+        sub: A small privacy win; say yes and I'll do it
+        chip: Your call
+        state: soon
+    say: >-
+      So, your to-do list for these services. Pick an ElevenLabs paid plan before judging. Sign up for Fly.io, and I'll
+      deploy. Turn on Twilio auto-recharge and make a new auth token. And tell me if you want the fonts hosted by us
+      instead of Google. Thanks for watching!

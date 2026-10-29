@@ -1,0 +1,208 @@
+number: 5
+slug: meta-ai-we-use
+title: The Meta AI we use, and where
+date: 2026-10-28
+summary: Which Meta models the product uses today, what each one does, where to see it in the app, and what is not used yet.
+voice: Samantha
+rate: 172
+scenes:
+  - type: title
+    hero: true
+    kicker: Progress video 005 · Oct 28
+    title: The Meta AI we use
+    subtitle: Which Meta models are in the product today, what each one does, and where a judge can see it
+    say: >-
+      This is progress video number five. You asked which Meta services the product uses right now. Here is the
+      complete list: what each one does, where it works in the app, and how a judge can check it.
+
+  - type: steps
+    heading: Who does what in a spoken order
+    items:
+      - text: The guest speaks
+        sub: On the phone, or holding the kiosk button
+      - text: Muse Voice Transcribe turns the speech into text
+        sub: Meta's speech-to-text model
+      - text: Muse Spark understands the text
+        sub: Meta's language model - which dishes, how many, or a question
+      - text: Our code checks it and builds the reply
+        sub: Prices, totals and wait times always come from our own data
+      - text: ElevenLabs speaks the reply
+        sub: Not Meta - Meta's API has no text-to-speech
+    say: >-
+      First, the short version of who does what. When a guest speaks, Muse Voice Transcribe, Meta's speech to text
+      model, turns their voice into text. Then Muse Spark, Meta's language model, reads that text and works out what
+      they want: which dishes, how many, or a question. In our product, Muse Spark only reads that text; the audio
+      goes to Voice Transcribe, which is built for live speech. Our own code then checks the result and builds the
+      reply, with prices and wait times from our data. Finally, ElevenLabs speaks the reply, because Meta's API has no
+      text to speech.
+
+  - type: status
+    heading: Meta models working in the product today
+    items:
+      - text: Muse Spark 1.3 - understands every order
+        sub: Phone, kiosk or typed; English, Telugu, Tamil, Spanish, Hindi, and mixes like Telugu-English
+        chip: In use
+        state: done
+      - text: Muse Spark 1.3 - the AI General Manager
+        sub: Writes a plan when the kitchen gets into trouble, with its reasoning streamed live
+        chip: In use
+        state: done
+      - text: Muse Voice Transcribe 1.0 - hears guests
+        sub: Live speech-to-text on the phone line and the kiosk microphone
+        chip: In use
+        state: done
+      - text: Muse Spark 1.2 - automatic backup
+        sub: Takes an order over if 1.3 is down or overloaded
+        chip: Standby
+        state: wip
+    say: >-
+      So, in the product today. Muse Spark one point three understands every order, on the phone, at the kiosk, or
+      typed, in English, Telugu, Tamil, Spanish and Hindi, even mixed in one sentence. The same Muse Spark is also our
+      AI General Manager: when the kitchen gets into trouble, it writes a plan, and you can watch its reasoning
+      stream in. Muse Voice Transcribe hears the guests, live, on the phone line and at the kiosk microphone. And
+      Muse Spark one point two stands by as an automatic backup, if one point three is down or overloaded.
+
+  - type: screen
+    image: meta/02-order.png
+    label: Muse Spark · an order, understood live
+    url: our dev link
+    marks:
+      - box: [160, 119, 690, 59]
+        label: Real Meta models, live
+        at: 0.1
+      - box: [216, 439, 331, 47]
+        label: The order Muse Spark understood
+        at: 0.4
+      - box: [954, 16, 230, 24]
+        label: Every model call, metered
+        at: 0.7
+    say: >-
+      Here it is in the app. On the front page, Run the full story live sends a real order through Muse Spark. The
+      order is understood and placed. And the meter at the top counts every model call and exactly what it cost.
+
+  - type: screen
+    image: meta/04-gm-plan.png
+    label: Muse Spark · the AI General Manager's plan
+    url: our dev link /gm
+    marks:
+      - box: [580, 439, 220, 25]
+        label: Muse Spark 1.3, 11.7 seconds
+        at: 0.1
+      - box: [36, 524, 923, 120]
+        label: Its reasoning, streamed from the model
+        at: 0.35
+      - box: [36, 655, 925, 245]
+        label: The plan, compared with our rule-based playbook
+        at: 0.68
+    say: >-
+      Then the AI General Manager plans. Our code sums up the kitchen, and Muse Spark writes the steps, in about
+      twelve seconds. The reasoning summary comes straight from the model while it thinks. Below it, every place where
+      the AI's plan differs from our rule-based playbook is labelled, and nothing happens until you approve.
+
+  - type: screen
+    image: kiosk/02-kiosk.png
+    label: Muse Voice Transcribe · hearing the guest
+    url: our dev link /kiosk
+    marks:
+      - box: [994, 230, 126, 130]
+        label: Hold and speak - Muse Voice Transcribe listens
+        at: 0.2
+    say: >-
+      At the kiosk, the guest holds this button and talks. Muse Voice Transcribe turns the speech into text while they
+      speak. On the phone, it listens to the whole call and notices when the caller has finished a sentence.
+
+  - type: screen
+    image: meta/06-ops.png
+    label: Status · check it yourself
+    url: our dev link /status
+    marks:
+      - box: [292, 22, 846, 50]
+        label: Muse Spark, working right now
+        at: 0.1
+      - box: [292, 92, 846, 48]
+        label: Muse Voice Transcribe, working right now
+        at: 0.3
+      - box: [292, 673, 846, 126]
+        label: Every call your kitchen made - model, time, cost
+        at: 0.6
+    say: >-
+      A judge can check all of this on the Status page. It names each Meta model and shows whether it is working
+      right now. Below, Live AI Ops lists every model call your own kitchen made: what it was for, the model, how long
+      it took, and what it cost. This story run made three Muse Spark calls, about two cents in all.
+
+  - type: screen
+    image: meta/07-learned.png
+    label: Proof · what we measured about Meta's models
+    url: our dev link /proof
+    marks:
+      - box: [180, 495, 1084, 115]
+        label: Order understood in about 1.8 seconds
+        at: 0.15
+      - box: [180, 623, 535, 115]
+        label: 98% of the prompt served from Meta's cache
+        at: 0.5
+    say: >-
+      And the Proof page lists what we measured about Meta's models, each fact with its number of cases: an order is
+      understood in about one point eight seconds, and ninety-eight percent of each request is served from Meta's
+      prompt cache, which makes it faster and cheaper.
+
+  - type: bullets
+    heading: Meta API features we rely on
+    items:
+      - text: Strict JSON-schema answers
+        sub: Every order comes back in a fixed shape our code can check
+      - text: Prompt caching, one stable key per menu
+        sub: About 98% of each request comes from the cache
+      - text: The Responses API, streamed, with reasoning summaries
+        sub: The General Manager's thinking appears as it plans
+      - text: Realtime speech over a WebSocket, with a language bias
+        sub: Tuned for English, Telugu, Tamil and Spanish
+    say: >-
+      We also rely on four Meta API features. Strict JSON schema, so every order comes back in a shape our code can
+      check. Prompt caching, with one stable key per menu. The Responses API, streamed, with reasoning summaries, for
+      the General Manager. And realtime speech recognition over a WebSocket, tuned toward English, Telugu, Tamil and
+      Spanish.
+
+  - type: status
+    heading: Tests only, not used yet, and not Meta
+    items:
+      - text: Muse Spark 1.3 Contributor - writes our test orders
+        sub: Synthetic orders only, never guest data, because Meta may train on it
+        chip: Tests only
+        state: wip
+      - text: SAM 3.1 - counting stock from a photo
+        sub: Go or no-go on Oct 29, 6 PM
+        chip: Planned
+        state: soon
+      - text: Muse Image and web search
+        sub: Available from Meta, not used
+        chip: Not used
+        state: soon
+      - text: Voice replies and the phone line
+        sub: ElevenLabs speaks, Twilio carries the call
+        chip: Not Meta
+        state: soon
+    say: >-
+      For completeness. A cheaper model, Muse Spark Contributor, writes the synthetic test orders behind our accuracy
+      numbers. Meta may train on that traffic, so it never sees guest data. SAM three point one, for counting stock
+      from a photo, is planned, with a go or no-go tomorrow at six PM. Muse Image and web search are available from
+      Meta, but not used. And two parts are not Meta at all: ElevenLabs speaks the replies, and Twilio carries the
+      phone call.
+
+  - type: status
+    heading: The numbers so far
+    items:
+      - text: 1,298 Meta model calls, about $2.21 of credit
+        chip: Measured
+        state: done
+      - text: Most are our own tests - 360 accuracy cases, speed and quality checks
+        chip: Tests
+        state: wip
+      - text: The rest are live - story runs and your test call
+        chip: Live
+        state: done
+    say: >-
+      So far, we have made about thirteen hundred Meta model calls, for about two dollars and twenty cents of credit.
+      Most of them are our own tests: three hundred and sixty accuracy cases, plus speed and quality checks. The rest
+      are live: story runs, and your test call. Next, video six explains every service Meta offers, so you can tell me
+      what else we should use. Thanks for watching!

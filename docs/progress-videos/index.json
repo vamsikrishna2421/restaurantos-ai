@@ -30,5 +30,29 @@
   "seconds": 180,
   "file": "004-proof-status-privacy.mp4",
   "summary": "New today - the honesty pages judges can check - measured accuracy with N, live system status, and what data is kept."
+ },
+ {
+  "number": 5,
+  "title": "The Meta AI we use, and where",
+  "date": "2026-10-28",
+  "seconds": 245,
+  "file": "005-meta-ai-we-use.mp4",
+  "summary": "Which Meta models the product uses today, what each one does, where to see it in the app, and what is not used yet."
+ },
+ {
+  "number": 6,
+  "title": "Everything Meta offers developers, explained",
+  "date": "2026-10-28",
+  "seconds": 200,
+  "file": "006-meta-catalog-explained.mp4",
+  "summary": "Every Meta model and platform feature in plain words - what each one is for, what it costs, whether we use it, and ideas for where it could fit."
+ },
+ {
+  "number": 7,
+  "title": "Our third-party services, explained",
+  "date": "2026-10-28",
+  "seconds": 264,
+  "file": "007-third-party-services.mp4",
+  "summary": "Every outside service RestaurantOS relies on besides Meta - what each one does, why we picked it, the alternatives, and what to watch out for."
  }
 ]

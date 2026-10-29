@@ -1,0 +1,142 @@
+number: 6
+slug: meta-catalog-explained
+title: Everything Meta offers developers, explained
+date: 2026-10-28
+summary: Every Meta model and platform feature in plain words - what each one is for, what it costs, whether we use it, and ideas for where it could fit.
+voice: Samantha
+rate: 172
+scenes:
+  - type: title
+    hero: true
+    kicker: Progress video 006 · Oct 28
+    title: Meta's AI catalog, explained
+    subtitle: Every Meta model and feature in plain words, what it is for, and where it could fit in RestaurantOS
+    say: >-
+      This is progress video number six. It explains everything Meta offers developers today, in plain words: what
+      each model is for, what it costs, whether we use it, and where it could fit in our product. Then you can tell me
+      what we should add.
+
+  - type: bullets
+    heading: Meta offers AI in three ways
+    items:
+      - text: Meta Model API - models you call over the internet
+        sub: Pay per use, nothing to install. This is what RestaurantOS uses.
+      - text: Open-weight models - you download and run them yourself
+        sub: Muse Spark Open, Muse Glimmer and SAM 3.1, on your own computers
+      - text: Muse Code - Meta's coding assistant
+        sub: For developers writing software, in the terminal; not part of our product
+    say: >-
+      Meta offers its AI in three ways. First, the Meta Model API: models you call over the internet, paying only for
+      what you use, with nothing to install. That is what our product uses. Second, open-weight models, which you
+      download and run on your own computers. And third, Muse Code, Meta's coding assistant for developers. It helps
+      people write software, and it is not part of our product.
+
+  - type: status
+    heading: The thinking models
+    items:
+      - text: Muse Spark - Meta's main all-round model
+        sub: Reads text, pictures, PDFs and video, thinks, and answers in text or exact JSON. About a fifth of a cent per order for us.
+        chip: We use it
+        state: done
+      - text: Muse Wonder - Meta's most capable model, in preview
+        sub: For huge coding jobs and long-running agents. About three to five times the price of Spark.
+        chip: Not needed
+        state: soon
+      - text: Contributor mode - the same Spark, at least 12 times cheaper
+        sub: In exchange, Meta may train future models on what you send
+        chip: Tests only
+        state: wip
+    say: >-
+      Now the hosted models. Muse Spark is Meta's main all-round model. It reads text, pictures, PDF documents and
+      video, thinks with as much effort as you ask for, and answers in text, or in exact JSON that code can check.
+      That is the brain behind our orders and the General Manager. Muse Wonder is Meta's most capable model, still in
+      preview, built for huge coding jobs and long-running agents. It costs three to five times more, and our tasks
+      do not need it. And contributor mode is the same Spark, at least twelve times cheaper, because Meta may train on
+      what you send. We use it only for synthetic test orders, never guest data.
+
+  - type: status
+    heading: Hearing, seeing and drawing
+    items:
+      - text: Muse Voice Transcribe - turns speech into text
+        sub: Live or from a recording; 25 languages including Telugu and Tamil; about 18 cents per hour of audio
+        chip: We use it
+        state: done
+      - text: Segment Anything (SAM 3.1) - finds and outlines objects
+        sub: In photos and video, from a short phrase like "paneer packs"; about a quarter of a cent per photo
+        chip: Planned
+        state: wip
+      - text: Muse Image - makes and edits pictures
+        sub: From a text description or a photo plus an instruction; one cent per image
+        chip: Not used
+        state: soon
+    say: >-
+      Then the models that hear, see and draw. Muse Voice Transcribe turns speech into text, live or from a recording,
+      in twenty-five languages including Telugu and Tamil, for about eighteen cents per hour of audio. That is our
+      speech recognition. Segment Anything, SAM three point one, finds and outlines objects in photos and video from a
+      short phrase, like paneer packs. That is how a photo of the fridge could count stock. And Muse Image makes and
+      edits pictures, for one cent each.
+
+  - type: bullets
+    heading: Features of the Meta platform
+    items:
+      - text: Exact JSON answers, adjustable thinking effort, streaming
+        sub: We use all three
+      - text: Prompt caching - repeated instructions are cheaper and faster
+        sub: We use it; 98% of each order request comes from the cache
+      - text: Tool calling - the model asks your code to do things
+        sub: Not yet; our code does every action after you approve
+      - text: Search grounding - live web answers with sources
+        sub: Not used yet; $2.50 per 1,000 searches
+      - text: Files, token counting, computer use
+        sub: Not needed by our product today
+    say: >-
+      The platform also has features around the models. We use exact JSON answers, adjustable thinking effort, and
+      streaming, and prompt caching, which makes repeated instructions cheaper and faster. Tool calling lets the model
+      ask your code to do things. We don't use it yet, on purpose: our code performs every action, and only after you
+      approve. Search grounding gives live web answers with their sources, for two dollars fifty per thousand
+      searches. And files, token counting and computer use are not needed by our product today.
+
+  - type: bullets
+    heading: Open-weight models - run them yourself
+    items:
+      - text: Muse Spark Open - Spark's full open release
+        sub: Very large (816 billion parameters); needs a cluster of big GPUs
+      - text: Muse Glimmer - a smaller model built from Spark
+        sub: Runs on your own hardware, even at the edge; free licence (Apache 2.0)
+      - text: SAM 3.1 - also downloadable
+        sub: The same object finder, on your own machine
+    say: >-
+      Finally, the open-weight models, which you run yourself. Muse Spark Open is Spark's full open release. It is very
+      large, and needs a cluster of big graphics cards. Muse Glimmer is a smaller model distilled from Spark. It runs on
+      your own hardware, even on small devices, under a free licence. And SAM three point one can also be downloaded
+      and run locally.
+
+  - type: status
+    heading: Ideas for RestaurantOS - your call
+    items:
+      - text: SAM 3.1 counts stock from a closing photo
+        sub: Already planned for the closing stock check; decision Oct 29
+        chip: Planned
+        state: wip
+      - text: Muse Spark reads a supplier invoice photo into stock
+        sub: Image understanding; under a cent per invoice
+        chip: Idea
+        state: you
+      - text: Search grounding checks local events that change demand
+        sub: A game night or a festival means more biryani orders
+        chip: Idea
+        state: you
+      - text: Muse Glimmer as an offline backup brain
+        sub: Keeps simple orders working if the internet or the API is down
+        chip: Idea
+        state: you
+      - text: Muse Image for kiosk dish pictures
+        sub: Must be labelled as AI-made, so guests are not misled
+        chip: Idea
+        state: you
+    say: >-
+      So here are the ideas. SAM counting stock from a closing photo is already planned, with a decision tomorrow.
+      New ideas for you to choose from: Muse Spark could read a photo of a supplier invoice straight into stock. Search
+      grounding could check local events, like a game night or a festival, that change tonight's demand. Muse Glimmer
+      could be an offline backup that keeps simple orders working if the internet goes down. And Muse Image could make
+      dish pictures for the kiosk, clearly labelled as AI-made. Tell me which ones you like. Thanks for watching!

@@ -120,7 +120,36 @@ async def proof(p: Page, base: str, out: Path) -> None:
     await p.shot(out / "10-processors.png")
 
 
-SCENARIOS = {"story": story, "kiosk": kiosk, "proof": proof}
+async def meta(p: Page, base: str, out: Path) -> None:
+    """Where the Meta models show: a live story run (real Muse Spark calls, about $0.02 of credit), then the GM plan,
+    the Status page with this kitchen's model calls, and what we measured about the models."""
+    await p.goto(base + "/", 4)
+    await p.shot(out / "01-home.png")
+    await p.click("Run the full story live")
+    await p.wait_text("Order #", 90)
+    await asyncio.sleep(2)
+    await p.scroll_to_text("Your order")
+    await p.shot(out / "02-order.png")
+    await p.wait_text("AI plan:", 150)
+    await asyncio.sleep(2)
+    await p.scroll_to_text("Playbook, then the AI plan")
+    await p.shot(out / "03-plan.png")
+    await p.goto(base + "/gm", 5)
+    await p.scroll_to_text("AI GM")
+    await asyncio.sleep(1)
+    await p.shot(out / "04-gm-plan.png")
+    await p.goto(base + "/status", 5)
+    await p.shot(out / "05-status.png")
+    await p.scroll_to_text("Live AI Ops")
+    await asyncio.sleep(2)
+    await p.shot(out / "06-ops.png")
+    await p.goto(base + "/proof", 5)
+    await p.scroll_to_text("What we learned")
+    await asyncio.sleep(0.5)
+    await p.shot(out / "07-learned.png")
+
+
+SCENARIOS = {"story": story, "kiosk": kiosk, "proof": proof, "meta": meta}
 
 
 async def main(base: str, scenario: str) -> None:
