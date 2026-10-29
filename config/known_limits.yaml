@@ -102,3 +102,12 @@
   workaround: >-
     A judge can still get through: press "Call now" on the main screen, call, and enter # and the 6-digit code while
     the busy message plays.
+
+# Source: DECISIONS.md D14 (Spark count/point grounding plus SAM 3.1; agreement proposes, a person confirms, the GM
+# re-plans) and D39(a) (shelf count built before its go/no-go; the agreement check on the founders' photos of packaged
+# items, MASTER_PLAN F14, has not published a rate yet, so no number is quoted).
+- area: Counting stock from a photo
+  limit: >-
+    Counting stock from a shelf photo (Muse Spark and SAM 3.1) works best on packaged items in good light, and its
+    accuracy on real shelves is not measured yet. A person confirms every count before the stock changes.
+  workaround: Each item shows both models' counts to pick from, or type the count by hand.

@@ -20,6 +20,7 @@ dependencies = [
   "python-multipart>=0.0.32",
   "pyyaml>=6",
   "segno>=1.6",
+  "meta-sam-parser>=0.1.0",
 ]
 
 [project.optional-dependencies]

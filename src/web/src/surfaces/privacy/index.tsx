@@ -62,6 +62,9 @@ const RETENTION: readonly Row[] = [
     'them)' },
   { store: 'Phone numbers', holds: 'Never stored or logged: a keyed hash (HMAC) and the last 4 digits instead',
     kept: 'With the call record' },
+  { store: 'Shelf photos', holds: 'A photo a manager takes to count stock, with its EXIF, XMP and other metadata ' +
+    'removed before it leaves the server', kept: 'Never stored: processed in memory and sent to Meta (Muse Spark and ' +
+    'SAM 3.1); only its SHA-256 hash is kept, with the stock change a person confirmed' },
   { store: 'Your browser', holds: 'One session cookie naming your kitchen, and the kitchen display\'s language and ' +
     'chime settings. In this tab only: a judge passcode until Start, the kiosk\'s session and cart (to resume within ' +
     '15 minutes), an approval\'s result and the video-mode flag. No tracking or advertising cookies',
@@ -69,7 +72,8 @@ const RETENTION: readonly Row[] = [
 ]
 
 const PROCESSORS: readonly Row[] = [
-  { store: 'Meta (Muse models)', holds: 'Speech to transcribe, order text to understand, the GM\'s situation reports',
+  { store: 'Meta (Muse models)', holds: 'Speech to transcribe, order text to understand, the GM\'s situation reports, ' +
+    'and shelf photos to count stock (Muse Spark and SAM 3.1)',
     kept: 'Standard models with storage off (store: false); files we upload are deleted after use, and a sweeper ' +
       'removes any older than an hour' },
   { store: 'ElevenLabs', holds: 'The text of each spoken reply, to turn it into a voice',

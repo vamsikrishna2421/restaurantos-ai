@@ -15,6 +15,6 @@ checkpoints: [CP0, CP1a, CP1, CP2, CP3, CP4, CP5]
 # OPTIONAL packages by package id: go | cut | pending.
 optional:
   P37: pending  # kitchen_voice.commands (OPTIONAL_MODULES)
-  P38: pending  # api.routes_perception (OPTIONAL_ROUTERS)
+  P38: go  # api.routes_perception (OPTIONAL_ROUTERS); founder go Oct 28 (D39), live-tested that night
   P39: pending  # api.routes_onboarding (OPTIONAL_ROUTERS)
   P40: pending  # agents.openweight (OPTIONAL_MODULES)

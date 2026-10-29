@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import os
 import shutil
 import sys
 from pathlib import Path
@@ -149,7 +150,36 @@ async def meta(p: Page, base: str, out: Path) -> None:
     await p.shot(out / "07-learned.png")
 
 
-SCENARIOS = {"story": story, "kiosk": kiosk, "proof": proof, "meta": meta}
+async def shelf(p: Page, base: str, out: Path) -> None:
+    """Counting stock from a photo (P38): a fresh sample kitchen's GM console, the photo in $SHELF_PHOTO (an absolute
+    path) through the real file input (live Muse Spark and SAM 3.1, about $0.01), the review with outlines and both
+    counts, then confirm."""
+    photo = os.environ["SHELF_PHOTO"]
+    await p.goto(base + "/", 4)
+    await p.js("fetch('/api/session', {method: 'POST', headers: {'content-type': 'application/json'}, "
+               "body: JSON.stringify({passcode: null})}).then((r) => r.status)")  # a paused sample kitchen, no rush
+    await p.goto(base + "/gm", 5)
+    await p.scroll_to_text("Count stock")
+    await asyncio.sleep(1)
+    await p.shot(out / "01-panel.png")
+    root = (await p.call("DOM.getDocument", depth=-1))["root"]["nodeId"]
+    found = await p.call("DOM.querySelector", nodeId=root, selector='input[aria-label="Shelf photo"]')
+    await p.call("DOM.setFileInputFiles", files=[photo], nodeId=found["nodeId"])
+    await p.wait_text("Counting with Muse Spark and SAM 3.1", 10)
+    await p.shot(out / "02-counting.png")
+    await p.wait_text("Confirm", 120)
+    await asyncio.sleep(1.5)
+    await p.shot(out / "03-review.png")
+    await p.click("Confirm")
+    await p.wait_text("Stock updated", 60)
+    await asyncio.sleep(1)
+    await p.shot(out / "04-saved.png")
+    await p.click("Done")
+    await asyncio.sleep(3)
+    await p.shot(out / "05-after.png")
+
+
+SCENARIOS = {"story": story, "kiosk": kiosk, "proof": proof, "meta": meta, "shelf": shelf}
 
 
 async def main(base: str, scenario: str) -> None:

@@ -34,7 +34,7 @@ test('privacy_retention_table', () => {
   const kept = new Map(rows('Retention by store'))
   expect([...kept.keys()]).toEqual(['Transcripts', 'Events', 'Sandbox kitchens', 'The public live kitchen',
     'Nightly backups', 'Host volume snapshots', 'Off-host backups', 'Logs', 'Call recordings', 'Consented clips',
-    'Call records', 'Phone numbers', 'Your browser'])
+    'Call records', 'Phone numbers', 'Shelf photos', 'Your browser'])
   // backups keep the live and demo kitchens' transcripts past the database's 7 days
   expect(kept.get('Transcripts')).toBe('7 days in the database (24 hours in a sandbox kitchen), deleted at the next ' +
     '04:00 ET cleanup; for the live and demo kitchens, also in up to 3 nightly backup copies and, on Fly.io, in the ' +
@@ -53,6 +53,9 @@ test('privacy_retention_table', () => {
   expect(kept.get('Call records')).toBe('Sandbox: deleted with the kitchen. Live and demo kitchens: kept (a daily ' +
     'reset does not delete them)')
   expect(kept.get('Phone numbers')).toBe('With the call record')
+  // shelf photos (P38) are never stored: only their hash stays, with the stock change a person confirmed
+  expect(kept.get('Shelf photos')).toBe('Never stored: processed in memory and sent to Meta (Muse Spark and SAM ' +
+    '3.1); only its SHA-256 hash is kept, with the stock change a person confirmed')
   expect(kept.get('Your browser')).toBe('The cookie: 24 hours after your last visit. The tab\'s own storage: until ' +
     'the tab closes')
   // what a store holds: events and logs never carry what a guest said, numbers are hashed
