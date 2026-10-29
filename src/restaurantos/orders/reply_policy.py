@@ -9,12 +9,15 @@ the order just placed, the FSM's cue for events no parse describes).
 - **Control-only states.** In ``readback`` and ``confirm`` only control intents act: yes, no or change, repeat,
   cancel, staff. Only an explicit yes (a fast-path control word, DTMF 1 or the confirm button) places; a model
   ``confirm_yes`` or any cart op gets ``confirm_reprompt``. Elsewhere DTMF 1 and the button ask for the read-back.
+  Without ops, a menu question, an allergen question naming no dish (its answer asks which) or a complaint leaves
+  the state, the cart kept; another question is answered first, then the reprompt, never two questions in a row.
 - **Replies.** Templates rendered by code (``config/phrases``), except one: the model's clarification, spoken only on
-  an ``order``/``modify`` turn with ``needs_clarification`` whose text passes ``reply_filter.allowed`` in the language
-  spoken. Small talk, off-topic and injection turns get templates even when the model wrote a reply. Totals, prices,
-  minutes, allergens and availability come from data. ``ack_added`` echoes the dishes applied, or after a correction
-  the whole cart, one sentence per line. A turn that added dishes and needs another answer (sold out, a question, a
-  clarification, an injection) opens with ``items_prefix`` ("{items}.").
+  an ``order``/``modify`` turn with ``needs_clarification`` and candidates, whose text passes ``reply_filter.allowed``
+  in the language spoken. Small talk, off-topic and injection turns get templates even when the model wrote a reply.
+  Totals, prices, minutes, allergens, availability and the dishes on the menu come from data (``menu_answers``).
+  ``ack_added`` echoes the dishes applied, or after a correction the whole cart, one sentence per line. A turn that
+  added dishes and needs another answer (sold out, a question, a clarification, an injection) opens with
+  ``items_prefix`` ("{items}."). On the phone a handoff never reads a URL aloud (``handoff_phone``).
 - **Injection** (ARCHITECTURE §5.4). A parse with ``injection_suspected`` always flags the cart and gets
   ``injection_refusal`` in ``take_order``: its valid ops still apply outside the read-back (sold out and large-order
   handoff still answer), but its intent, ``closing``, question or clarification never act, in any state.
@@ -45,13 +48,14 @@ from restaurantos.contracts.orders import (
     TurnSpans,
 )
 from restaurantos.contracts.ports import TemplatesPort
-from restaurantos.domain import allergens, pricing
 from restaurantos.domain import cart as cart_rules
+from restaurantos.domain import pricing
 from restaurantos.domain.quotes import MIN_QUOTE_MIN
-from restaurantos.orders.templates import AllergenNames, Count, Dish, Dishes, Items, Money, OrderNo, Spice
+from restaurantos.orders import menu_answers
+from restaurantos.orders.templates import Count, Dish, Dishes, Items, Money, OrderNo
 
 Cue = Literal["greet", "cancel", "change", "what_else", "nothing_ordered", "cart_empty", "didnt_catch", "degraded",
-              "failures", "human", "large_order", "reprompt"]
+              "failures", "human", "large_order", "reprompt", "complaint"]
 CONTROL_ONLY: frozenset[str] = frozenset({"readback", "confirm"})
 AFTER_ORDER: frozenset[str] = frozenset({"placed", "closed"})
 CONTROL_INTENTS: frozenset[str] = frozenset({"confirm_yes", "confirm_no", "done", "repeat", "cancel_order",
@@ -59,7 +63,7 @@ CONTROL_INTENTS: frozenset[str] = frozenset({"confirm_yes", "confirm_no", "done"
 MAX_CANDIDATES = 4  # a clarification names at most this many dishes
 _SIMPLE_CUES: Mapping[str, str] = {"change": "change_prompt", "what_else": "what_else",
                                    "nothing_ordered": "nothing_ordered", "cart_empty": "cart_empty",
-                                   "didnt_catch": "didnt_catch"}
+                                   "didnt_catch": "didnt_catch", "complaint": "complaint_ack"}
 _QUESTION_CODES: Mapping[str, str] = {
     "ack_added": "anything_else", "qty_flagged": "anything_else", "sold_out_no_alt": "anything_else",
     "readback": "readback", "readback_kiosk": "readback", "confirm_reprompt": "confirm",
@@ -110,6 +114,7 @@ class Turn:
     rotate: bool = False  # a new cart id after this turn (placed or cancelled)
     announce: bool = False  # cart.updated even when the lines look the same
     offer: Offer | None = None
+    menu_match: menu_answers.MenuMatch | None = None  # what a menu question named, matched in decide
     spans: TurnSpans = field(default_factory=TurnSpans)
     cost_micros: int = 0
 
@@ -148,12 +153,17 @@ class _Rules:
             return False
         if intent == "confirm_yes" and turn.explicit:
             return True
+        asked = llm.question if llm is not None and intent == "question" and not llm.ops else None
         if intent == "confirm_no" or (llm is not None and intent == "modify" and not llm.ops):
             turn.to("take_order", "change")
         elif intent in ("repeat", "cancel_order", "human_request"):
             self.control()
-        elif llm is not None and intent == "question" and llm.question is not None and not llm.ops:
+        elif asked is not None and menu_answers.browsing(asked):  # answered outside the read-back, the cart kept
+            self.answer()
+        elif asked is not None:
             turn.state, turn.then_reprompt = "confirm", True
+        elif menu_answers.complaint(llm):
+            turn.to("take_order", "complaint")
         else:  # anything else, a model "yes" and every cart op included, asks for the explicit confirmation again
             turn.to("confirm", "reprompt")
             turn.failure = None if turn.path == "buttons" else "confirm"
@@ -172,10 +182,12 @@ class _Rules:
             turn.to("take_order")
         elif turn.intent in CONTROL_INTENTS:
             self.control()
+        elif menu_answers.complaint(llm):
+            turn.to("take_order", "complaint")
         elif llm is None or llm.intent == "off_topic":
             turn.to("take_order")
         elif llm.intent == "question" and llm.question is not None:
-            turn.to("answer")
+            self.answer()
         elif llm.intent == "smalltalk":
             turn.to("closed" if self.s.state in AFTER_ORDER and not self.s.cart.lines else "take_order")
         elif llm.needs_clarification:
@@ -236,7 +248,7 @@ class _Rules:
         elif self.injected:  # its valid ops applied; never its closing, question or clarification
             turn.to("take_order")
         elif self.llm is not None and self.llm.intent == "question" and self.llm.question is not None:
-            turn.to("answer")
+            self.answer()
         elif self.llm is not None and self.llm.needs_clarification:
             self.clarify(tuple(self.llm.clarify_candidates))
         elif not result.applied:
@@ -244,6 +256,14 @@ class _Rules:
             turn.failure = "item"
         else:
             turn.to("readback" if turn.closing else "take_order")
+
+    def answer(self) -> None:
+        """``answer``. A menu question is matched against the menu here, where availability is known, and the dishes
+        it lists are offered, so a plain "yes" takes the one named (or asks which)."""
+        turn = self.turn
+        turn.to("answer")
+        found = turn.menu_match = menu_answers.for_turn(self.llm, turn.apply, self.menu, self.availability)
+        turn.offer = Offer(found.codes) if found is not None and found.codes else None
 
     def clarify(self, codes: tuple[str, ...]) -> None:
         self.turn.to("clarify")
@@ -293,6 +313,7 @@ class ReplyView:
     cue: Cue | None = None
     candidates: tuple[str, ...] = ()  # dishes to clarify between, chosen by the FSM (a "yes" to two alternatives)
     then_reprompt: bool = False  # control-only state: answer the question, then ask for the confirmation again
+    menu_match: menu_answers.MenuMatch | None = None  # what a menu question named (``Turn.menu_match``)
 
 
 def choose(result: OrderTurnLLM | FastPathResult | None, apply_result: ApplyResult | None, state: DialogueState,
@@ -308,12 +329,13 @@ def choose(result: OrderTurnLLM | FastPathResult | None, apply_result: ApplyResu
     if state == "confirm":
         reprompt = say("confirm_reprompt" if phone else "confirm_reprompt_kiosk")
         if view.then_reprompt and llm is not None and llm.question is not None:
-            return join(say.answer(llm.question), reprompt)
+            answer = say.answer(llm.question, llm.utterance_en)  # never two questions in a row
+            return join(say("staff_can_help") if answer.text_en.endswith("?") else answer, reprompt)
         return reprompt
     if state == "handoff":
         if view.cue == "large_order":
             return say("large_order_handoff")
-        return say("buttons_offer" if view.cue == "failures" and not phone else "handoff")
+        return say("handoff_phone" if phone else "buttons_offer" if view.cue == "failures" else "handoff")
     if state == "greet":
         return say("cancel_ack") if view.cue == "cancel" else say.greeting()
     if state == "closed":
@@ -323,7 +345,7 @@ def choose(result: OrderTurnLLM | FastPathResult | None, apply_result: ApplyResu
     if state == "clarify":
         return join(say.prefix(apply_result), say.clarify(llm))
     if state == "answer" and llm is not None and llm.question is not None:
-        return join(say.prefix(apply_result), say.answer(llm.question))
+        return join(say.prefix(apply_result), say.answer(llm.question, llm.utterance_en))
     return say.take_order(result, apply_result)
 
 
@@ -337,10 +359,10 @@ def join(first: Reply | None, second: Reply) -> Reply:
 
 
 def model_clarification(turn: OrderTurnLLM, lang: SpeakLang, menu: MenuSnapshot) -> tuple[str, str] | None:
-    """(text, English caption) of the model's clarification when it may be spoken in ``lang``, else None. English
-    takes ``reply_en`` (or ``reply_speech``) if it passes the filter in English; another language takes
-    ``reply_speech`` only for a turn in that language, and only when ``reply_en`` passes too."""
-    if not turn.needs_clarification or turn.intent not in reply_filter.SPOKEN_INTENTS:
+    """(text, English caption) of the model's clarification when it names candidates and may be spoken in ``lang``,
+    else None. English takes ``reply_en`` (or ``reply_speech``) if it passes the filter in English; another language
+    takes ``reply_speech`` only for a turn in that language, and only when ``reply_en`` passes too."""
+    if not turn.needs_clarification or not turn.clarify_candidates or turn.intent not in reply_filter.SPOKEN_INTENTS:
         return None
     if lang == "en":
         text = next((t for t in (turn.reply_en, turn.reply_speech) if reply_filter.allowed(t, "en", menu)), None)
@@ -451,31 +473,14 @@ class _Say:
             return self("clarify_qty", item=Dish(dishes.names[0]))
         if dishes.names:
             return self("clarify_item", candidates=Dishes(dishes.names[:MAX_CANDIDATES], "or"))
-        return self("didnt_catch")
+        off_menu = llm is not None and menu_answers.off_menu(llm.unrecognized)  # "mint", not a cut-off "can"
+        return self("not_on_menu" if off_menu else "didnt_catch")
 
-    def answer(self, question: OrderQuestion) -> Reply:
-        """Questions answered from data (ARCHITECTURE §5.5); allergen answers end with the staff line."""
-        topic, dish = question.topic, Dish.of(question.item_code, self.menu)
-        if topic in ("allergen", "ingredients"):
-            if dish is None:
-                return self("allergen_which_dish")
-            asked = question if topic == "allergen" else question.model_copy(update={"allergen": None})
-            found = allergens.answer(asked, self.menu, (), ())  # the snapshot's allergens are derived from recipes
-            if found.listed:
-                return self("allergen_listed", item=dish, allergens=AllergenNames(tuple(found.allergens)))
-            if found.allergen is not None:
-                return self("allergen_not_listed", item=dish, allergen=AllergenNames((found.allergen,)))
-            return self("allergen_none_listed", item=dish)
-        if topic in ("price", "spice"):
-            item = next((i for i in self.menu.items if i.code == question.item_code), None)
-            if item is None or dish is None:
-                return self("which_dish")
-            if topic == "price":
-                return self("price_answer", item=dish, price=Money(item.price_cents))
-            return self("spice_answer", item=dish, spice=Spice(item.spice_level))
-        if topic == "wait_time":
-            return self("wait_answer", minutes=Count(self.view.minutes or MIN_QUOTE_MIN))
-        return self({"hours": "hours_answer", "menu": "menu_answer"}.get(topic, "question_staff"))
+    def answer(self, question: OrderQuestion, utterance_en: str = "") -> Reply:
+        """Questions answered from data (ARCHITECTURE §5.5, ``menu_answers.answer``); a menu question takes the
+        turn's match (``ReplyView.menu_match``), else one made on the snapshot's availability."""
+        key, slots = menu_answers.answer(question, self.menu, self.view.menu_match, self.view.minutes, utterance_en)
+        return self(key, **slots)
 
 
 def _adds(apply_result: ApplyResult | None) -> list[tuple[str | None, int | None, list[str]]]:

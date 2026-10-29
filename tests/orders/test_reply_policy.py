@@ -17,9 +17,10 @@ from restaurantos.contracts.orders import (
 )
 from restaurantos.domain.cart import apply_ops
 from restaurantos.orders import reply_policy as policy
+from restaurantos.orders.menu_answers import MenuMatch
 from restaurantos.orders.templates import Templates
-from tests.fakes.order_agent import add_op, canned, make_cart, make_turn, seed_menu
-from tests.orders.test_dialogue import lines_of
+from tests.fakes.order_agent import FakeOrderAgent, add_op, canned, make_cart, make_turn, seed_menu
+from tests.orders.test_dialogue import FakeMenu, lines_of
 from tests.orders.test_dialogue import make as make_dialogue  # the Dialogue on its fakes (FakeOrders, FakeMenu)
 
 MENU = seed_menu()
@@ -140,9 +141,15 @@ def test_readback_placed_and_handoff_replies() -> None:
     assert "Fifty-two dollars and ninety-three cents" in readback.text
     explicit = choose(None, "readback", cart=cart, minutes=25, explicit=True)
     assert explicit.text.startswith("One Chicken Dum Biryani. One Chicken Dum Biryani (no onion). One Paneer")
-    assert choose(None, "handoff", cue="failures", channel="phone").template_key == "handoff"
+    # The phone never reads the URL aloud, and says the demo line cannot transfer the call.
+    for cue in ("failures", "human"):
+        phone = choose(None, "handoff", cue=cue, channel="phone")
+        assert phone.template_key == "handoff_phone" and "fly.dev" not in phone.text, cue
+    assert phone.text == ("I've let our staff know. This demo line can't transfer calls, but I can still take your "
+                          "order. What would you like?")
     assert choose(None, "handoff", cue="failures", channel="kiosk").template_key == "buttons_offer"
-    assert choose(None, "handoff", cue="large_order").template_key == "large_order_handoff"
+    assert choose(None, "handoff", cue="human", channel="kiosk").template_key == "handoff"
+    assert choose(None, "handoff", cue="large_order", channel="phone").template_key == "large_order_handoff"
     assert choose(None, "take_order", cue="degraded", channel="phone").template_key == "degraded_one_item"
     assert choose(None, "greet", cue="cancel").template_key == "cancel_ack"
     assert choose(None, "closed", channel="phone").template_key == "goodbye"
@@ -282,3 +289,207 @@ def test_question_code_and_gloss() -> None:
     assert policy.gloss(items, MENU, TEMPLATES) == "2 Samosa, that's all"
     yes = FastPathResult(kind="control", intent="confirm_yes", closing=False, language="te-en")
     assert policy.gloss(yes, MENU, TEMPLATES) == "yes"
+
+
+# ----- the Oct 28 phone call: menu answers, clarifications, complaints, the phone handoff ----------------------------
+
+MENU_Q = OrderQuestion(topic="menu")
+REPROMPT = "Please say yes or press 1 to place the order, or say no or press 2 to change it."
+
+
+def asked(utterance_en: str, ops=(), *, question: OrderQuestion = MENU_Q, language="en"):
+    return make_turn(language, "question", ops, question=question, utterance_en=utterance_en)
+
+
+def test_menu_questions_are_answered_from_the_menu() -> None:
+    s = session("take_order", make_cart())
+    turn = turn_for(s, asked("What types do you have in dosa?"), path="llm")
+    assert policy.decide(turn, s, MENU, Availability()) is False
+    assert (turn.state, turn.offer) == ("answer", policy.Offer(("MASALA_DOSA", "PESARATTU")))
+    reply = policy.choose(turn.result, None, turn.state, "en", TEMPLATES, view=view(menu_match=turn.menu_match))
+    assert (reply.template_key, reply.text) == ("menu_list", "We have Masala Dosa and Pesarattu. Which would you like?")
+    gone = Availability(unavailable={"VEG_BIRY": "sold_out"})  # 86'd tonight: never named, never offered
+    turn = turn_for(s, asked("what veg biryanis do you have?"), path="llm")
+    policy.decide(turn, s, MENU, gone)
+    assert (turn.offer, turn.menu_match) == (None, MenuMatch(sold_out=True))
+    assert choose(turn.result, "answer", menu_match=turn.menu_match).template_key == "menu_none"
+    # Dishes and a menu question in one turn: the dishes first, and the question is about the rest.
+    turn = turn_for(s, asked("one masala dosa, and what drinks do you have?", [add_op("MASALA_DOSA")]), path="llm")
+    policy.decide(turn, s, MENU, Availability())
+    assert turn.state == "answer" and turn.offer == policy.Offer(("MANGO_LASSI", "MASALA_CHAI", "FILTER_COFFEE",
+                                                                  "WATER"))
+    reply = choose(turn.result, "answer", apply_result=turn.apply, cart=turn.cart, menu_match=turn.menu_match)
+    assert reply.text_en == "1 Masala Dosa. We have Mango Lassi, Masala Chai, Filter Coffee and Water. Which would " \
+                            "you like?"
+    # A plain "yes" takes the one dish named; to several it asks which.
+    yes = FastPathResult(kind="control", intent="confirm_yes", closing=False, language="en")
+    s = session("answer", make_cart())
+    turn = turn_for(s, yes, explicit=True)
+    policy.decide(turn, s, MENU, Availability(), offer=policy.Offer(("VEG_BIRY",)))
+    assert lines_of(turn.cart) == [("VEG_BIRY", 1, [])] and turn.state == "take_order"
+    turn = turn_for(s, yes, explicit=True)
+    policy.decide(turn, s, MENU, Availability(), offer=policy.Offer(("MASALA_DOSA", "PESARATTU")))
+    assert (turn.state, turn.candidates) == ("clarify", ("MASALA_DOSA", "PESARATTU"))
+
+
+@pytest.mark.parametrize("state", ["readback", "confirm"])
+def test_menu_question_leaves_the_readback_with_the_cart(state) -> None:
+    """Browsing for more: answered outside the control-only state, the cart kept; placing it again takes a new
+    read-back and an explicit yes. Cart ops in the read-back still get the reprompt, a question with them too."""
+    s = session(state)
+    turn = turn_for(s, asked("what veg biryanis do you have?"), path="llm")
+    assert policy.decide(turn, s, MENU, Availability()) is False
+    assert (turn.state, turn.then_reprompt, turn.cart, turn.offer) == ("answer", False, s.cart,
+                                                                       policy.Offer(("VEG_BIRY",)))
+    turn = turn_for(s, asked("a veg biryani, and what drinks do you have?", [add_op("VEG_BIRY")]), path="llm")
+    assert policy.decide(turn, s, MENU, Availability()) is False
+    assert (turn.state, turn.cue, turn.cart, turn.menu_match) == ("confirm", "reprompt", s.cart, None)
+
+
+@pytest.mark.parametrize("state", ["readback", "confirm"])
+def test_allergy_questions_in_the_readback(state) -> None:
+    """One naming no dish leaves the read-back (its answer asks which; naming one there would only get the reprompt);
+    one about a dish is answered, then the reprompt; a menu question about an allergy never lists dishes."""
+    s = session(state)
+    for question in (OrderQuestion(topic="allergen", allergen="tree_nuts"), OrderQuestion(topic="menu",
+                                                                                           allergen="dairy")):
+        turn = turn_for(s, asked("is there anything with nuts?", question=question), path="llm")
+        policy.decide(turn, s, MENU, Availability())
+        assert (turn.state, turn.cart, turn.offer, turn.menu_match) == ("answer", s.cart, None, None)
+        reply = policy.choose(turn.result, None, turn.state, "en", TEMPLATES, view=view(s.cart, channel="phone"))
+        assert reply.template_key == "allergen_which_dish" and REPROMPT not in reply.text
+    nuts = asked("does the biryani have nuts?", question=OrderQuestion(topic="allergen", item_code="CHK_BIRY"))
+    turn = turn_for(s, nuts, path="llm")
+    policy.decide(turn, s, MENU, Availability())
+    assert (turn.state, turn.then_reprompt) == ("confirm", True)
+    reply = policy.choose(nuts, None, "confirm", "en", TEMPLATES, view=view(then_reprompt=True, channel="phone"))
+    assert reply.text.endswith(f"{STAFF.capitalize()} {REPROMPT}")
+
+
+async def test_an_offer_never_heard_is_dropped() -> None:
+    """The phone held "We have Veg Biryani. Would you like one?" and the caller's next words superseded it: the
+    turn manager drops the offer, so their "yeah" takes no dish."""
+    agent = FakeOrderAgent([asked("what veg biryanis do you have?"), asked("what veg biryanis do you have?")])
+    env = make_dialogue(channel="phone", agent=agent)
+    assert (await env.say("what veg biryanis do you have?")).reply.template_key == "menu_list_one"
+    env.d.drop_offer()
+    yeah = await env.say("yeah")
+    assert (yeah.reply.template_key, lines_of(env.d.snapshot().cart)) == ("what_else", [])
+    await env.say("what veg biryanis do you have?")  # heard this time: a plain "yes" takes it
+    assert lines_of((await env.say("yeah")).cart) == [("VEG_BIRY", 1, [])]
+
+
+def test_readback_answers_never_ask_a_second_question() -> None:
+    s, phone = session("readback"), view(then_reprompt=True, channel="phone")
+    for question in (OrderQuestion(topic="other"), OrderQuestion(topic="price")):  # question_staff, which_dish
+        turn = turn_for(s, asked("can I pay by card?", question=question), path="llm")
+        policy.decide(turn, s, MENU, Availability())
+        assert (turn.state, turn.then_reprompt) == ("confirm", True)
+        reply = policy.choose(turn.result, None, turn.state, "en", TEMPLATES, view=phone)
+        assert (reply.template_key, reply.text) == (
+            "confirm_reprompt", f"Our staff can help with that when you pick up. {REPROMPT}")
+    price = asked("how much is a samosa", question=OrderQuestion(topic="price", item_code="SAMOSA"))
+    assert policy.choose(price, None, "confirm", "en", TEMPLATES, view=phone).text == (
+        f"Samosa is six dollars and ninety-nine cents. {REPROMPT}")  # an answer that asks nothing stays
+    other = asked("can I pay by card?", question=OrderQuestion(topic="other"))
+    assert choose(other, "answer").text == "Our staff can help with that when you pick up. What would you like to " \
+                                           "order?"  # the ordering flow keeps question_staff
+
+
+def test_clarification_without_candidates_never_speaks_the_model() -> None:
+    mint = make_turn("en", "order", needs_clarification=True, unrecognized="mint",
+                     reply="Which other dish would you like?", utterance_en="mint")
+    reply = choose(mint, "clarify")
+    assert (reply.source, reply.template_key, reply.text) == (
+        "template", "not_on_menu", "Sorry, I couldn't find that on our menu. You can say a dish, or ask what we have.")
+    cut = make_turn("en", "order", needs_clarification=True, reply="What would you like to order?", utterance_en="Can")
+    assert choose(cut, "clarify").template_key == "didnt_catch"  # a cut-off fragment: nothing to look up
+    assert choose(canned("off_menu"), "clarify").template_key == "not_on_menu"
+    assert choose(canned("clarify"), "clarify").source == "model"  # naming the candidates, it may still speak
+    s = session("take_order", make_cart())
+    turn = turn_for(s, mint, path="llm")
+    policy.decide(turn, s, MENU, Availability())
+    assert (turn.state, turn.failure, turn.offer) == ("clarify", "item", None)
+
+
+@pytest.mark.parametrize("state", ["take_order", "answer", "readback", "confirm"])
+def test_complaints_are_acknowledged(state) -> None:
+    s = session(state)
+    turn = turn_for(s, make_turn("en", "smalltalk", utterance_en="I did not like your service."), path="llm")
+    assert policy.decide(turn, s, MENU, Availability()) is False
+    assert (turn.state, turn.cue, turn.cart, turn.failure) == ("take_order", "complaint", s.cart, None)
+    reply = policy.choose(turn.result, None, turn.state, "en", TEMPLATES, view=view(s.cart, cue=turn.cue))
+    assert (reply.template_key, reply.text) == (
+        "complaint_ack", "I'm sorry about that. Let's try again — what would you like to order?")
+
+
+def test_small_talk_without_a_complaint_is_unchanged() -> None:
+    chat = make_turn("en", "smalltalk", utterance_en="how are you")
+    s = session("take_order")
+    turn = turn_for(s, chat, path="llm")
+    policy.decide(turn, s, MENU, Availability())
+    assert (turn.state, turn.cue) == ("take_order", None) and choose(chat, "take_order").template_key == "smalltalk"
+    s = session("readback")
+    turn = turn_for(s, chat, path="llm")
+    policy.decide(turn, s, MENU, Availability())
+    assert (turn.state, turn.cue) == ("confirm", "reprompt")
+    placed = session("placed", make_cart())  # small talk after the order still says goodbye; a complaint does not
+    turn = turn_for(placed, chat, path="llm")
+    policy.decide(turn, placed, MENU, Availability())
+    assert turn.state == "closed"
+    unhappy = make_turn("en", "smalltalk", utterance_en="that was terrible", injection=True)
+    turn = turn_for(s, unhappy, path="llm")
+    policy.decide(turn, s, MENU, Availability())
+    assert turn.cue is None and turn.cart.flags == ["injection_suspected"]  # an injection is refused first
+
+
+TELUGU = ("Can you tell me actually నేను ఒక biryani order పెట్టదాం అనుకుంటున్నా మీ దగ్గర veg biryanis లో ఏమేం "
+          "ఉన్నాయి?")
+
+
+async def test_replay_of_the_oct_28_phone_call() -> None:
+    """The founder's call, turn by turn through the Dialogue on the phone: the fast path where it hit, the logged
+    parses elsewhere, the Telugu draft spoken (``speak_drafts``). Every reply the call got wrong is right now."""
+    drafts = Templates.load(defaults={"url": "handbook-members-been-batman.trycloudflare.com"}, speak_drafts=True)
+    agent = FakeOrderAgent([
+        make_turn("en", "order", needs_clarification=True, unrecognized="mint",
+                  reply="Which other dish would you like?", utterance_en="mint"),
+        asked("Can you give me the whole menu?"),
+        asked("What types do you have in dosa?", question=OrderQuestion(topic="menu", item_code="MASALA_DOSA")),
+        make_turn("en", "order", [add_op("MASALA_DOSA")], utterance_en="Okay, go with dosa."),
+        asked("Actually I am thinking of ordering a biryani, what veg biryanis do you have?", language="te-en"),
+        make_turn("en", "smalltalk", utterance_en="I did not like your service."),
+        make_turn("en", "order", needs_clarification=True, reply="What would you like to order?", utterance_en="Can"),
+        make_turn("en", "human_request", utterance_en="Please connect to a human agent."),
+    ])
+    env = make_dialogue(channel="phone", agent=agent, menu=FakeMenu(minutes=15), speak=("en", "te"), templates=drafts)
+    assert env.d.speak_languages == ["en", "te"]
+    calls = [  # (said, state, template, language, reply)
+        ("mint", "clarify", "not_on_menu", "en",
+         "Sorry, I couldn't find that on our menu. You can say a dish, or ask what we have."),
+        ("Can you give me the whole menu?", "answer", "menu_answer", "en",
+         "We have biryanis, curries, starters, dosa and idli, breads, rice, drinks and desserts. Which would you like "
+         "to hear about?"),
+        ("What types do you have in dosa?", "answer", "menu_list", "en",
+         "We have Masala Dosa and Pesarattu. Which would you like?"),
+        ("Okay, go go with dosa.", "take_order", "ack_added", "en", "One Masala Dosa. Anything else?"),
+        ("Uh that's all.", "readback", "readback", "en",
+         "One Masala Dosa. Twelve dollars and twenty-nine cents, about fifteen minutes. Say yes or press 1."),
+        (TELUGU, "answer", "menu_list_one", "te", "మీకు వెజ్ బిర్యానీ కావాలా?"),
+        ("No.", "readback", "readback", "te",  # no to the offer: the order read back again, still in Telugu
+         "One మసాలా దోశ. మొత్తం twelve dollars twenty-nine cents, సుమారు fifteen నిమిషాలు. అవును అని చెప్పండి లేదా 1 "
+         "నొక్కండి."),
+        ("I did not like your service.", "take_order", "complaint_ack", "en",
+         "I'm sorry about that. Let's try again — what would you like to order?"),
+        ("Can", "clarify", "didnt_catch", "en", "Sorry, I didn't catch that. Could you say it again?"),
+        ("Please connect to human agent.", "handoff", "handoff_phone", "en",
+         "I've let our staff know. This demo line can't transfer calls, but I can still take your order. What would "
+         "you like?"),
+    ]
+    for said, state, key, lang, text in calls:
+        result = await env.say(said)
+        assert (result.state, result.reply.template_key, result.reply.lang, result.reply.text) == (
+            state, key, lang, text), said
+    assert agent.remaining == 0 and len(agent.calls) == 8  # "that's all" and "no" never reach the model
+    assert agent.calls[4].utterance == TELUGU and agent.calls[4].last_question == "readback"
+    assert not env.orders.places and lines_of(env.d.snapshot().cart) == [("MASALA_DOSA", 1, [])]

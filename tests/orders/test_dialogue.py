@@ -260,7 +260,7 @@ async def test_readback_confirm_accept_control_only() -> None:
     assert (await keys.d.handle_dtmf("2")).state == "take_order"
     await keys.say("that's all")
     staff = await keys.d.handle_dtmf("0")
-    assert (staff.state, staff.reply.template_key) == ("handoff", "handoff")
+    assert (staff.state, staff.reply.template_key) == ("handoff", "handoff_phone")  # never a URL read aloud
     assert await keys.d.handle_dtmf("#") is None and await keys.d.handle_dtmf("7") is None
 
 
@@ -374,7 +374,8 @@ async def test_two_failures_handoff() -> None:
     assert (first.state, first.reply.template_key, first.path) == ("take_order", "degraded_one_item", "degraded")
     assert phone.d.snapshot().failures == {"item": 1}
     second = await phone.say("the other thing")
-    assert (second.state, second.reply.template_key) == ("handoff", "handoff") and not phone.d.snapshot().failures
+    assert (second.state, second.reply.template_key) == ("handoff", "handoff_phone")
+    assert not phone.d.snapshot().failures and "restaurantos.fly.dev" not in second.reply.text
     lost = make_turn("en", "order", utterance_en="mumble")
     kiosk = make(agent=FakeOrderAgent([lost, lost]))
     await kiosk.say("mumble")

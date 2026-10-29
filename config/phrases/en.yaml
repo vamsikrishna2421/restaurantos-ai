@@ -7,6 +7,8 @@
 # - {items}: dish lines formatted per language (quantity, name, modifiers); {total}/{price}: money spelled out by
 #   code in the spoken text, digits ("$52.93") in the English caption (Reply.text_en); {minutes}, {qty}: numbers
 #   spelled out when spoken, digits in the caption; {order_no}: read digit by digit; {url}: the public site.
+# - {candidates}: dish names joined as a list (clarify_item, menu_list), or in menu_answer the menu's sections, named
+#   by `words.categories`; {item}: one dish name.
 # - `words` holds the vocabulary those formatters need in this language.
 #
 # Keys from the CONTRACTS_SEED §13 table keep the contract text verbatim, except that greet_phone also says "This
@@ -41,6 +43,15 @@ words:
     fish: fish
     shellfish: shellfish
   spice: [not spicy, mildly spicy, medium spicy, very spicy]
+  categories:  # menu category code -> the section as a menu answer names it
+    biryani: biryanis
+    curry: curries
+    starter: starters
+    tiffin: dosa and idli
+    bread: breads
+    rice: rice
+    drink: drinks
+    dessert: desserts
 
 templates:
   greet_phone: "Hi, thanks for calling Spice Route. I'm an AI ordering assistant on a demo line — no food is actually prepared. This call is transcribed. What would you like?"
@@ -86,7 +97,7 @@ templates:
   allergen_which_dish: "Which dish would you like to know about? Please tell our staff about any allergy."
   which_dish: "Which dish would you like to know about?"
   spice_answer: "{item} is {spice}."
-  menu_answer: "We have biryani, curries, starters, dosa and idli, breads, drinks and desserts. What would you like?"
+  menu_answer: "We have {candidates}. Which would you like to hear about?"
   question_staff: "Our staff can help with that when you pick up. What would you like to order?"
   smalltalk: "Happy to help! What would you like to order?"
   off_topic: "Sorry, I can only take food orders here. What would you like?"
@@ -97,3 +108,12 @@ templates:
   goodbye_kiosk: "Thanks for your order. Enjoy your meal!"
   readback_kiosk: "{items}. {total}, about {minutes} minutes. Say yes to place the order."
   confirm_reprompt_kiosk: "Please say yes to place the order, or say no to change it."
+  # Oct 28 call fixes: menu questions answered from the menu, clarifications without candidates, complaints, the
+  # phone handoff (the demo line cannot transfer a call; a URL is no use read aloud) and a question in the read-back
+  menu_list: "We have {candidates}. Which would you like?"
+  menu_list_one: "We have {item}. Would you like one?"
+  menu_none: "Sorry, we don't have any of those tonight. What else would you like?"
+  not_on_menu: "Sorry, I couldn't find that on our menu. You can say a dish, or ask what we have."
+  complaint_ack: "I'm sorry about that. Let's try again — what would you like to order?"
+  handoff_phone: "I've let our staff know. This demo line can't transfer calls, but I can still take your order. What would you like?"
+  staff_can_help: "Our staff can help with that when you pick up."

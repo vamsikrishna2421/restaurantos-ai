@@ -293,6 +293,7 @@ class Settings(BaseSettings):
 
     # Voice, language, orders and GM
     speak_languages: Annotated[list[SpeakLang], NoDecode] = Field(default_factory=lambda: ["en"])
+    speak_drafts: bool = False  # te/ta/es spoken from the unreviewed drafts; founders review by ear; dev/testing only
     asr_language_bias: Annotated[list[AsrLanguage] | None, NoDecode] = Field(  # gate G1: Telugu -3 to -4 pt CER
         default_factory=lambda: ["English", "Telugu", "Tamil", "Spanish"])
     fake_asr: bool = False  # dev and test only

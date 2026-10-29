@@ -2,7 +2,8 @@
 #
 # UNREVIEWED DRAFT: no fluent Telugu speaker has checked these yet (founders review Oct 27-28). Until review_status is
 # `reviewed` and "te" is in settings.speak_languages, the system understands Telugu (and Telugu-English) but replies
-# in English. Same keys and slots as en.yaml. Per CONTRACTS_SEED §13, numbers and money stay in English inside the
+# in English; settings.speak_drafts speaks this draft anyway, so the founders can review it by ear (dev and testing
+# only). Same keys and slots as en.yaml. Per CONTRACTS_SEED §13, numbers and money stay in English inside the
 # Telugu line (`numbers: en`, "fifty-two dollars and ninety-three cents"); dish and modifier names come from the
 # menu's Telugu script names. The bake-off (G4) may flip native script vs romanized for TTS.
 lang: te
@@ -33,6 +34,15 @@ words:
     fish: చేప
     shellfish: రొయ్యల వంటి సముద్ర ఆహారం
   spice: [కారం లేదు, కొంచెం కారం, మధ్యస్థ కారం, చాలా కారం]
+  categories:
+    biryani: బిర్యానీలు
+    curry: కూరలు
+    starter: స్టార్టర్లు
+    tiffin: దోశ మరియు ఇడ్లీ
+    bread: రొట్టెలు
+    rice: అన్నం
+    drink: పానీయాలు
+    dessert: స్వీట్లు
 
 templates:
   greet_phone: "నమస్తే, స్పైస్ రూట్‌కి కాల్ చేసినందుకు ధన్యవాదాలు. నేను డెమో లైన్‌లో ఉన్న AI ఆర్డరింగ్ అసిస్టెంట్‌ని — నిజంగా ఆహారం తయారు చేయబడదు. ఈ కాల్ ట్రాన్స్‌క్రైబ్ చేయబడుతుంది. మీకు ఏమి కావాలి?"
@@ -77,7 +87,7 @@ templates:
   allergen_which_dish: "ఏ వంటకం గురించి తెలుసుకోవాలి? మీకు ఏదైనా అలర్జీ ఉంటే దయచేసి మా సిబ్బందికి చెప్పండి."
   which_dish: "ఏ వంటకం గురించి తెలుసుకోవాలి?"
   spice_answer: "{item} — {spice}."
-  menu_answer: "మా దగ్గర బిర్యానీ, కూరలు, స్టార్టర్లు, దోశ మరియు ఇడ్లీ, రొట్టెలు, పానీయాలు మరియు స్వీట్లు ఉన్నాయి. మీకు ఏమి కావాలి?"
+  menu_answer: "మా దగ్గర {candidates} ఉన్నాయి. దేని గురించి చెప్పమంటారు?"
   question_staff: "దాని గురించి పికప్ సమయంలో మా సిబ్బంది సహాయం చేస్తారు. మీకు ఏమి ఆర్డర్ చేయాలి?"
   smalltalk: "సంతోషంగా సహాయం చేస్తాను! మీకు ఏమి ఆర్డర్ చేయాలి?"
   off_topic: "క్షమించండి, నేను ఇక్కడ ఆహార ఆర్డర్లు మాత్రమే తీసుకోగలను. మీకు ఏమి కావాలి?"
@@ -88,3 +98,10 @@ templates:
   goodbye_kiosk: "ఆర్డర్ చేసినందుకు ధన్యవాదాలు. భోజనం ఆస్వాదించండి!"
   readback_kiosk: "{items}. మొత్తం {total}, సుమారు {minutes} నిమిషాలు. ఆర్డర్ చేయడానికి అవును అని చెప్పండి."
   confirm_reprompt_kiosk: "ఆర్డర్ చేయడానికి అవును అని చెప్పండి; మార్చడానికి కాదు అని చెప్పండి."
+  menu_list: "మా దగ్గర {candidates} ఉన్నాయి. మీకు ఏది కావాలి?"
+  menu_list_one: "మీకు {item} కావాలా?"  # no verb to agree with {item}: నీళ్ళు (water) is plural
+  menu_none: "క్షమించండి, ఈ రోజు అవి ఏవీ లేవు. ఇంకా ఏమి కావాలి?"
+  not_on_menu: "క్షమించండి, అది మా మెనూలో దొరకలేదు. వంటకం పేరు చెప్పండి, లేదా మా దగ్గర ఏమున్నాయో అడగండి."
+  complaint_ack: "క్షమించండి. మళ్ళీ ప్రయత్నిద్దాం — మీకు ఏమి ఆర్డర్ చేయాలి?"
+  handoff_phone: "మా సిబ్బందికి తెలియజేశాను. ఈ డెమో లైన్ కాల్ బదిలీ చేయలేదు, కానీ మీ ఆర్డర్ నేను తీసుకోగలను. మీకు ఏమి కావాలి?"
+  staff_can_help: "దాని గురించి పికప్ సమయంలో మా సిబ్బంది సహాయం చేస్తారు."

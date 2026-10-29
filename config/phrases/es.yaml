@@ -2,7 +2,8 @@
 #
 # UNREVIEWED DRAFT: no fluent Spanish speaker has checked these yet (founders or consenting friends review them
 # Oct 27-28). Until review_status is `reviewed` and "es" is in settings.speak_languages, the system understands
-# Spanish but replies in English. Same keys and slots as en.yaml; see en.yaml for what each slot means. Numbers and
+# Spanish but replies in English; settings.speak_drafts speaks this draft anyway, so the founders can review it by
+# ear (dev and testing only). Same keys and slots as en.yaml; see en.yaml for what each slot means. Numbers and
 # money are spelled out in Spanish by code (`numbers: es`); dish gender and plural agreement are not handled
 # ("dos biryani de pollo"), which a reviewer may want to rephrase around.
 lang: es
@@ -33,6 +34,15 @@ words:
     fish: pescado
     shellfish: mariscos
   spice: [sin picante, poco picante, medio picante, muy picante]
+  categories:
+    biryani: biryanis
+    curry: currys
+    starter: entradas
+    tiffin: dosa e idli
+    bread: panes
+    rice: arroz
+    drink: bebidas
+    dessert: postres
 
 templates:
   greet_phone: "Hola, gracias por llamar a Spice Route. Soy un asistente de pedidos con IA en una línea de demostración — en realidad no se prepara comida. Esta llamada se transcribe. ¿Qué le gustaría pedir?"
@@ -77,7 +87,7 @@ templates:
   allergen_which_dish: "¿Sobre qué plato le gustaría saber? Por favor, informe a nuestro personal sobre cualquier alergia."
   which_dish: "¿Sobre qué plato le gustaría saber?"
   spice_answer: "{item}: {spice}."
-  menu_answer: "Tenemos biryani, currys, entradas, dosa e idli, panes, bebidas y postres. ¿Qué le gustaría?"
+  menu_answer: "Tenemos {candidates}. ¿De cuál le gustaría saber más?"
   question_staff: "Nuestro personal puede ayudarle con eso cuando recoja su pedido. ¿Qué le gustaría pedir?"
   smalltalk: "¡Con gusto! ¿Qué le gustaría pedir?"
   off_topic: "Lo siento, aquí solo puedo tomar pedidos de comida. ¿Qué le gustaría?"
@@ -88,3 +98,10 @@ templates:
   goodbye_kiosk: "Gracias por su pedido. ¡Buen provecho!"
   readback_kiosk: "{items}. {total}, unos {minutes} minutos. Diga sí para hacer el pedido."
   confirm_reprompt_kiosk: "Por favor, diga sí para hacer el pedido, o diga no para cambiarlo."
+  menu_list: "Tenemos {candidates}. ¿Cuál le gustaría?"
+  menu_list_one: "Tenemos {item}. ¿Se lo agrego a su pedido?"
+  menu_none: "Lo siento, esta noche no tenemos ninguno de esos. ¿Qué más le gustaría?"
+  not_on_menu: "Lo siento, no encontré eso en nuestro menú. Puede decir un plato o preguntar qué tenemos."
+  complaint_ack: "Lo siento mucho. Intentémoslo de nuevo — ¿qué le gustaría pedir?"
+  handoff_phone: "Avisé a nuestro personal. Esta línea de demostración no puede transferir llamadas, pero puedo tomar su pedido. ¿Qué le gustaría?"
+  staff_can_help: "Nuestro personal puede ayudarle con eso cuando recoja su pedido."

@@ -17,10 +17,12 @@ from typing import Any
 
 from sqlalchemy import insert
 
+from restaurantos.contracts.orders import OrderQuestion
 from restaurantos.store import tables as t
 from restaurantos.voice.recorder import CallRecorder
 from restaurantos.voice.tts import TTSUnavailable
 from tests.fakes.clock import FAKE_NOW_MS
+from tests.fakes.order_agent import make_turn
 from tests.fakes.tts import FakeTTS
 from tests.fakes.twilio import StepSleep, until
 from tests.voice.conftest import FakeOrders
@@ -55,6 +57,21 @@ async def test_trailing_yeah_never_confirms_an_unheard_readback():
         p.emit(*turn(3, "yes"))  # now the read-back was heard
         await until(lambda: p.env.dialogues.orders.places)
         assert placed(p) == [("CHK_BIRY", 2)]
+
+
+async def test_an_unheard_offer_is_never_taken_by_a_yes():
+    """A menu answer that offers one dish ("We have Veg Biryani. Would you like one?") is held by a late start and then
+    superseded by the caller's "yeah", so it was never heard: that yeah must not add the dish."""
+    async with phone(tts=FakeTTS(ms_per_char=60, delay_s=0.3)) as p:
+        p.env.c.order_agent.default = make_turn("en", "question", question=OrderQuestion(topic="menu"),
+                                                utterance_en="what veg biryanis do you have")
+        p.emit(*turn(1, "what veg biryanis do you have"))
+        await until(lambda: p.sup.dialogue.snapshot().last_turn_no == 1)  # the offer is set, its reply not yet audible
+        p.emit(ev("speech_start", tid=2))  # "…do you have, yeah": the caller goes on within 300 ms, the reply is held
+        p.emit(ev("speech_end", tid=2), ev("final", "yeah", 2))  # ... and superseded by the yeah
+        await until(lambda: p.sup.dialogue.snapshot().last_turn_no == 2)
+        assert not p.sup.dialogue.snapshot().cart.lines  # no Veg Biryani the caller never heard offered
+        assert text("menu_list_one", item="Veg Biryani") not in sent(p)
 
 
 async def test_late_start_never_cancels_a_turn_in_the_dialogue():

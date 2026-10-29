@@ -32,7 +32,7 @@ from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 from sqlalchemy import select
 
 from restaurantos.agents.order_agent import MAX_UTTERANCE_CHARS, validate_turn
-from restaurantos.contracts.common import CallCtx, Channel, Lang, TenantClockSpec
+from restaurantos.contracts.common import SPEAK_LANGS, CallCtx, Channel, Lang, TenantClockSpec
 from restaurantos.contracts.errors import AIUnavailable, ChaosDown, Conflict, NotFound, NotWired
 from restaurantos.contracts.ids import new_id
 from restaurantos.contracts.orders import (
@@ -124,6 +124,11 @@ class Dialogue:
         """The opening line (``greet_phone``/``greet_kiosk``) in the session's speak language; not a turn."""
         lang = speak_language(self._s.lang, self.speak_languages)
         return self.deps.templates.render("greet_phone" if self.channel == "phone" else "greet_kiosk", lang)
+
+    def drop_offer(self) -> None:
+        """The last reply was never heard (the phone held it, then the caller's next words superseded it): a plain
+        "yes" must not take the dishes it offered."""
+        self._offer = None
 
     # ----- DialoguePort ---------------------------------------------------------------------------------------------
 
@@ -264,7 +269,7 @@ class Dialogue:
         view = policy.ReplyView(menu=menu, cart=turn.cart, channel=self.channel,
                                 minutes=await self._minutes(turn, menu), explicit=CORRECTED in failures,
                                 corrected=turn.corrected, order=turn.order, cue=turn.cue, candidates=turn.candidates,
-                                then_reprompt=turn.then_reprompt)
+                                then_reprompt=turn.then_reprompt, menu_match=turn.menu_match)
         speak = speak_language(lang, self.speak_languages)
         reply = turn.reply or policy.choose(turn.result, turn.apply, turn.state, speak, self.deps.templates, view=view)
         return self._commit(turn, reply, failures, lang, rejected)
@@ -418,15 +423,21 @@ class _NoAgent:
 
 class Dialogues:
     """``DialogueFactory`` (``c.dialogue_factory``): one ``Dialogue`` per voice session, sharing the phrase files, the
-    lexicons and the store-backed menu source. ``speak_languages`` is what ``/ws/voice`` announces in ``ready``."""
+    lexicons and the store-backed menu source. ``speak_languages`` is what ``/ws/voice`` announces in ``ready``;
+    ``settings.speak_drafts`` speaks every language with a phrase file, unreviewed drafts too (the founders review
+    them by ear), whatever ``settings.speak_languages`` lists."""
 
     def __init__(self, c: Container, *, templates: Templates | None = None, lexicons: Lexicons | None = None) -> None:
         self._c = c
-        self.templates = templates or Templates.load(defaults={"url": spoken_url(c.settings.public_base_url)})
+        drafts = c.settings.speak_drafts
+        self.templates = templates or Templates.load(defaults={"url": spoken_url(c.settings.public_base_url)},
+                                                     speak_drafts=drafts)
         self.lexicons = lexicons or load_lexicons()
         self.menus = StoreMenuSource(c)
-        self.speak_languages = self.templates.speakable(c.settings.speak_languages)
-        if skipped := [lang for lang in c.settings.speak_languages if lang not in self.speak_languages]:
+        langs = [*c.settings.speak_languages, *SPEAK_LANGS] if drafts else c.settings.speak_languages
+        self.speak_languages = self.templates.speakable(langs)
+        skipped = [lang for lang in c.settings.speak_languages if lang not in self.speak_languages]
+        if skipped and not drafts:
             log.warning("speak_languages %s not spoken: their phrase files are not reviewed", skipped)
 
     def deps(self, ctx: CallCtx) -> DialogueDeps:

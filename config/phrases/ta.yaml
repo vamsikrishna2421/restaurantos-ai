@@ -2,7 +2,8 @@
 #
 # UNREVIEWED DRAFT: no fluent Tamil speaker has checked these yet (founders or consenting friends review them
 # Oct 27-28). Until review_status is `reviewed` and "ta" is in settings.speak_languages, the system understands Tamil
-# (and Tamil-English) but replies in English. Same keys and slots as en.yaml. Per CONTRACTS_SEED §13, numbers and
+# (and Tamil-English) but replies in English; settings.speak_drafts speaks this draft anyway, so the founders can
+# review it by ear (dev and testing only). Same keys and slots as en.yaml. Per CONTRACTS_SEED §13, numbers and
 # money stay in English inside the Tamil line (`numbers: en`); dish and modifier names come from the menu's Tamil
 # script names. The bake-off (G4) may flip native script vs romanized for TTS.
 lang: ta
@@ -33,6 +34,15 @@ words:
     fish: மீன்
     shellfish: இறால் போன்ற கடல் உணவு
   spice: [காரம் இல்லை, லேசான காரம், நடுத்தர காரம், அதிக காரம்]
+  categories:
+    biryani: பிரியாணி வகைகள்
+    curry: குழம்புகள்
+    starter: ஸ்டார்ட்டர்கள்
+    tiffin: தோசை மற்றும் இட்லி
+    bread: ரொட்டிகள்
+    rice: சாதம்
+    drink: பானங்கள்
+    dessert: இனிப்புகள்
 
 templates:
   greet_phone: "வணக்கம், ஸ்பைஸ் ரூட்டை அழைத்ததற்கு நன்றி. நான் ஒரு டெமோ லைனில் உள்ள AI ஆர்டர் உதவியாளர் — உண்மையில் உணவு தயாரிக்கப்படாது. இந்த அழைப்பு எழுத்து வடிவில் மாற்றப்படுகிறது. உங்களுக்கு என்ன வேண்டும்?"
@@ -77,7 +87,7 @@ templates:
   allergen_which_dish: "எந்த உணவைப் பற்றித் தெரிந்துகொள்ள வேண்டும்? உங்களுக்கு ஏதேனும் ஒவ்வாமை இருந்தால் தயவுசெய்து எங்கள் ஊழியர்களிடம் சொல்லுங்கள்."
   which_dish: "எந்த உணவைப் பற்றித் தெரிந்துகொள்ள வேண்டும்?"
   spice_answer: "{item} — {spice}."
-  menu_answer: "எங்களிடம் பிரியாணி, குழம்புகள், ஸ்டார்ட்டர்கள், தோசை மற்றும் இட்லி, ரொட்டிகள், பானங்கள் மற்றும் இனிப்புகள் உள்ளன. உங்களுக்கு என்ன வேண்டும்?"
+  menu_answer: "எங்களிடம் {candidates} உள்ளன. எதைப் பற்றிச் சொல்லட்டும்?"
   question_staff: "அதைப் பற்றி பிக்கப் செய்யும்போது எங்கள் ஊழியர்கள் உதவுவார்கள். என்ன ஆர்டர் செய்ய விரும்புகிறீர்கள்?"
   smalltalk: "மகிழ்ச்சியுடன் உதவுகிறேன்! என்ன ஆர்டர் செய்ய விரும்புகிறீர்கள்?"
   off_topic: "மன்னிக்கவும், இங்கே உணவு ஆர்டர்களை மட்டுமே எடுக்க முடியும். உங்களுக்கு என்ன வேண்டும்?"
@@ -88,3 +98,10 @@ templates:
   goodbye_kiosk: "ஆர்டர் செய்ததற்கு நன்றி. உணவை ரசியுங்கள்!"
   readback_kiosk: "{items}. மொத்தம் {total}, சுமார் {minutes} நிமிடங்கள். ஆர்டர் செய்ய ஆமாம் என்று சொல்லுங்கள்."
   confirm_reprompt_kiosk: "ஆர்டர் செய்ய ஆமாம் என்று சொல்லுங்கள்; மாற்ற இல்லை என்று சொல்லுங்கள்."
+  menu_list: "எங்களிடம் {candidates} உள்ளன. எது வேண்டும்?"
+  menu_list_one: "எங்களிடம் {item} உள்ளது. ஒன்று வேண்டுமா?"
+  menu_none: "மன்னிக்கவும், இன்று அவை எதுவும் இல்லை. வேறு என்ன வேண்டும்?"
+  not_on_menu: "மன்னிக்கவும், அதை எங்கள் மெனுவில் காணவில்லை. ஒரு உணவைச் சொல்லுங்கள், அல்லது என்ன இருக்கிறது என்று கேளுங்கள்."
+  complaint_ack: "மன்னிக்கவும். மீண்டும் முயற்சிப்போம் — என்ன ஆர்டர் செய்ய விரும்புகிறீர்கள்?"
+  handoff_phone: "எங்கள் ஊழியர்களுக்குத் தெரிவித்துள்ளேன். இந்த டெமோ லைனில் அழைப்பை மாற்ற முடியாது, ஆனால் உங்கள் ஆர்டரை நான் எடுக்கலாம். உங்களுக்கு என்ன வேண்டும்?"
+  staff_can_help: "அதைப் பற்றி பிக்கப் செய்யும்போது எங்கள் ஊழியர்கள் உதவுவார்கள்."

@@ -6,7 +6,8 @@
   always runs) and holds every reply not yet audible (``held``), also of a turn already in the Dialogue: that one is
   never cancelled, its reply is held when it comes (``holding``). The next turn first ``_settle``s them: a read-back
   or confirmation always plays before it, any other is superseded by its reply (and a dish read back unheard is then
-  never added by key 1). With no new words (``_release``) they all play, then the carried words go to the Dialogue.
+  never added by key 1, nor a dish it offered by a plain yes). With no new words (``_release``) they all play, then
+  the carried words go to the Dialogue.
 - **What a yes confirms** (MASTER_PLAN P1-1). A yes reaches the Dialogue in ``readback``/``confirm`` only when
   ``Speaker.confirms``: the read-back was voiced and audible before the caller began, and a spoken yes also heard it
   to its end. Otherwise (``_early_yes``) the read-back plays again if it was cut, else ``confirm_reprompt`` follows it.
@@ -128,6 +129,9 @@ class TurnReplies:
                 await self._reply(said.reply, result=said.result, tid=said.tid)
             else:
                 self.pending = []
+                drop = getattr(self.call.dialogue, "drop_offer", None)
+                if callable(drop):
+                    drop()  # the dishes it offered were never heard: a plain "yes" must not take them
 
     def _abort_turns(self, *, carry: bool) -> None:
         """Abort the spoken turns not in the Dialogue yet; with ``carry`` their words wait for the next final."""

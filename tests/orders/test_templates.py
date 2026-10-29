@@ -3,6 +3,7 @@ language, minutes) and the speak-language selection."""
 
 from __future__ import annotations
 
+import logging
 import shutil
 from pathlib import Path
 
@@ -10,6 +11,7 @@ import pytest
 import yaml
 
 from restaurantos.contracts.common import ALLERGENS
+from restaurantos.orders.dialogue import Dialogues
 from restaurantos.orders.lexicon import load_lexicons
 from restaurantos.orders.matcher import fast_path
 from restaurantos.orders.templates import (
@@ -28,11 +30,13 @@ from restaurantos.orders.templates import (
     Spice,
     Templates,
     en_words,
+    join_list,
     load_phrase_files,
     placeholders,
     speak_language,
     spell,
 )
+from tests.fakes.container import make_test_container, make_test_settings
 from tests.fakes.order_agent import seed_menu
 
 MENU = seed_menu()
@@ -167,11 +171,11 @@ def test_render_falls_back_to_english_until_reviewed(templates: Templates, tmp_p
 
     folder = copy_phrases(tmp_path)
     edit(folder / "te.yaml", lambda d: d.update(review_status="reviewed", reviewer="test-reviewer"))
-    edit(folder / "es.yaml", lambda d: d["templates"].pop("menu_answer"))
+    edit(folder / "es.yaml", lambda d: d["templates"].pop("smalltalk"))
     reviewed = Templates.load(folder)
     assert reviewed.speakable(["te", "es"]) == ["en", "te"]
     assert reviewed.render("readback", "te", slots).lang == "te"
-    assert reviewed.draft("menu_answer", "es").lang == "en"  # a key a draft lacks falls back to English
+    assert reviewed.draft("smalltalk", "es").lang == "en"  # a key a draft lacks falls back to English
 
 
 def test_speak_language_selection() -> None:
@@ -244,3 +248,54 @@ def test_fillers_are_never_control_words(templates: Templates) -> None:
     for echo in ("okay", "ok", "oo", "uu", "mm", "mmm", "hmm", "a ver", "haber", "un momento", "one moment"):
         assert fast_path(echo, MENU, lexicons) is None, echo
     assert fast_path("సరే", MENU, lexicons).intent == "confirm_yes"  # why the old te/ta/es fillers had to go
+
+
+def test_oct_28_keys_english_text() -> None:
+    en = load_phrase_files()["en"].templates
+    assert {key: en[key] for key in ("menu_answer", "menu_list", "menu_list_one", "menu_none", "not_on_menu",
+                                     "complaint_ack", "handoff_phone", "staff_can_help")} == {
+        "menu_answer": "We have {candidates}. Which would you like to hear about?",
+        "menu_list": "We have {candidates}. Which would you like?",
+        "menu_list_one": "We have {item}. Would you like one?",
+        "menu_none": "Sorry, we don't have any of those tonight. What else would you like?",
+        "not_on_menu": "Sorry, I couldn't find that on our menu. You can say a dish, or ask what we have.",
+        "complaint_ack": "I'm sorry about that. Let's try again — what would you like to order?",
+        "handoff_phone": "I've let our staff know. This demo line can't transfer calls, but I can still take your "
+                         "order. What would you like?",
+        "staff_can_help": "Our staff can help with that when you pick up.",
+    }
+    assert "{url}" not in en["handoff_phone"] and "{url}" in en["handoff"]  # the kiosk's handoff is unchanged
+
+
+async def test_speak_drafts_speaks_unreviewed_files(templates: Templates, caplog) -> None:
+    """``settings.speak_drafts`` (dev and testing only): the founders review te, ta and es by listening, so the
+    Dialogues speak every drafted language, with the default ``speak_languages`` too; the default is unchanged."""
+    drafts = Templates.load(defaults={"url": "x"}, speak_drafts=True)
+    assert drafts.speakable(["en", "te", "ta", "es"]) == ["en", "te", "ta", "es"]
+    assert drafts.speakable(["te"]) == ["en", "te"] and drafts.speakable([]) == ["en"]
+    assert drafts.render("didnt_catch", "te").text == "క్షమించండి, నాకు అర్థం కాలేదు. మళ్ళీ చెప్పగలరా?"
+    assert templates.render("didnt_catch", "te").lang == "en" and not drafts.reviewed("te")  # pre-render skips it
+    assert speak_language("te-en", drafts.speakable(["en", "te"])) == "te"
+    for langs, spoken in ((["en", "te", "es"], ["en", "te", "es", "ta"]), (["en"], ["en", "te", "ta", "es"])):
+        c = make_test_container(settings=make_test_settings(speak_languages=langs, speak_drafts=True))
+        with caplog.at_level(logging.WARNING):
+            factory = Dialogues(c)
+        assert factory.speak_languages == spoken and "not reviewed" not in caplog.text
+        assert speak_language("te-en", factory.speak_languages) == "te"  # the call's Telugu-English turn
+        await c.store.aclose()
+    assert factory.templates.render("menu_none", "es").lang == "es"
+    assert make_test_settings().speak_drafts is False
+    c = make_test_container(settings=make_test_settings(speak_languages=["en", "te"]))
+    assert Dialogues(c).speak_languages == ["en"]  # without drafts only reviewed files are spoken
+    await c.store.aclose()
+
+
+def test_spanish_and_before_an_i_sound() -> None:
+    """Spanish says "e" for "y" before an i sound and "u" for "o" before an o sound; other languages never change."""
+    files = load_phrase_files()
+    words = files["es"].words
+    assert Dishes.of(["SAMOSA", "IDLI"], MENU, "and").speak("es", words) == "samosas e idli"
+    assert Dishes.of(["IDLI", "SAMOSA"], MENU, "and").speak("es", words) == "idli y samosas"
+    assert join_list(["agua", "hielo"], words) == "agua y hielo"  # "hie" is not an i sound
+    assert join_list(["siete", "ocho"], words, "or") == "siete u ocho"
+    assert Dishes.of(["SAMOSA", "IDLI"], MENU, "and").caption(files["en"].words) == "Samosa and Idli"

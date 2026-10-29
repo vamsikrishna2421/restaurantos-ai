@@ -139,14 +139,15 @@ async def test_stitched_readback_plays_with_tts_disabled(tmp_path):
 
 async def test_segments_cover_canonical_readback_all_speak_languages():
     """With every phrase file reviewed, the plan covers the canonical read-back, its ack and a sold-out offer (an
-    items prefix joined before it) in en, te, ta and es, saying every word in order, within the 20k-character
-    phrase-cache budget. Today only English is reviewed and spoken, so only English gets audio."""
+    items prefix joined before it) in en, te, ta and es, saying every word in order, within the 22k-character
+    phrase-cache budget (20k until the menu, complaint and phone-handoff phrases of Oct 28 added about 1.1k). Today
+    only English is reviewed and pre-recorded, so only English gets audio."""
     files, menu = reviewed_files(), seed_menu()
     templates = Templates(files, defaults={"url": URL})
     langs = templates.speakable(SPEAK_LANGS)
     assert langs == ["en", "te", "ta", "es"]
     specs = prerender.plan_phrases(files, menu, langs, url=URL)
-    assert sum(spec.chars for spec in specs) <= 20_000
+    assert sum(spec.chars for spec in specs) <= 22_000
     assert len({(spec.lang, spec.key) for spec in specs}) == len(specs)
     for lang in langs:
         mine = [spec for spec in specs if spec.lang == lang]

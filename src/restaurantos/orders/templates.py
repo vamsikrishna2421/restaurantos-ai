@@ -5,9 +5,9 @@ rendered by code.
   ``reviewer``, the ``words`` its slot formatters need and the ``templates``. English is canonical: it carries every
   key the code renders (``REQUIRED_KEYS``), and another file may only use English keys, each with exactly the English
   slots. A key a draft lacks falls back to English.
-- **Languages.** A language is spoken only when its file is ``reviewed`` *and* it is in ``settings.speak_languages``
-  (``Templates.speakable``). ``speak_language`` maps a detected ``Lang`` (te and te-en → te, ...) onto the languages
-  we may speak, else English. ``render`` therefore only returns reviewed text; ``draft`` previews any language.
+- **Languages.** A language is spoken only when its file is ``reviewed`` (any file with ``speak_drafts``: founders
+  review te/ta/es by ear, dev and testing only) *and* it is in ``settings.speak_languages`` (``Templates.speakable``).
+  ``speak_language`` maps a detected ``Lang`` (te-en → te) onto them, else English; ``draft`` previews any language.
 - **Slots.** Code fills every slot; the model never does. A value is a ``str`` (used as is), an ``int`` (a count) or
   one of the slot types below, and renders twice: *spoken* in the reply language for ``Reply.text`` (money, counts
   and minutes spelled out by code, te and ta keeping English number words per §13; order numbers digit by digit) and
@@ -28,7 +28,7 @@ from pathlib import Path
 from typing import Any, Literal, Protocol, runtime_checkable
 
 import yaml
-from pydantic import ValidationError, field_validator, model_validator
+from pydantic import Field, ValidationError, field_validator, model_validator
 
 from restaurantos.config import REPO_ROOT
 from restaurantos.contracts.common import ALLERGENS, SPEAK_LANGS, Allergen, Model, SpeakLang
@@ -49,11 +49,15 @@ SEED_KEYS: frozenset[str] = frozenset((
 P14_KEYS: frozenset[str] = frozenset((
     "items_prefix sold_out_offer_one allergen_none_listed allergen_which_dish which_dish spice_answer menu_answer "
     "question_staff smalltalk off_topic what_else nothing_ordered cart_empty buttons_offer goodbye_kiosk "
-    "readback_kiosk confirm_reprompt_kiosk").split())  # the kiosk has no keypad: its read-back never says "press 1"
+    "readback_kiosk confirm_reprompt_kiosk "  # the kiosk has no keypad: its read-back never says "press 1"
+    "menu_list menu_list_one menu_none not_on_menu complaint_ack handoff_phone staff_can_help").split())
 REQUIRED_KEYS: frozenset[str] = SEED_KEYS | P14_KEYS
 MAX_SPELLED = 999_999
 _KEY = re.compile(r"^[a-z][a-z0-9_]{0,47}$")
 _FIELD = re.compile(r"^[a-z][a-z0-9_]{0,31}$")
+_PATTERN_SLOTS = {"item": {"qty", "name"}, "item_mods": {"qty", "name", "mods"}, "money": {"dollars", "cents"}}
+_SENTENCE_START = re.compile(r"(?:^|(?<=[.!?] ))([^\W\d_])")
+_ES_VOWEL = {"and": re.compile(r"h?[ií](?![aeiouáéíóú])", re.I), "or": re.compile(r"h?[oó]", re.I)}  # "e", "u"
 
 
 class PhraseError(ValueError):
@@ -72,9 +76,6 @@ def placeholders(pattern: str) -> frozenset[str]:
     return frozenset(names)
 
 
-_PATTERN_SLOTS = {"item": {"qty", "name"}, "item_mods": {"qty", "name", "mods"}, "money": {"dollars", "cents"}}
-
-
 class PhraseWords(Model):
     """What the slot formatters need in one language."""
 
@@ -91,6 +92,7 @@ class PhraseWords(Model):
     cent: tuple[str, str]
     allergens: dict[Allergen, str]
     spice: tuple[str, str, str, str]  # MenuItem.spice_level 0..3
+    categories: dict[str, str] = Field(default_factory=dict)  # menu category code -> its name (menu_answers.Sections)
 
     @model_validator(mode="after")
     def _complete(self) -> PhraseWords:
@@ -236,9 +238,6 @@ def capitalize(text: str) -> str:
     return text[:1].upper() + text[1:]
 
 
-_SENTENCE_START = re.compile(r"(?:^|(?<=[.!?] ))([^\W\d_])")
-
-
 def sentence_case(text: str) -> str:
     """Each sentence starts upper-case, also when a slot opens it ("… Masala. Fifty-two dollars …")."""
     return _SENTENCE_START.sub(lambda m: m.group(1).upper(), text)
@@ -247,7 +246,10 @@ def sentence_case(text: str) -> str:
 def join_list(parts: Sequence[str], words: PhraseWords, conj: Literal["and", "or"] = "and") -> str:
     if len(parts) <= 1:
         return "".join(parts)
-    return words.list_sep.join(parts[:-1]) + (words.list_or if conj == "or" else words.list_and) + parts[-1]
+    joint = words.list_or if conj == "or" else words.list_and
+    if words.numbers == "es" and _ES_VOWEL[conj].match(parts[-1]):  # Spanish: "samosas e idli", "siete u ocho"
+        joint = {" y ": " e ", " o ": " u "}.get(joint, joint)
+    return words.list_sep.join(parts[:-1]) + joint + parts[-1]
 
 
 @dataclass(frozen=True, slots=True)
@@ -421,9 +423,10 @@ def speak_language(lang: str | None, allowed: Iterable[str]) -> SpeakLang:
 
 class Templates:
     """``TemplatesPort`` over the phrase files (see the module docstring). ``defaults`` fills slots no caller passes,
-    such as ``url``."""
+    such as ``url``; ``speak_drafts`` (``settings.speak_drafts``) speaks unreviewed files too."""
 
-    def __init__(self, files: Mapping[str, PhraseFile], *, defaults: Mapping[str, Any] | None = None) -> None:
+    def __init__(self, files: Mapping[str, PhraseFile], *, defaults: Mapping[str, Any] | None = None,
+                 speak_drafts: bool = False) -> None:
         en = files.get(CANONICAL)
         if en is None:
             raise PhraseError("the English phrase file is required")
@@ -440,12 +443,12 @@ class Templates:
                     raise PhraseError(f"{lang}.yaml: {key!r} must use exactly the slots {sorted(self._slots[key])}")
             if gaps := sorted(self._slots.keys() - phrases.templates.keys()):
                 log.warning("phrases %s: %d templates fall back to English: %s", lang, len(gaps), gaps)
-        self._files = dict(files)
-        self._defaults = dict(defaults or {})
+        self._files, self._defaults, self._drafts = dict(files), dict(defaults or {}), speak_drafts
 
     @classmethod
-    def load(cls, directory: Path | None = None, *, defaults: Mapping[str, Any] | None = None) -> Templates:
-        return cls(load_phrase_files(directory), defaults=defaults)
+    def load(cls, directory: Path | None = None, *, defaults: Mapping[str, Any] | None = None,
+             speak_drafts: bool = False) -> Templates:
+        return cls(load_phrase_files(directory), defaults=defaults, speak_drafts=speak_drafts)
 
     @property
     def keys(self) -> frozenset[str]:
@@ -455,24 +458,23 @@ class Templates:
         return self._slots[key]
 
     def review_status(self, lang: str) -> str | None:
-        phrases = self._files.get(lang)
-        return None if phrases is None else phrases.review_status
+        return None if (phrases := self._files.get(lang)) is None else phrases.review_status
 
     def reviewed(self, lang: str) -> bool:
         return self.review_status(lang) == "reviewed"
 
     def speakable(self, langs: Iterable[str]) -> list[SpeakLang]:
-        """English plus each language of ``langs`` (``settings.speak_languages``) whose phrase file is reviewed."""
+        """English plus each language of ``langs`` (``settings.speak_languages``) whose file may be spoken."""
         out: list[SpeakLang] = [CANONICAL]
         for lang in langs:
-            if lang in SPEAK_LANGS and lang not in out and self.reviewed(lang):
+            if lang in self._files and lang not in out and (self._drafts or self.reviewed(lang)):  # files: SpeakLang
                 out.append(lang)  # type: ignore[arg-type]
         return out
 
     def render(self, key: str, lang: SpeakLang, slots: Mapping[str, Any] | None = None) -> Reply:
-        """``key`` in ``lang`` when that file is reviewed and has it, else English (``Reply.lang`` says which)."""
+        """``key`` in ``lang`` when that file may be spoken and has it, else English (``Reply.lang`` says which)."""
         phrases = self._files.get(lang)
-        ok = phrases is not None and phrases.review_status == "reviewed" and key in phrases.templates
+        ok = phrases is not None and (phrases.review_status == "reviewed" or self._drafts) and key in phrases.templates
         return self._reply(key, lang if ok else CANONICAL, slots)
 
     def draft(self, key: str, lang: SpeakLang, slots: Mapping[str, Any] | None = None) -> Reply:
