@@ -12,7 +12,9 @@ moved backwards (a scenario reload) ticks at once. A tick:
    (``trigger=ttl``: within budget and only while someone watches, ``watched``), one more planner run for an
    incident still without a plan 2 business minutes after it opened or left without an active one (a run cut short
    by a restart or a cancelled task), a re-plan of a failed active plan (within budget, while watched, once), and
-   the closing rule (``trigger.settle``).
+   the closing rule (``trigger.settle``);
+4. when an ingredient is in WATCH, queues ``gm.preplan.on_watch`` on the gm lane (coalesced) after it: the
+   speculative pre-plan (P1-9), which decides itself whether one may run.
 
 Nothing here awaits the planner outside the gm lane: ``maintain`` runs there, after the tenant's earlier GM work.
 """
@@ -27,6 +29,7 @@ from sqlalchemy import select
 
 from restaurantos.contracts.common import TenantClockSpec, ms_from_dt
 from restaurantos.contracts.errors import NotFound
+from restaurantos.gm import preplan
 from restaurantos.gm import trigger as trigger_mod
 from restaurantos.gm.trigger import CLOSED, UNRESOLVED, Trigger, active_plan, ai_budget, incident_plans
 from restaurantos.governance.approvals import load_incident
@@ -104,7 +107,8 @@ class Ticker:
         return due
 
     async def tick(self, tenant_id: str) -> None:
-        """One tenant's tick: bands, the TTL sweep, then ``maintain`` queued on its gm lane when anything is open."""
+        """One tenant's tick: bands, the TTL sweep, then ``maintain`` queued on its gm lane when anything is open and
+        the pre-plan when an ingredient is in WATCH."""
         forecasts = await require(self.c, "inventory").evaluate_bands(tenant_id) or []
         expire_due = getattr(self.c.approvals, "expire_due", None)  # P24's sweep (not on ApprovalsPort)
         expired = await expire_due(tenant_id) if callable(expire_due) else []
@@ -114,6 +118,9 @@ class Ticker:
                 i.c.tenant_id == tenant_id, i.c.status.in_(sorted(UNRESOLVED))).limit(1))).first()
         if open_incident is not None or expired or any(f.band == "act" for f in forecasts):
             self.trigger.spawn(tenant_id, "maintain", lambda: self.maintain(tenant_id), key=(tenant_id, "maintain"))
+        if watching := [f for f in forecasts if f.band == "watch"]:  # P1-9: the speculative pre-plan
+            self.trigger.spawn(tenant_id, "preplan", lambda: preplan.on_watch(self.c, tenant_id, watching),
+                               key=(tenant_id, "preplan"))
 
     async def maintain(self, tenant_id: str) -> None:
         """On the gm lane: the ACT rule for every ACT ingredient, then TTL and repair and the closing rule for every

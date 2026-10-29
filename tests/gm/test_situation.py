@@ -374,3 +374,110 @@ async def test_open_pos_read_into_the_snapshot(rush_store: tuple[Container, str]
     assert report.ingredient.formula.endswith("; on order: 2 kg (PO #1002, ≈19:02), 3 kg (PO #1001, ≈19:22)")
     assert (await situation.read_snapshot(None, "sbx_gm", PANEER, I3, repo=SnapshotRepo(rush_snapshot()))  # type: ignore[arg-type]
             ).incoming == ()
+
+
+async def test_observe_facts_read_into_the_snapshot(rush_store: tuple[Container, str]) -> None:
+    """P04's store, P1-2 (``gm.observe``): a ``verify_failed`` re-plan reads the observed plan's notices still unseen
+    (not one seen after its deadline), with the station each showed on; a ``po_received`` one the dishes this
+    incident's plans 86'd that a plan still keeps off (not undone, not skipped as already 86'd, not another incident's,
+    not one a later step put back on sale, not one the kitchen 86'd again after a manager put it back). Every run reads
+    the notices a replacement retracted unseen (not one undone by hand, retracted within its 60 s or seen late); the
+    report carries the re-route, and a later re-plan still offers it."""
+    from sqlalchemy import insert, select, update
+
+    from restaurantos.contracts.gm import NotifyStaffParams, Plan, PlanStep
+    from restaurantos.gm import observe as obs
+    from restaurantos.store import tables as t
+
+    c, tid = rush_store
+
+    def dish(idx: int, code: str, available: bool, status: str) -> PlanStep:
+        return PlanStep(idx=idx, candidate_id="C01", action_type="set_item_availability", target=code,
+                        params={"item_code": code, "available": available}, tier="T2", decision="approved",
+                        status=status)  # type: ignore[arg-type]
+
+    async def menu(code: str, source: str) -> None:  # 86'd by a plan or the kitchen
+        mi = t.menu_items
+        async with c.store.write() as tx:
+            await tx.conn.execute(update(mi).where(mi.c.tenant_id == tid, mi.c.code == code).values(
+                available=False, unavailable_reason="sold_out", unavailable_source=source))
+
+    def notify(idx: int, staff: str, status: str) -> PlanStep:
+        params = NotifyStaffParams(staff_id=staff, language="es", message="m", message_en="m")
+        return PlanStep(idx=idx, candidate_id="C10", action_type="notify_staff", target=staff, params=params,
+                        tier="T1", decision="auto", status=status)  # type: ignore[arg-type]
+
+    async def store(plan_id: str, incident_id: str, no: int, steps: list[PlanStep],
+                    notices: Sequence[tuple[int, str, str | None, str]] = ()) -> None:
+        plan = Plan(id=plan_id, plan_no=no, incident_id=incident_id, epoch=no, trigger="act", source="ai",
+                    role="preview", status="done", summary="", severity="high", confidence="medium", steps=steps,
+                    report_digest="ab" * 32, decision_digest="cd" * 32, state_version=0, created_at=utc_from_ms(no),
+                    expires_at=utc_from_ms(no + 1))
+        async with c.store.write() as tx:
+            await tx.conn.execute(insert(t.plans).values(
+                tenant_id=tid, id=plan_id, incident_id=incident_id, plan_no=no, epoch=no, trigger="act", source="ai",
+                role="preview", model=None, status="done", body=plan.model_dump(mode="json"), state_version=0,
+                decision_digest=plan.decision_digest, digest=None, short_code=None, created_ms=no, expires_ms=no + 1,
+                ai_cost_micros=0, latency_ms=None))
+            for idx, staff, station, status in notices:
+                await tx.conn.execute(insert(t.staff_notices).values(
+                    tenant_id=tid, id=f"ntc_{plan_id}_{idx}", staff_id=staff, station_id=station, message="m",
+                    message_en="m", language="es", ai_draft=None, ai_draft_en=None, ai_draft_status="none",
+                    plan_id=plan_id, step_idx=idx, status=status, created_ms=0, delivered_ms=0,
+                    seen_ms=61_000 if status == "seen" else None))
+
+    inc = incident("watch", ANCHOR)
+    await store("pln_A", inc.id, 1, [notify(0, "STF_CARLOS", "verify_failed"), notify(1, "STF_ARJUN", "verified"),
+                                     notify(2, "STF_MARIA", "verify_pending"), dish(3, "PNR_TIKKA", False, "verified"),
+                                     dish(4, "PALAK_PNR", False, "undone"), dish(5, "PNR_BM", False, "skipped"),
+                                     notify(6, "STF_MEENA", "verify_failed"), dish(7, "VEG_KORMA", False, "undone"),
+                                     notify(8, "STF_LAKSHMI", "verify_pending")],
+                notices=[(0, "STF_CARLOS", "STN_CURRY", "delivered"), (1, "STF_ARJUN", "STN_TANDOOR", "seen"),
+                         (2, "STF_MARIA", "STN_BAR", "delivered"), (6, "STF_MEENA", "STN_TIFFIN", "seen"),
+                         (8, "STF_LAKSHMI", None, "delivered")])
+    await store("pln_B", inc.id, 2, [dish(0, "PALAK_PNR", False, "verified"), dish(1, "PNR_TIKKA", True, "proposed")])
+    await store("pln_C", "inc_cream", 3, [dish(0, "VEG_KORMA", False, "verified")])
+    for code, source in (("PNR_TIKKA", "plan"), ("PALAK_PNR", "plan"), ("PNR_BM", "kitchen"), ("VEG_KORMA", "plan")):
+        await menu(code, source)
+    unseen = ObserveContext(trigger="verify_failed", plan_id="pln_A", step_idx=0)
+    received = ObserveContext(trigger="po_received", plan_id="pln_B", po_id="po_1")
+    blocked = ObserveContext(trigger="task_blocked", plan_id="pln_A", task_id="tsk_1", blocked_supplier_id="SUP_PATEL")
+    carlos = (obs.Unseen("STF_CARLOS", "STN_CURRY"),)  # Arjun saw his, Meena hers late; Maria's 60 s are not up
+    async with c.store.read() as conn:
+        assert await obs.read(conn, tid, inc.id, unseen) == obs.Observed(unseen=carlos)
+        assert await obs.read(conn, tid, inc.id, received) == obs.Observed(stopped=("PNR_TIKKA", "PALAK_PNR"))
+        assert await obs.read(conn, tid, inc.id, blocked) == await obs.read(conn, tid, inc.id, None) == obs.NOTHING
+        snapshot = await situation.read_snapshot(conn, tid, PANEER, ANCHOR, incident_id=inc.id, observe=unseen)
+        assert snapshot.observed.unseen == carlos
+        assert (await situation.read_snapshot(conn, tid, PANEER, ANCHOR, observe=unseen)).observed == obs.NOTHING
+        report = await situation.build(conn, tid, inc, ANCHOR, observe=unseen)
+    [routed] = [cand for cand in report.candidates if cand.effect.startswith("Re-routes")]
+    assert (routed.target, report.observe) == ("STF_LAKSHMI", unseen)
+    assert routed.effect.startswith("Re-routes the notice Carlos (Curry) has not seen in 60 s: sends Lakshmi")
+
+    # A plan put Paneer Tikka back, then the yogurt incident stopped it; Palak Paneer is the kitchen's 86 now.
+    await store("pln_D", inc.id, 4, [dish(0, "PNR_TIKKA", True, "verified")])
+    await store("pln_E", "inc_yogurt", 5, [dish(0, "PNR_TIKKA", False, "verified")])
+    await menu("PALAK_PNR", "kitchen")
+    # A replacement retracted Carlos's notice unseen, Meena's seen late, Maria's within its 60 s; Lakshmi's was undone
+    # by hand. Only Carlos's moved.
+    async with c.store.write() as tx:
+        plans, n = t.plans, t.staff_notices
+        body = (await tx.conn.execute(select(plans.c.body).where(plans.c.id == "pln_A"))).scalar_one()
+        for idx, detail, unseen_60s in ((0, "replaced_by_plan", True), (6, "replaced_by_plan", True),
+                                        (2, "replaced_by_plan", False), (8, "manual", True)):
+            body["steps"][idx].update(status="undone", detail=detail)
+            if unseen_60s:  # what NoticeVerifier writes once 60 s pass without a Seen
+                await tx.conn.execute(insert(t.ledger).values(
+                    tenant_id=tid, seq=9000 + idx, plan_id="pln_A", step_idx=idx, kind="VERIFY", actor="executor",
+                    authorizer=None, digest=None, policy_hash="0" * 64, idempotency_key=f"pln_A:{idx}:seen",
+                    payload={"plan_id": "pln_A", "idx": idx, "phase": "seen", "status": "failed", "observed": {}},
+                    prev_hash="0" * 64, hash="0" * 64, ts_ms=0))
+        await tx.conn.execute(update(plans).where(plans.c.id == "pln_A").values(body=body))
+        await tx.conn.execute(update(n).where(n.c.tenant_id == tid).values(status="retracted"))
+    async with c.store.read() as conn:
+        assert await obs.read(conn, tid, inc.id, received) == obs.Observed(moved=carlos)  # no dish left to restart
+        assert await obs.read(conn, tid, inc.id, None) == obs.Observed(moved=carlos)
+        later = await situation.build(conn, tid, inc, ANCHOR, observe=blocked)
+    notified = {cand.target: cand.effect for cand in later.candidates if cand.action_type == "notify_staff"}
+    assert "STF_CARLOS" not in notified and notified["STF_LAKSHMI"].startswith("Re-routes the notice Carlos (Curry)")

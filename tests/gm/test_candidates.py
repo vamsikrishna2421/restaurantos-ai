@@ -12,11 +12,26 @@ from dataclasses import replace
 import pytest
 
 from restaurantos.contracts.common import ms_from_dt
-from restaurantos.contracts.gm import CANDIDATE_IDS, Candidate, PolicyLimits
+from restaurantos.contracts.gm import CANDIDATE_IDS, Candidate, ObserveContext, PolicyLimits, SituationReport
+from restaurantos.contracts.kitchen import Staff
 from restaurantos.contracts.menu import Availability
+from restaurantos.gm import baseline, situation
 from restaurantos.gm import candidates as cands
-from restaurantos.gm import situation
-from tests.gm.test_situation import ANCHOR, I3, MIN, POISON, TZ, incident, note, rush_situation, rush_snapshot
+from restaurantos.gm.observe import Observed, Unseen
+from restaurantos.gm.validate import validate_plan
+from restaurantos.governance.policy import load_policy
+from tests.gm.test_situation import (
+    ANCHOR,
+    I3,
+    MIN,
+    PANEER,
+    POISON,
+    TZ,
+    incident,
+    note,
+    rush_situation,
+    rush_snapshot,
+)
 
 
 def of(candidates: list[Candidate], action: str) -> list[Candidate]:
@@ -242,3 +257,141 @@ def test_po_candidates_net_stock_on_order() -> None:
     assert set(pos(with_lots(early).candidates)) == {("SUP_PATEL", 2), ("SUP_PATEL", 3), ("SUP_FRESHDAIRY", 3),
                                                      ("SUP_FRESHDAIRY", 6)}
     assert pos(with_lots().candidates) == pos(rush_situation().candidates)  # nothing on order: unchanged
+
+
+def test_observe_candidates_reroute_switch_un86() -> None:
+    """P1-2 (ARCHITECTURE §6.1-§6.2, D28): the candidates of an observe re-plan adapt to what the GM observed.
+
+    - ``verify_failed``: nobody else cooks curry, so the notice Carlos never saw moves to Lakshmi, the manager (T1,
+      Telugu; Carlos is offered none, so the re-plan retracts his), and the playbook notifies her within its 8 steps;
+      a second curry cook would get it instead. Every later re-plan keeps the move: Lakshmi is offered it again
+      (carried over), Carlos never. When Lakshmi misses hers too, nobody else can take it: it stays with her.
+    - ``task_blocked``: Maria cannot go to Patel, so Patel is offered nothing; Fresh Dairy's same-day 3 kg is, until
+      its 19:30 cutoff, then only the next-day 6 kg ($57): T3, the switch waits for the owner.
+    - ``po_received``: 3 kg landed, so the dishes this incident 86'd that are still off come back (T2), proposed by the
+      playbook outside ACT; not one back on sale already, nor one whose cream ran out, and none while free < 2 × the
+      largest serving (180 g).
+    The facts of an observation without its trigger change nothing; a move counts for every re-plan."""
+    unseen = ObserveContext(trigger="verify_failed", plan_id="pln_A", step_idx=5)
+    blocked = ObserveContext(trigger="task_blocked", plan_id="pln_A", task_id="tsk_1", po_id="po_1",
+                             blocked_supplier_id="SUP_PATEL")
+    carlos = Observed(unseen=(Unseen("STF_CARLOS", "STN_CURRY"),))
+    moved = Observed(moved=carlos.unseen)  # a replacement already retracted it
+
+    def replan(observe: ObserveContext | None, observed: Observed, now: int = I3,
+               **snapshot: object) -> situation.Situation:
+        return situation.derive(replace(rush_snapshot(now), observed=observed, **snapshot), incident(at=now), now,
+                                observe=observe, tz=TZ)
+
+    s = replan(unseen, carlos)
+    assert [c.target for c in of(s.candidates, "notify_staff")] == ["STF_ARJUN", "STF_MARIA", "STF_LAKSHMI"]
+    lakshmi = of(s.candidates, "notify_staff")[-1]
+    assert (lakshmi.tier, lakshmi.params["language"], lakshmi.id in s.baseline_ids) == ("T1", "te", True)
+    assert lakshmi.effect == ("Re-routes the notice Carlos (Curry) has not seen in 60 s: sends Lakshmi (manager) the "
+                              "code-rendered action line on the KDS in Telugu")
+    assert lakshmi.params["message"].startswith("Lakshmi: పనీర్ తక్కువగా ఉంది (≈19:28). పనీర్ బటర్ మసాలా: అయిపోయింది.")
+    report = situation.report(s)
+    assert report.observe == unseen and report.baseline_candidate_ids == [a.candidate_id
+                                                                          for a in baseline.plan(report).actions]
+    assert len(report.baseline_candidate_ids) == PolicyLimits().max_steps_per_plan  # 3 stops, 2 alts, PO, 2 notices
+    assert baseline.plan(report).summary.endswith("notify Arjun and Lakshmi.")
+    both = replan(unseen, Observed(unseen=(*carlos.unseen, Unseen("STF_ARJUN", "STN_TANDOOR"))))
+    assert [(c.target, c.effect.split(":")[0]) for c in of(both.candidates, "notify_staff")] == [
+        ("STF_MARIA", "Sends Maria (foh"),
+        ("STF_LAKSHMI", "Re-routes the notices Carlos (Curry) and Arjun (Tandoor) have not seen in 60 s")]
+    diego = Staff(id="STF_DIEGO", name="Diego", role="cook", languages=["es"], station_ids=["STN_CURRY"], on_shift=True)
+    peer = replan(unseen, carlos, staff=[*rush_snapshot().staff, diego])
+    assert [c.target for c in of(peer.candidates, "notify_staff")] == ["STF_ARJUN", "STF_DIEGO", "STF_MARIA"]
+    assert of(peer.candidates, "notify_staff")[1].effect.startswith("Re-routes the notice Carlos (Curry)")
+    later = replan(blocked, moved)  # no pickup left, so no Maria either
+    assert [c.target for c in of(later.candidates, "notify_staff")] == ["STF_ARJUN", "STF_LAKSHMI"]
+    assert of(later.candidates, "notify_staff")[-1].effect.startswith("Re-routes the notice Carlos (Curry)")
+    assert of(later.candidates, "notify_staff")[-1].id in later.baseline_ids
+    alone = replan(unseen, replace(moved, unseen=(Unseen("STF_LAKSHMI"),)))  # the manager missed hers: no one is left
+    assert [c.target for c in of(alone.candidates, "notify_staff")] == ["STF_ARJUN", "STF_MARIA", "STF_LAKSHMI"]
+    stays = of(alone.candidates, "notify_staff")[-1]
+    assert stays.effect.startswith("Keeps the notice Lakshmi (every station) has not seen in 60 s where it is, as "
+                                   "nobody else on shift can take it: sends Lakshmi (manager)")
+    assert stays.id in alone.baseline_ids
+
+    s = replan(blocked, Observed())
+    got = pos(s.candidates)
+    assert set(got) == {("SUP_FRESHDAIRY", 3), ("SUP_FRESHDAIRY", 6)}
+    switch = got[("SUP_FRESHDAIRY", 3)]
+    assert (switch.cost_cents, switch.tier, f"{cands.po_params(switch).eta_biz:%H:%M}") == (2850, "T2", "20:18")
+    assert switch.id in s.baseline_ids and got[("SUP_FRESHDAIRY", 6)].id not in s.baseline_ids
+    assert [c.target for c in of(s.candidates, "notify_staff")] == ["STF_CARLOS", "STF_ARJUN"]  # no pickup left
+    late = replan(blocked, Observed(), ANCHOR + 50 * MIN)  # 19:32: past Fresh Dairy's same-day cutoff
+    [next_day] = of(late.candidates, "create_purchase_order")
+    assert (next_day.target, next_day.params["packs"], next_day.cost_cents, next_day.tier) == (
+        "SUP_FRESHDAIRY", 6, 5700, "T3")
+    assert next_day.id in late.baseline_ids
+    assert load_policy().classify_action("create_purchase_order", next_day.params).needs_role == "owner"
+
+    received = ObserveContext(trigger="po_received", plan_id="pln_A", po_id="po_1")
+    stopped = Observed(stopped=("PNR_TIKKA", "PALAK_PNR", "PNR_BM"))
+    off = Availability(unavailable={"PNR_TIKKA": "sold_out", "PALAK_PNR": "sold_out"})  # PNR_BM: back on the KDS
+
+    def landed(on_hand: int, observe: ObserveContext | None = received, **stock: int) -> situation.Situation:
+        snapshot = replace(rush_snapshot(on_hand={PANEER: on_hand, **stock}), availability=off, observed=stopped)
+        return situation.derive(snapshot, incident("watch"), I3, observe=observe, tz=TZ)
+
+    def restarts(s: situation.Situation) -> list[str]:
+        return [c.target for c in of(s.candidates, "set_item_availability") if c.params["available"]]
+
+    s = landed(1610 + 3000)  # Patel's 3 kg: 3,800 g free
+    back = [c for c in of(s.candidates, "set_item_availability") if c.params["available"]]
+    assert [(c.id, c.target, c.tier) for c in back] == [("C02", "PNR_TIKKA", "T2"), ("C03", "PALAK_PNR", "T2")]
+    assert back[0].effect == ("Restarts orders of Paneer Tikka (180 g/serving): stock was received and 3,800 g is "
+                              "free, at least 2 × the largest serving (180 g)")
+    assert (back[0].effect_i18n.en, back[0].effect_i18n.es) == ("Paneer Tikka: BACK ON", "Paneer tikka: DISPONIBLE")
+    assert s.inputs.forecast.band == "ok" and {c.id for c in back} <= set(s.baseline_ids)
+    assert "put 2 dishes back on sale" in baseline.plan(situation.report(s)).summary
+    arjun = next(c for c in of(s.candidates, "notify_staff") if c.target == "STF_ARJUN")
+    assert arjun.params["message"].startswith("తందూర్: పనీర్ వచ్చింది. పనీర్ టిక్కా: మళ్లీ అందుబాటులో ఉంది.")
+    in_act = cands.playbook(s.candidates, band="act", now_biz=situation.report(s).now_biz)
+    assert not [c for c in in_act if c.params.get("available") is True]  # in ACT rule 1 still stops, never restarts
+    assert not restarts(landed(1100))  # 290 g free
+    assert restarts(landed(4610, ING_CREAM=0)) == ["PNR_TIKKA"]  # Palak Paneer needs cream, which is out
+
+    # An observation's facts act only with their own trigger; a move counts for every re-plan (TTL, ACT re-entry).
+    assert not restarts(landed(4610, None))
+    assert "STF_LAKSHMI" not in {c.target for c in replan(received, carlos).candidates}
+    assert [c.target for c in of(replan(None, moved).candidates, "notify_staff")] == [
+        "STF_ARJUN", "STF_MARIA", "STF_LAKSHMI"]
+
+
+def test_playbook_keeps_reroutes_within_max_steps() -> None:
+    """The recorded AI plan notified Maria (the pickup), who never saw it, so it moves to Lakshmi. The playbook keeps
+    that re-route whatever the recipient's role and stays within ``max_steps_per_plan`` itself, dropping its last
+    alternatives group: the validator drops nothing, and the summary names what it kept. A second FOH at the bar
+    would take the notice instead, and the playbook would notify her."""
+    unseen = ObserveContext(trigger="verify_failed", plan_id="pln_A", step_idx=7)
+
+    def replan(*extra: Staff) -> SituationReport:
+        snapshot = replace(rush_snapshot(), staff=[*rush_snapshot().staff, *extra],
+                           observed=Observed(unseen=(Unseen("STF_MARIA", "STN_BAR"),)))
+        return situation.report(situation.derive(snapshot, incident(), I3, observe=unseen, tz=TZ))
+
+    report = replan()
+    by_id = {c.id: c for c in report.candidates}
+    plan = baseline.plan(report)
+    steps, rejected, _ = validate_plan(plan, report, load_policy())
+    assert rejected == [] and [s.candidate_id for s in steps] == report.baseline_candidate_ids
+    assert [(s.action_type, s.target) for s in steps] == [
+        ("set_item_availability", "PNR_BM"), ("set_item_availability", "PALAK_PNR"),
+        ("set_item_availability", "PNR_TIKKA"), ("suggest_alternative", "PNR_BM,PALAK_PNR"),
+        ("create_purchase_order", "SUP_PATEL"), ("notify_staff", "STF_CARLOS"), ("notify_staff", "STF_ARJUN"),
+        ("notify_staff", "STF_LAKSHMI")]
+    assert by_id[steps[-1].candidate_id].effect.startswith("Re-routes the notice Maria (Drinks & desserts)")
+    assert plan.summary.endswith("stop 3 dishes, offer alternatives, order 4 kg from Patel Cash & Carry ($44.00), "
+                                 "notify Carlos, Arjun and Lakshmi.")
+    arjun = by_id[steps[-2].candidate_id].params["message_en"]  # the line follows the playbook's choice
+    assert "Paneer Tikka: 86" in arjun and "Gobi" not in arjun
+
+    rosa = Staff(id="STF_ROSA", name="Rosa", role="foh", languages=["es"], station_ids=["STN_BAR"], on_shift=True)
+    peer = replan(rosa)
+    picked = [c for c in peer.candidates if c.id in peer.baseline_candidate_ids and c.action_type == "notify_staff"]
+    assert [c.target for c in picked] == ["STF_CARLOS", "STF_ARJUN", "STF_ROSA"]
+    assert picked[-1].effect.startswith("Re-routes the notice Maria (Drinks & desserts)")
+    assert len(peer.baseline_candidate_ids) == PolicyLimits().max_steps_per_plan

@@ -4,14 +4,16 @@ The handler (≤50 ms) only names the work and spawns it on the tenant's ``gm`` 
 the tenant (a run in flight records its AI run before the next budget check). Each job reads CURRENT state, never a
 replayed payload alone (D33b):
 
-- **ACT** (``on_band``): one incident per ingredient in ACT, and a planner run (``trigger=act``).
+- **ACT** (``on_band``): one incident per ingredient in ACT, and a planner run (``trigger=act``); an incident never
+  planned (epoch 0: ``gm.preplan`` opened it in WATCH for its draft, P1-9) gets that run when ACT comes.
 - **Count drift** (``on_count``): a shelf count far below the books opens a ``count_drift`` incident or re-plans.
 - **Observe (P1-2)**: an unseen notice, a blocked pickup or a received PO re-opens the incident
   (``incident.updated(observe)``) and re-plans it with an ``ObserveContext``; an observation that a planner run or
   this trigger's own incident event already followed is skipped.
 - **Budget and watcher** (``ai_budget``, ``ticker.watched``): a new incident always gets its run (its playbook); a
   re-plan past the budget or while nobody watches is not started, and ``incident.updated(replan_suggested)`` says so.
-- **Closing** (``settle``): ``monitoring`` after execution; ``resolved`` only outside ACT once stock and acks agree.
+- **Closing** (``settle``): ``monitoring`` after execution; ``resolved`` only outside ACT once stock and acks agree
+  (a never-planned incident stays open through WATCH).
 
 ``gm.ticker`` repeats the ACT rule, re-plans expired plans and settles incidents through this module. The planner is
 reached only through ``c.planner``; ``observe=`` is passed when its ``run`` takes it.
@@ -26,7 +28,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 from pydantic import ValidationError
-from sqlalchemy import func, insert, or_, select, update
+from sqlalchemy import and_, func, insert, or_, select, update
 
 from restaurantos.contracts import events as ev
 from restaurantos.contracts.common import Band, TenantInfo, biz_from_ms, ms_from_dt
@@ -57,6 +59,7 @@ CLOSED = frozenset({"resolved", "dismissed"})
 UNRESOLVED = frozenset({"open", "planning", "proposed", "executing", "monitoring"})
 SETTLING = UNRESOLVED - {"monitoring"}  # may move to monitoring
 AI_SOURCES = ("ai", "chat_fallback", "speculative")  # plan sources that called the model
+REUSED_DRAFT = and_(t.plans.c.source == "speculative", t.plans.c.trigger != "preplan")  # but a hit (P1-9) did not
 HOUR_MS = 3_600_000
 COUNT_FRESH_BIZ_MS = 30 * 60_000
 RAN = frozenset({"effect_ok", "verified", "verify_pending", "verify_failed", "failed", "undone", "skipped"})
@@ -84,7 +87,7 @@ async def ai_budget(conn: AsyncConnection, tenant_id: str, incident_id: str, lim
     """AI runs so far, as the planner (P23a) counts them: per incident the larger of ``incidents.ai_runs`` and its
     plans from a model source; per tenant those plans created in the last real hour."""
     p = t.plans
-    ai = (p.c.tenant_id == tenant_id, p.c.source.in_(AI_SOURCES))
+    ai = (p.c.tenant_id == tenant_id, p.c.source.in_(AI_SOURCES), ~REUSED_DRAFT)
     started = (await conn.execute(select(func.count()).select_from(p).where(
         *ai, p.c.incident_id == incident_id))).scalar_one()
     column = (await conn.execute(select(t.incidents.c.ai_runs).where(
@@ -244,6 +247,11 @@ class Trigger:
             return
         if incident is None or (incident.status in CLOSED and fresh):
             await self._open_and_plan(tenant_id, ingredient_id, "shortage", band, forecast, biz)
+        elif incident.status == "open" and incident.plan_epoch == 0:  # opened in WATCH for a pre-plan (P1-9)
+            if incident.band != band:
+                await self._transition(tenant_id, incident.id, None, reason="opened", expect=frozenset({"open"}),
+                                       band=band, forecast=forecast)
+            await self.plan(tenant_id, incident.id, "act")
         elif incident.status == "monitoring" and fresh:
             await self._replan(tenant_id, incident, "act", band=band, forecast=forecast)
 
@@ -344,6 +352,8 @@ class Trigger:
             if incident.status in CLOSED or incident.ingredient_id is None:
                 return None
             _, band, forecast = await latest_band(conn, tenant_id, incident.ingredient_id)
+            if band == "watch" and incident.plan_epoch == 0:  # a pre-plan's incident (P1-9) waits for ACT or OK
+                return None
             stock = next((i for i in await repo.ingredients(conn, tenant_id) if i.id == incident.ingredient_id), None)
             plans = await incident_plans(conn, tenant_id, incident.id)
             n = t.staff_notices

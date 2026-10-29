@@ -15,7 +15,8 @@ choosing code-computed candidates, with the playbook beside it from t + 0.1 s. `
    nobody watching", "AI unavailable: …"); an AI plan left without an answer is ``failed``.
 
 A speculative run (P1-9) writes no playbook, leaves the incident's epoch, report and status alone, takes no Chat
-fallback and is never activated. ``run`` raises only for an unknown incident or an unwired store, policy or ledger.
+fallback and is never activated; an ``act`` run proposes a pre-plan still valid without a model call (``gm.preplan``).
+``run`` raises only for an unknown incident or an unwired store, policy or ledger.
 """
 
 from __future__ import annotations
@@ -44,8 +45,9 @@ from restaurantos.contracts.gm import (
     SituationReport,
 )
 from restaurantos.contracts.hashing import digest, sha256_hex
-from restaurantos.gm import baseline, fallbacks, plan_stream, simulate, situation
+from restaurantos.gm import baseline, fallbacks, plan_stream, preplan, simulate, situation
 from restaurantos.gm.plan_stream import StreamStalled, Timing
+from restaurantos.gm.trigger import REUSED_DRAFT
 from restaurantos.governance import approvals
 from restaurantos.governance.digest import decision_digest
 from restaurantos.governance.policy import po_spent_today_cents
@@ -123,6 +125,8 @@ class GMPlanner:
             return run
         if run.blocked is not None:
             return await self._fall_back(run, run.blocked)
+        if (reused := await preplan.propose(self._c, self, run)) is not None:
+            return reused  # P1-9: the incident's pre-plan, still valid (gm.preplan)
         answer: _Answer | str
         try:
             async with asyncio.timeout_at(t0 + self.timing.wall_cap_s):
@@ -197,8 +201,9 @@ class GMPlanner:
             return fallbacks.NOBODY_WATCHING
         if run.incident.ai_runs >= limits.gm_runs_per_incident:
             return fallbacks.paused(f"budget used ({limits.gm_runs_per_incident} AI runs for this incident)")
-        hour = (await conn.execute(select(func.count()).select_from(pl).where(
-            pl.c.tenant_id == run.tid, pl.c.source.in_(AI_SOURCES), pl.c.created_ms > now_real - HOUR_MS))).scalar_one()
+        hour = (await conn.execute(select(func.count()).select_from(pl).where(  # a pre-plan's hit made no call
+            pl.c.tenant_id == run.tid, pl.c.source.in_(AI_SOURCES), ~REUSED_DRAFT,
+            pl.c.created_ms > now_real - HOUR_MS))).scalar_one()
         if hour >= limits.gm_runs_per_tenant_hour:
             return fallbacks.paused(f"budget used ({limits.gm_runs_per_tenant_hour} AI runs this hour)")
         if run.worst_usd > limits.gm_run_usd_cap:

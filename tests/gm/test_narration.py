@@ -61,6 +61,25 @@ def test_narration_short_stock_and_observe() -> None:
     assert "Re-planning: the pickup could not go (Patel Cash & Carry is excluded)" in narration.lines(blocked)
 
 
+def test_narration_counts_restarts_apart_from_stops() -> None:
+    """After a delivery (P1-2) an un-86 is a restart: Paneer Butter Masala still sells and can be stopped, while
+    Paneer Tikka and Palak Paneer can come back."""
+    from dataclasses import replace
+
+    from restaurantos.contracts.menu import Availability
+    from restaurantos.gm.observe import Observed
+
+    received = ObserveContext(trigger="po_received", plan_id="pln_A", po_id="po_1")
+    snapshot = replace(rush_snapshot(on_hand={"ING_PANEER": 4610}),
+                       observed=Observed(stopped=("PNR_TIKKA", "PALAK_PNR")),
+                       availability=Availability(unavailable={"PNR_TIKKA": "sold_out", "PALAK_PNR": "sold_out"}))
+    lines = narration.lines(situation.report(situation.derive(snapshot, incident("watch"), I3, observe=received,
+                                                              tz=TZ)))
+    assert "12 options computed by code: 1 stop, 2 restarts, 2 alternatives, 2 orders, 3 notices, 2 quote changes" \
+        in lines
+    assert "Re-planning: stock was received, so 86'd dishes may come back" in lines
+
+
 def test_quantity_formatting() -> None:
     assert [narration.quantity(v, "g") for v in (0, 800, 999, 1000, 1200, 1250, 1610, 2000, 12_345, -310)] == [
         "0 g", "800 g", "999 g", "1 kg", "1.2 kg", "1.3 kg", "1.6 kg", "2 kg", "12.3 kg", "-310 g"]

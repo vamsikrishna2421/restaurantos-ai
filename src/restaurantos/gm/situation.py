@@ -2,7 +2,9 @@
 
 - ``read_snapshot`` makes the repo reads of one run (CONTRACTS_RUNTIME §10.2) inside the caller's ``store.read()`` or
   ``tx.conn``, so every number comes from one consistent snapshot, the ingredient's open POs (``gm.incoming``) too:
-  the PO candidates are net of that stock on order, so a re-plan never orders it again.
+  the PO candidates are net of that stock on order, so a re-plan never orders it again. A re-plan (P1-2) also reads
+  what the incident's observations left (``gm.observe``: the notices already re-routed, and for an observe re-plan
+  the unseen notices or the dishes the incident 86'd).
 - ``derive`` is pure: the real forecast (``domain.forecast``, with the seed's demand curve as the prior), station
   loads (``domain.load``), the incident's dishes, servings free, the demand per dish (the current burn split by the
   demand curve), at-risk orders, the candidates (``gm.candidates``) and the playbook's choice: a ``Situation``.
@@ -55,6 +57,7 @@ from restaurantos.contracts.orders import Order
 from restaurantos.domain import detectors, forecast, load
 from restaurantos.gm import candidates as cands
 from restaurantos.gm import incoming as on_order
+from restaurantos.gm import observe as obs
 from restaurantos.seed.loader import load_seed
 
 if TYPE_CHECKING:
@@ -89,6 +92,7 @@ class Snapshot:
     offsets: list[QuoteOffset]  # active, unexpired
     reservations: list[tuple[int, int]]  # (placed_biz_ms, qty) of the ingredient since now − 30 business min
     incoming: tuple[on_order.Incoming, ...] = ()  # the ingredient's open POs: stock already on order
+    observed: obs.Observed = obs.NOTHING  # the incident's observe facts beyond a re-plan's ObserveContext
 
 
 @dataclass(frozen=True)
@@ -111,9 +115,11 @@ class Situation:
 
 
 async def read_snapshot(conn: AsyncConnection, tenant_id: str, ingredient_id: str, now_biz_ms: int, *,
-                        repo: RepoPort | None = None, exclude_plan_id: str | None = None) -> Snapshot:
-    """Every read ``derive`` needs, through ``repo`` (default: the store's repo module); the open POs come straight
-    from ``conn`` (none without one: a repo fake serving a snapshot). ``exclude_plan_id``: see ``gm.incoming.read``."""
+                        repo: RepoPort | None = None, exclude_plan_id: str | None = None,
+                        incident_id: str | None = None, observe: ObserveContext | None = None) -> Snapshot:
+    """Every read ``derive`` needs, through ``repo`` (default: the store's repo module); the open POs and the observe
+    facts of ``incident_id`` (``gm.observe.read``, with ``observe``) come straight from ``conn`` (none without one:
+    a repo fake serving a snapshot). ``exclude_plan_id``: see ``gm.incoming.read``."""
     if repo is None:
         from restaurantos.store import repo as store_repo  # lazy: importing gm never opens the store
 
@@ -126,7 +132,9 @@ async def read_snapshot(conn: AsyncConnection, tenant_id: str, ingredient_id: st
         offsets=await repo.active_offsets(conn, tenant_id, now_biz_ms),
         reservations=await repo.reservations_since(conn, tenant_id, ingredient_id, now_biz_ms - WINDOW_MS),
         incoming=() if conn is None else await on_order.read(conn, tenant_id, ingredient_id,
-                                                             exclude_plan_id=exclude_plan_id))
+                                                             exclude_plan_id=exclude_plan_id),
+        observed=obs.NOTHING if conn is None or incident_id is None else await obs.read(conn, tenant_id, incident_id,
+                                                                                        observe))
 
 
 def derive(snapshot: Snapshot, incident: Incident, now_biz_ms: int, *, observe: ObserveContext | None = None,
@@ -171,9 +179,9 @@ def derive(snapshot: Snapshot, incident: Incident, now_biz_ms: int, *, observe: 
     at_risk = _at_risk(ingredient, uses, snapshot.open_orders, snapshot.tickets)
     candidates = cands.generate(inputs, servings_free=servings_free, at_risk=at_risk,
                                 new_supplier_ids=new_supplier_ids, po_spent_today_cents=po_spent_today_cents,
-                                close_local=close_local, tz=tz, incoming=snapshot.incoming)
-    cooks = {person.id for person in inputs.staff_on_shift if person.role == "cook"}
-    chosen = cands.playbook(candidates, band=fc.band, now_biz=biz_from_ms(now, tz), cook_ids=cooks)
+                                close_local=close_local, tz=tz, incoming=snapshot.incoming, observed=snapshot.observed)
+    chosen = cands.playbook(candidates, band=fc.band, now_biz=biz_from_ms(now, tz), staff=inputs.staff_on_shift,
+                            max_steps=inputs.policy.max_steps_per_plan)
     return Situation(
         tenant_id=menu.tenant_id, trigger=trigger or (observe.trigger if observe is not None else "act"),
         inputs=inputs, candidates=candidates, baseline_ids=[c.id for c in chosen], servings_free=servings_free,
@@ -192,7 +200,7 @@ async def load_situation(conn: AsyncConnection, tenant_id: str, incident: Incide
     if incident.ingredient_id is None:
         raise ValueError(f"incident {incident.id} has no ingredient: the situation report is ingredient-level")
     snapshot = await read_snapshot(conn, tenant_id, incident.ingredient_id, now_biz_ms, repo=repo,
-                                   exclude_plan_id=exclude_plan_id)
+                                   exclude_plan_id=exclude_plan_id, incident_id=incident.id, observe=observe)
     return derive(snapshot, incident, now_biz_ms, observe=observe, trigger=trigger, policy=policy,
                   new_supplier_ids=new_supplier_ids, po_spent_today_cents=po_spent_today_cents, tz=tz)
 

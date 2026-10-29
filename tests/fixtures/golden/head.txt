@@ -1,0 +1,52 @@
+# Golden canonical replay: tests/integration/test_golden_canonical.py (P41a).
+# Lead only: re-bless with `.venv/bin/python -m pytest tests/integration/test_golden_canonical.py --bless` and add a BUILD_LOG entry saying why the head moved.
+ledger_head: d478253ad7a0bad973ab90233f71e9566947cd0ff2837d47049f5df001e05dbd
+policy_sha256: c0a3c3b362ade68d8ea455c169578731e846c72681be313ff31f9f2e605e4cd3
+rows: 46
+# seq kind idx actor authorizer sha256(payload)[:12] hash[:12]
+row 1 PROPOSE - system - 1be2f2deee0d e507ae98c879
+row 2 REVIEW 0 system - 1e87130ed744 4f3e5fdf11f4
+row 3 REVIEW 1 system - ce0b9f401abb 696d974717de
+row 4 REVIEW 2 system - b2a12c08652e 8b72bd79283a
+row 5 REVIEW 3 system - ade2e742bd4c 5d4450fec3a3
+row 6 REVIEW 4 system - 98ad5f3b0bf9 cad1cfbd2b6a
+row 7 REVIEW 5 system - 2b624e800485 f9085c2b9319
+row 8 REVIEW 6 system - 413258bc3bf0 2911d48521fd
+row 9 REVIEW 7 system - 6b9e5808b96f 1aa905333a6d
+row 10 PROPOSE - gm - b0dad9bab4ec 628e5ebbad25
+row 11 REVIEW 0 system - e7d3b4d37794 8eec9ae8e0c1
+row 12 REVIEW 1 system - b502020f020e 82a119c23526
+row 13 REVIEW 2 system - 621d49742649 6456e3f66842
+row 14 REVIEW 3 system - ff2545d6ed05 3ca28c9f2392
+row 15 REVIEW 4 system - ce450eca862f 8899166eb26b
+row 16 REVIEW 5 system - fec23853e247 4384d2094812
+row 17 REVIEW 5 system - 769076bb17ef dc992c9a0370
+row 18 REVIEW 6 system - 1d526554bcc3 41305139099e
+row 19 REVIEW 6 system - 44be91771d3c 1a60ff12435a
+row 20 REVIEW 7 system - 05c76c68fd0f dad1237eee42
+row 21 REVIEW 7 system - 0cd58669a956 554d2833709b
+row 22 INTENT 2 executor allow:policy 9fb5551ce086 d14cdaa71fe2
+row 23 EFFECT 2 executor - 9dec9068a0cb 58acd95a4d6b
+row 24 VERIFY 2 executor - 0147ec367aa5 9b38078252d4
+row 25 INTENT 3 executor allow:policy 5b33dce74a12 84da7de88215
+row 26 EFFECT 3 executor - c7309cf249d2 ca37371549da
+row 27 VERIFY 3 executor - d4850f239707 16f441b0ec98
+row 28 INTENT 5 executor allow:policy a1df0cb4ce00 a250f6dc195b
+row 29 EFFECT 5 executor - ec7caa0c4e14 0f109ccd2237
+row 30 VERIFY 5 executor - 59c20a8890cd 7c63d7de2eb2
+row 31 INTENT 6 executor allow:policy 9cfa5e58315d b7aacc55b74a
+row 32 EFFECT 6 executor - c1aab0fa9235 a3e2c3cf68a7
+row 33 VERIFY 6 executor - 375c2927da68 d7d524732cd8
+row 34 INTENT 7 executor allow:policy 860202ab9c36 83c620b21e41
+row 35 EFFECT 7 executor - ad01f20455b7 85fc112fdd28
+row 36 VERIFY 7 executor - 4a775347e2b2 1c68b674777c
+row 37 DECIDE - human:judge:BVVPJZYY allow:human:judge:BVVPJZYY 09d3f7305918 46bd955bc77f
+row 38 INTENT 0 executor allow:human:judge:BVVPJZYY 0a1a47ead19e 0c8640efdb8c
+row 39 EFFECT 0 executor - 6981a40d2bce a0d7456cb62b
+row 40 VERIFY 0 executor - f7370f7346e4 14900dc7af9f
+row 41 INTENT 1 executor allow:human:judge:BVVPJZYY a3e1ef486097 0c4b34937a8a
+row 42 EFFECT 1 executor - 82af71ae8f53 5daf4c0562f9
+row 43 VERIFY 1 executor - 845a9f11d9df e432065de773
+row 44 INTENT 4 executor allow:human:judge:BVVPJZYY 6b137423e7a1 dd6414de2781
+row 45 EFFECT 4 executor - cfbd059bc8bb 4f69d056fb90
+row 46 VERIFY 4 executor - 8d9d2fb5a587 d478253ad7a0

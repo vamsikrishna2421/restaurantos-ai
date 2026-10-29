@@ -65,7 +65,7 @@ from restaurantos.contracts.gm import (
     SituationReport,
 )
 from restaurantos.gm import simulate, situation
-from restaurantos.gm.trigger import AI_SOURCES, CLOSED, ai_budget, incident_plans
+from restaurantos.gm.trigger import AI_SOURCES, CLOSED, REUSED_DRAFT, ai_budget, incident_plans
 from restaurantos.governance.approvals import StoredPlan, approver_from_auth, check_open, load_incident, load_plan
 from restaurantos.governance.digest import approval_steps
 from restaurantos.governance.policy import po_spent_today_cents
@@ -237,7 +237,7 @@ async def _hour_retry_s(conn: AsyncConnection, tenant_id: str, limit: int, now_m
     """Seconds until one more AI run fits the tenant's hourly budget."""
     pl = t.plans
     created = (await conn.execute(select(pl.c.created_ms).where(
-        pl.c.tenant_id == tenant_id, pl.c.source.in_(AI_SOURCES), pl.c.created_ms > now_ms - HOUR_MS)
+        pl.c.tenant_id == tenant_id, pl.c.source.in_(AI_SOURCES), ~REUSED_DRAFT, pl.c.created_ms > now_ms - HOUR_MS)
         .order_by(pl.c.created_ms))).scalars().all()
     oldest = created[max(0, len(created) - limit)] if created else now_ms
     return max(1, math.ceil((oldest + HOUR_MS - now_ms) / 1000))

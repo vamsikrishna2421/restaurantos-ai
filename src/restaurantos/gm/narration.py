@@ -22,9 +22,10 @@ from restaurantos.contracts.gm import SituationReport
 from restaurantos.gm import baseline
 
 SEP = " · "
-_KINDS = (("set_item_availability", "stop", "stops"), ("suggest_alternative", "alternative", "alternatives"),
-          ("create_purchase_order", "order", "orders"), ("notify_staff", "notice", "notices"),
-          ("adjust_quote_time", "quote change", "quote changes"), ("flag_ticket_for_callback", "callback", "callbacks"))
+_KINDS = (("set_item_availability", "stop", "stops"), ("un86", "restart", "restarts"),
+          ("suggest_alternative", "alternative", "alternatives"), ("create_purchase_order", "order", "orders"),
+          ("notify_staff", "notice", "notices"), ("adjust_quote_time", "quote change", "quote changes"),
+          ("flag_ticket_for_callback", "callback", "callbacks"))  # un86: set_item_availability(dish, true)
 _OBSERVED = {"verify_failed": "a cook's notice went unseen, so the GM is re-routing it",
              "task_blocked": "the pickup could not go",
              "po_received": "stock was received, so 86'd dishes may come back"}
@@ -139,7 +140,8 @@ def _kitchen(report: SituationReport) -> str:
 
 
 def _options(report: SituationReport) -> str:
-    counts = Counter(c.action_type for c in report.candidates)
+    counts = Counter("un86" if c.action_type == "set_item_availability" and c.params.get("available") else c.action_type
+                     for c in report.candidates)
     parts = [f"{counts[kind]} {one if counts[kind] == 1 else many}" for kind, one, many in _KINDS if counts[kind]]
     n = len(report.candidates)
     return f"{n} option{_s(n)} computed by code" + (f": {', '.join(parts)}" if parts else "")

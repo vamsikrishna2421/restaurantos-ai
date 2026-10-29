@@ -16,7 +16,10 @@ and station names, kitchen labels and the few ``WORDS`` below). For the incident
   stock on order landing after it;
 - **notify**: each on-shift cook at an affected station, plus on-shift FOH when a same-day pickup PO is offered (T1);
 - **quote**: ``adjust_quote_time(station, +5)`` for an affected station whose queue is over 12 min (T1);
-- **callback**: ``flag_ticket_for_callback`` for each order a shelf count left uncovered (T1).
+- **callback**: ``flag_ticket_for_callback`` for each order a shelf count left uncovered (T1);
+- **observe re-plans** (P1-2, ``gm.observe``): a notify **re-routing** each unseen notice to a peer at its station,
+  else a manager, in place of its own (T1; every later re-plan keeps the move); POs recomputed without a **blocked**
+  pickup's supplier; an **un-86** for each dish this incident 86'd once stock was received (T2).
 
 POs are T2 up to ``manager_po_limit_cents`` and T3 above it or from a new supplier; one that would pass the daily cap
 is never offered (a forbidden action cannot be expressed). A notify's ``message`` is the action line built from the
@@ -45,6 +48,8 @@ from restaurantos.contracts.gm import (
     CreatePurchaseOrderParams,
     FlagTicketForCallbackParams,
     NotifyStaffParams,
+    PolicyLimits,
+    ReportStaff,
     SetItemAvailabilityParams,
     SuggestAlternativeParams,
 )
@@ -54,6 +59,7 @@ from restaurantos.contracts.orders import Order
 from restaurantos.domain import availability, detectors
 from restaurantos.domain.i18n_kitchen import item_name, label, station_name
 from restaurantos.gm import incoming as on_order
+from restaurantos.gm import observe as obs
 from restaurantos.gm.fmt import hhmm, local_ms, quantity, short_name, speak_lang, usd
 
 LANGS: tuple[SpeakLang, ...] = ("en", "te", "ta", "es")
@@ -66,7 +72,7 @@ QUOTE_OFFSET_MIN = 5
 QUOTE_DURATION_MIN = 60
 GROUP_MAX = 3  # suggest_alternative.for_item_codes holds 1-3 dishes
 CALLBACKS_FIRST = 4  # this many callbacks outrank everything when the 16 cap bites; later ones rank last
-KIND_ORDER = ("86", "alt", "po", "notify", "quote", "callback")  # output order, so ids read C01 = first 86
+KIND_ORDER = ("86", "un86", "alt", "po", "notify", "quote", "callback")  # output order: C01 = the first 86
 LINE_ORDER = ("set_item_availability", "create_purchase_order", "adjust_quote_time", "flag_ticket_for_callback",
               "suggest_alternative")  # action-line order: the tail is what a line over 280 characters loses
 _MIN = 60_000
@@ -80,6 +86,8 @@ WORDS: dict[str, dict[str, str]] = {
     "tomorrow": {"en": "tomorrow", "te": "రేపు", "ta": "நாளை", "es": "mañana"},
     "callback": {"en": "call the guest back", "te": "అతిథికి మళ్లీ కాల్ చేయండి",
                  "ta": "விருந்தினரை மீண்டும் அழைக்கவும்", "es": "llamar al cliente"},
+    "received": {"en": "received", "te": "వచ్చింది", "ta": "வந்துவிட்டது", "es": "recibido"},
+    "back_on": {"en": "BACK ON", "te": "మళ్లీ అందుబాటులో ఉంది", "ta": "மீண்டும் கிடைக்கிறது", "es": "DISPONIBLE"},
 }
 
 
@@ -124,8 +132,9 @@ class _Ctx:
 class _Slot:
     kind: str  # one of KIND_ORDER
     rank: tuple[int, int, int]  # lower survives the 16 cap first
-    candidate: Candidate | None = None
-    person: Staff | None = None  # notify: rendered once the playbook's choice is known
+    candidate: Candidate  # a notify's is a draft: its line is rendered once the playbook's choice is known
+    person: Staff | None = None  # notify: the recipient
+    missed: tuple[obs.Unseen, ...] = ()  # notify: the unseen notices ``person`` carries (re-routed, or their own kept)
 
 
 def _labels(texts: Mapping[str, str]) -> LocalizedLabel:
@@ -142,31 +151,30 @@ def _candidate(action_type: ActionType, target: str, params: Model, tier: Tier, 
 def generate(inputs: CandidateInputs, *, servings_free: Mapping[str, int] | None = None,
              at_risk: Sequence[Order] = (), new_supplier_ids: Collection[str] = (), po_spent_today_cents: int = 0,
              close_local: str = CLOSE_LOCAL, tz: str = DEFAULT_TZ,
-             incoming: Sequence[on_order.Incoming] = ()) -> list[Candidate]:
-    """The incident's candidates: at most 16, numbered ``C01``… in output order (86s, alternatives, POs, notify,
-    quotes, callbacks).
+             incoming: Sequence[on_order.Incoming] = (), observed: obs.Observed = obs.NOTHING) -> list[Candidate]:
+    """The incident's candidates: at most 16, numbered ``C01``… in output order (86s, un-86s, alternatives, POs,
+    notify, quotes, callbacks).
 
-    ``servings_free`` (item code → servings the stock allows) filters and ranks alternatives; ``at_risk`` are the open
-    orders a count left uncovered (callback flags); ``new_supplier_ids`` (``PolicyContext``) make their POs T3;
-    ``po_spent_today_cents`` drops a PO that would pass ``po_daily_cap_cents``; ``incoming`` (open POs) is stock the PO
-    quantities are net of. When more than 16 qualify, POs, notices and the first callbacks are kept first, then 86s by
-    grams per hour, alternatives, quotes, other callbacks.
-    """
+    ``servings_free`` (item code → servings the stock allows) filters and ranks alternatives and gates un-86s;
+    ``at_risk`` are the open orders a count left uncovered (callback flags); ``new_supplier_ids`` (``PolicyContext``)
+    make their POs T3; ``po_spent_today_cents`` drops a PO that would pass ``po_daily_cap_cents``; ``incoming`` (open
+    POs) is stock the PO quantities are net of; ``observed`` holds the incident's observe facts (``gm.observe``).
+    When more than 16 qualify, POs, re-routes, un-86s, notices and the first callbacks are kept first, then 86s by
+    grams per hour, alternatives, quotes, other callbacks. A notice's line follows the playbook's whole choice."""
     ctx = _Ctx(inputs, dict(servings_free or {}), tz, local_ms(inputs.now_biz_ms, close_local, tz), tuple(incoming))
-    slots = [*_eighty_six(ctx), *_alternatives(ctx), *_purchase_orders(ctx, new_supplier_ids, po_spent_today_cents),
+    back = obs.un86(inputs.observe, observed, inputs.dishes, inputs.forecast.free, ctx.servings_free)
+    slots = [*_eighty_six(ctx), *_un86(ctx, back), *_alternatives(ctx),
+             *_purchase_orders(ctx, new_supplier_ids, po_spent_today_cents, obs.excluded(inputs.observe)),
              *_quotes(ctx), *_callbacks(ctx, at_risk)]
-    pickup = any(s.candidate is not None and s.kind == "po" and _pickup_today(ctx, s.candidate) for s in slots)
-    slots += _notify_slots(ctx, pickup)
+    pickup = any(s.kind == "po" and _pickup_today(ctx, s.candidate) for s in slots)
+    slots += _notify_slots(ctx, pickup, *obs.reroutes(inputs.observe, observed, inputs.staff_on_shift))
     kept = set(sorted(range(len(slots)), key=lambda i: slots[i].rank)[:MAX_CANDIDATES])
     ordered = sorted((slots[i] for i in sorted(kept)), key=lambda s: KIND_ORDER.index(s.kind))
-    chosen = playbook([s.candidate for s in ordered if s.candidate is not None], band=inputs.forecast.band,
-                      now_biz=biz_from_ms(inputs.now_biz_ms, tz))
-    out: list[Candidate] = []
-    for idx, slot in enumerate(ordered):
-        candidate = slot.candidate if slot.person is None else _notify(ctx, slot.person, chosen)
-        assert candidate is not None
-        out.append(candidate.model_copy(update={"id": CANDIDATE_IDS[idx]}))
-    return out
+    chosen = [c for c in playbook([s.candidate for s in ordered], band=inputs.forecast.band,
+                                  now_biz=biz_from_ms(inputs.now_biz_ms, tz), staff=inputs.staff_on_shift,
+                                  max_steps=inputs.policy.max_steps_per_plan) if c.action_type != "notify_staff"]
+    return [(s.candidate if s.person is None else _notify(ctx, s.person, chosen, s.missed)).model_copy(
+        update={"id": CANDIDATE_IDS[idx]}) for idx, s in enumerate(ordered)]
 
 
 def _eighty_six(ctx: _Ctx) -> list[_Slot]:
@@ -181,6 +189,22 @@ def _eighty_six(ctx: _Ctx) -> list[_Slot]:
                                SetItemAvailabilityParams(item_code=dish.code, available=False), "T2", effect, texts,
                                deadline=fc.eta_biz)
         out.append(_Slot("86", (1, -dish.forecast_next_60m * dish.qty_per_serving, idx), candidate))
+    return out
+
+
+def _un86(ctx: _Ctx, codes: Sequence[str]) -> list[_Slot]:
+    """Observe ``po_received``: each dish this incident 86'd back on sale (``obs.un86`` picks them; T2)."""
+    unit, free, dishes = ctx.inputs.ingredient.unit, ctx.inputs.forecast.free, ctx.inputs.dishes
+    largest = max((dish.qty_per_serving for dish in dishes), default=0)
+    serving = {dish.code: dish.qty_per_serving for dish in dishes}
+    out = []
+    for idx, code in enumerate(codes):
+        texts = {lang: f"{ctx.name(code, lang)}: {WORDS['back_on'][lang]}" for lang in LANGS}
+        effect = (f"Restarts orders of {ctx.name(code)} ({quantity(serving[code], unit)}/serving): stock was received "
+                  f"and {quantity(free, unit)} is free, at least {detectors.DEFAULT_POLICY.min_servings} × the largest "
+                  f"serving ({quantity(largest, unit)})")
+        params = SetItemAvailabilityParams(item_code=code, available=True)
+        out.append(_Slot("un86", (0, 0, idx), _candidate("set_item_availability", code, params, "T2", effect, texts)))
     return out
 
 
@@ -223,12 +247,16 @@ def _packs(ctx: _Ctx, need: Fraction, supplier: Supplier, item: SupplierItem) ->
     return (floor, True) if floor * item.pack_qty <= ctx.inputs.policy.po_qty_max_multiple_of_gap * need else None
 
 
-def _purchase_orders(ctx: _Ctx, new_supplier_ids: Collection[str], spent: int) -> list[_Slot]:
+def _purchase_orders(ctx: _Ctx, new_supplier_ids: Collection[str], spent: int,
+                     blocked: Collection[str] = ()) -> list[_Slot]:
+    """Same-day and next-day POs from every supplier carrying the ingredient but ``blocked`` (a pickup FOH could not
+    make: the supplier switch of an observe re-plan)."""
     ing, fc, now, lots = ctx.inputs.ingredient, ctx.inputs.forecast, ctx.now, ctx.incoming
     free, burn = Fraction(fc.free), Fraction(max(0, fc.burn_per_h))
     ends = {"bridge": min(local_ms(now, BRIDGE_END_LOCAL, ctx.tz), ctx.close_ms), "close": ctx.close_ms}
+    suppliers = [supplier for supplier in ctx.inputs.suppliers if supplier.id not in blocked]
     out: list[_Slot] = []
-    for supplier in ctx.inputs.suppliers:
+    for supplier in suppliers:
         item = _catalog_item(supplier, ing.id)
         option = detectors.viable(supplier, ing.id, now, tz=ctx.tz) if item is not None else None
         if item is None or option is None:
@@ -251,7 +279,7 @@ def _purchase_orders(ctx: _Ctx, new_supplier_ids: Collection[str], spent: int) -
             out += _po_slot(ctx, supplier, item, n, raised, arrives, option.cutoff_biz_ms, why, new_supplier_ids,
                             spent, len(out))
     options = [(Fraction(item.pack_price_cents, item.pack_qty), supplier.lead_min, supplier.id)
-               for supplier in ctx.inputs.suppliers
+               for supplier in suppliers
                if supplier.next_day_local and (item := _catalog_item(supplier, ing.id)) is not None]
     if options:
         supplier = ctx.suppliers[min(options)[2]]
@@ -348,26 +376,35 @@ def _callbacks(ctx: _Ctx, at_risk: Sequence[Order]) -> list[_Slot]:
     return out
 
 
-def _notify_slots(ctx: _Ctx, pickup: bool) -> list[_Slot]:
-    """On-shift cooks at an affected station, then on-shift FOH when a same-day pickup PO is offered."""
+def _notify_slots(ctx: _Ctx, pickup: bool, routes: Mapping[str, tuple[obs.Unseen, ...]],
+                  away: Collection[str]) -> list[_Slot]:
+    """Cooks at an affected station, FOH when a same-day pickup PO is offered, then whoever carries an unseen notice
+    (``routes``, kept in the 16); none for whoever missed a notice that moved (``away``): the re-plan retracts it."""
     affected = set(ctx.affected_stations())
-    staff = [p for p in ctx.inputs.staff_on_shift if p.on_shift]
+    staff = [p for p in ctx.inputs.staff_on_shift if p.on_shift and p.id not in away]
     people = [p for p in staff if p.role == "cook" and affected & set(p.station_ids)]
     people += [p for p in staff if p.role == "foh"] if pickup else []
-    return [_Slot("notify", (0, 2, idx), person=person) for idx, person in enumerate(people)]
+    listed = {p.id for p in people}
+    people += [p for p in staff if p.id in routes and p.id not in listed]
+    return [_Slot("notify", (0, 0 if p.id in routes else 2, idx), _notify(ctx, p, (), routes.get(p.id, ())), p,
+                  routes.get(p.id, ())) for idx, p in enumerate(people)]
 
 
 # ----- the playbook's choice and the action lines -----------------------------------------------------------------
 
 def playbook(candidates: Sequence[Candidate], *, band: Band, now_biz: datetime,
-             cook_ids: Collection[str] = ()) -> list[Candidate]:
-    """The playbook (ARCHITECTURE §6.3), in execution order: in ACT every 86; every alternatives candidate; the
-    to-close quantity (the largest same-day PO) of the fastest same-day supplier, else the next-day PO; a notify for
-    each cook in ``cook_ids``. It sees candidates only, never notes, so in ``dinner_rush`` it orders Patel 4 kg."""
+             staff: Iterable[Staff | ReportStaff] = (), max_steps: int = PolicyLimits().max_steps_per_plan,
+             ) -> list[Candidate]:
+    """The playbook (ARCHITECTURE §6.3), in execution order: in ACT every 86, outside it every un-86 (offered only
+    once stock was received); every alternatives candidate; the to-close quantity (the largest same-day PO) of the
+    fastest same-day supplier, else the next-day PO (a blocked supplier offers none); a notify for each cook in
+    ``staff`` and every notify carrying a notice nobody saw, whatever its recipient's role (``observe.carries``:
+    dropping one would retract that notice). Past ``max_steps`` the last alternatives go first, then the end, such a
+    notice last of all. It sees candidates only, never notes, so in ``dinner_rush`` it orders Patel 4 kg."""
     def of(action: str) -> list[Candidate]:
         return [c for c in candidates if c.action_type == action]
 
-    chosen = [c for c in of("set_item_availability") if not c.params["available"]] if band == "act" else []
+    chosen = [c for c in of("set_item_availability") if c.params["available"] == (band != "act")]
     chosen += of("suggest_alternative")
     orders = [(c, po_params(c)) for c in of("create_purchase_order")]
     today = [(c, p) for c, p in orders if p.eta_biz.astimezone(now_biz.tzinfo).date() == now_biz.date()]
@@ -376,8 +413,12 @@ def playbook(candidates: Sequence[Candidate], *, band: Band, now_biz: datetime,
         chosen.append(max((cp for cp in today if cp[1].supplier_id == fastest), key=lambda cp: cp[1].qty)[0])
     elif orders:
         chosen.append(min(orders, key=lambda cp: (cp[1].eta_biz, cp[1].cost_cents))[0])
-    chosen += [c for c in of("notify_staff") if c.target in cook_ids]
-    return chosen
+    cooks = {person.id for person in staff if person.role == "cook"}
+    chosen += [c for c in of("notify_staff") if c.target in cooks or obs.carries(c)]
+    first_out = sorted(range(len(chosen)), key=lambda i: (obs.carries(chosen[i]),
+                                                          chosen[i].action_type != "suggest_alternative", -i))
+    gone = set(first_out[:max(0, len(chosen) - max_steps)])
+    return [c for i, c in enumerate(chosen) if i not in gone]
 
 
 def _stations(ctx: _Ctx, candidate: Candidate) -> set[str] | None:
@@ -417,25 +458,29 @@ def _fit(parts: Sequence[str]) -> str:
 
 def _lines(ctx: _Ctx, person: Staff, selected: Iterable[Candidate]) -> dict[str, str]:
     """``notify_action``: "{stations}: {ingredient} low (≈out). {actions}." per language, most useful actions first
-    (86s, stock landing, quotes, callbacks, alternatives), so a line over 280 characters loses the least."""
+    (86s and un-86s, stock landing, quotes, callbacks, alternatives), so a line over 280 characters loses the least.
+    In a re-plan after a delivery the head says the ingredient was received."""
     menu, eta = ctx.inputs.menu, ctx.inputs.forecast.eta_biz
+    received = ctx.inputs.observe is not None and ctx.inputs.observe.trigger == "po_received"
     relevant = sorted((c for c in selected if _concerns(ctx, c, person)), key=lambda c: LINE_ORDER.index(c.action_type))
     affected = set(ctx.affected_stations())
     mine = [s for s in person.station_ids if s in affected] if person.role == "cook" else []
     lines = {}
     for lang in LANGS:
         where = " / ".join(station_name(menu, s, lang) for s in mine) or person.name
-        head = f"{where}: {ctx.ing_name(lang)} {WORDS['low'][lang]}" + (f" (≈{eta:%H:%M})" if eta else "")
+        state = WORDS["received"][lang] if received else WORDS["low"][lang] + (f" (≈{eta:%H:%M})" if eta else "")
+        head = f"{where}: {ctx.ing_name(lang)} {state}"
         lines[lang] = _fit([head, *(getattr(c.effect_i18n, lang) for c in relevant)])
     return lines
 
 
-def _notify(ctx: _Ctx, person: Staff, selected: Sequence[Candidate]) -> Candidate:
+def _notify(ctx: _Ctx, person: Staff, selected: Sequence[Candidate], missed: Sequence[obs.Unseen] = ()) -> Candidate:
     lang = speak_lang(person)
     lines = _lines(ctx, person, selected)
     where = ", ".join(station_name(ctx.inputs.menu, s, "en") for s in person.station_ids)
-    effect = (f"Sends {person.name} ({person.role}{': ' + where if where else ''}) the code-rendered action line on "
-              f"the KDS in {LANG_NAMES[lang]}")
+    sends = (f"{person.name} ({person.role}{': ' + where if where else ''}) the code-rendered action line on the KDS "
+             f"in {LANG_NAMES[lang]}")
+    effect = f"{obs.describe(missed, person.id, ctx.inputs)}: sends {sends}" if missed else f"Sends {sends}"
     params = NotifyStaffParams(staff_id=person.id, language=lang, message=lines[lang], message_en=lines["en"])
     return _candidate("notify_staff", person.id, params, "T1", effect, lines)
 

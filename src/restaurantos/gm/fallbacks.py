@@ -264,9 +264,11 @@ def playbook_diff(report: SituationReport, ai_steps: Sequence[PlanStep],
     ai = [by_id[s.candidate_id] for s in ai_steps if s.candidate_id in by_id]
     pb = [by_id[s.candidate_id] for s in playbook_steps if s.candidate_id in by_id]
     ai_ids, pb_ids = {c.id for c in ai}, {c.id for c in pb}
-    lines = [f"AI kept {names.get(c.target, c.target)} selling; playbook stopped it"
+    lines = [f"AI kept {names.get(c.target, c.target)} off; playbook put it back on sale" if c.params["available"]
+             else f"AI kept {names.get(c.target, c.target)} selling; playbook stopped it"
              for c in pb if c.action_type == "set_item_availability" and c.id not in ai_ids]
-    lines += [f"AI stopped {names.get(c.target, c.target)}; playbook kept it selling"
+    lines += [f"AI put {names.get(c.target, c.target)} back on sale; playbook kept it off" if c.params["available"]
+              else f"AI stopped {names.get(c.target, c.target)}; playbook kept it selling"
               for c in ai if c.action_type == "set_item_availability" and c.id not in pb_ids]
     ai_po = [c for c in ai if c.action_type == "create_purchase_order"]
     pb_po = [c for c in pb if c.action_type == "create_purchase_order"]

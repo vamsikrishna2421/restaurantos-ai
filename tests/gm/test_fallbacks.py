@@ -279,3 +279,26 @@ def test_playbook_diff_dinner_rush() -> None:
         "AI ordered nothing; playbook ordered 4 kg from Patel Cash & Carry ($44.00)",
         "AI skipped: Sends Carlos (cook: Curry, Biryani) the code-rendered action line on the KDS in Spanish",
         "AI skipped: Sends Arjun (cook: Tandoor, Fry) the code-rendered action line on the KDS in Telugu"]
+
+
+def test_playbook_diff_after_a_delivery() -> None:
+    """A ``po_received`` re-plan (P1-2): the playbook puts Paneer Tikka and Palak Paneer back on sale, the AI only
+    Paneer Tikka. An un-86 reads as one: the chips say which dish stays off, never that one was stopped."""
+    from dataclasses import replace
+
+    from restaurantos.contracts.gm import ObserveContext
+    from restaurantos.contracts.menu import Availability
+    from restaurantos.gm.observe import Observed
+    from tests.gm.test_situation import I3, PANEER, TZ, incident, rush_snapshot
+
+    received = ObserveContext(trigger="po_received", plan_id="pln_A", po_id="po_1")
+    snapshot = replace(rush_snapshot(on_hand={PANEER: 4610}), observed=Observed(stopped=("PNR_TIKKA", "PALAK_PNR")),
+                       availability=Availability(unavailable={"PNR_TIKKA": "sold_out", "PALAK_PNR": "sold_out"}))
+    report = situation.report(situation.derive(snapshot, incident("watch"), I3, observe=received, tz=TZ))
+    policy = load_policy()
+    playbook = fallbacks.validate_plan(baseline.plan(report), report, policy)[0]
+    [tikka] = [s for s in playbook if (s.action_type, s.target) == ("set_item_availability", "PNR_TIKKA")]
+    ai = fallbacks.validate_plan(canned_plan([(tikka.candidate_id, None, None, "Tikka sells again.")]), report,
+                                 policy)[0]
+    assert fallbacks.playbook_diff(report, ai, playbook)[0] == "AI kept Palak Paneer off; playbook put it back on sale"
+    assert fallbacks.playbook_diff(report, playbook, ai)[0] == "AI put Palak Paneer back on sale; playbook kept it off"
