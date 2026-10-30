@@ -54,7 +54,7 @@ export default function WelcomeSurface(_props: SurfaceProps) {
           <BrandHat size={76} />
         </div>
         <div className="flex flex-col items-center gap-3">
-          <h1 className="text-6xl font-black leading-none tracking-tight sm:text-7xl">
+          <h1 className="max-w-full text-[13vw] font-black leading-none tracking-tight min-[420px]:text-6xl sm:text-7xl">
             RestaurantOS{' '}
             <span className="bg-linear-to-r from-accent to-accent-2 bg-clip-text text-transparent">AI</span>
           </h1>
