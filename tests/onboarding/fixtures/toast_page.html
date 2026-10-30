@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<!-- A saved Toast-like public ordering page (order.toasttab.com shape): a Next.js app whose menu lives in
+     the __NEXT_DATA__ JSON. Trimmed to the structure the onboarding parser reads: menus -> groups -> items
+     with dollar prices, one item priced in cents, and one item whose modifier options carry add-on prices
+     that must NOT be collected as dishes. -->
+<html lang="en">
+<head><title>Spice Route 2 - Online Ordering</title></head>
+<body>
+<div id="__next"><h1>Spice Route 2</h1></div>
+<script id="__NEXT_DATA__" type="application/json">
+{
+  "props": {
+    "pageProps": {
+      "restaurant": {"name": "Spice Route 2", "guid": "0f8e2c6a-1111-4222-8333-444455556666"},
+      "menus": [
+        {
+          "name": "Dinner Menu",
+          "menuGroups": [
+            {
+              "name": "Appetizers",
+              "items": [
+                {"name": "Samosa (2 pc)", "price": 5.49, "description": "Crisp pastry, spiced potato"},
+                {
+                  "name": "Chicken 65",
+                  "price": 7.99,
+                  "modifierGroups": [
+                    {"name": "Add a drink", "modifiers": [{"name": "Extra Raita Cup", "price": 1.50}]}
+                  ]
+                }
+              ]
+            },
+            {
+              "name": "Biryani",
+              "items": [
+                {"name": "Chicken Dum Biryani", "price": 16.99},
+                {"name": "Goat Biryani", "price": 19.99},
+                {"name": "Veg Biryani", "priceCents": 1499}
+              ]
+            },
+            {
+              "name": "Entrees",
+              "items": [
+                {"name": "Paneer Butter Masala", "price": 15.49},
+                {"name": "Chicken Tikka Masala", "price": 16.49}
+              ]
+            },
+            {
+              "name": "Breads",
+              "items": [
+                {"name": "Garlic Naan", "price": 4.99},
+                {"name": "Butter Naan", "price": 3.99}
+              ]
+            },
+            {
+              "name": "Desserts and Drinks",
+              "items": [
+                {"name": "Mango Lassi", "price": 5.99},
+                {"name": "Gulab Jamun", "price": 4.49},
+                {"name": "Masala Dosa", "price": 11.99}
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  },
+  "page": "/online-ordering",
+  "buildId": "fixture-build"
+}
+</script>
+</body>
+</html>

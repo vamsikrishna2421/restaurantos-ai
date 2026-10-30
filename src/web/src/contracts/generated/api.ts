@@ -10,6 +10,7 @@ import type {
   Lang,
   Role,
   RushPhase,
+  SpeakLang,
   SpendPool,
 } from './common'
 import type { TurnPath, TurnSpans } from './orders'
@@ -27,6 +28,8 @@ export type SampleSource = 'consented_recording' | 'synthetic_voice'
 export type ConsentKind = 'eval_clip' | 'sample_clip' | 'call_recording' | 'on_camera'
 
 export type RushAction = 'start' | 'stop'
+
+export type StaffRoleKind = 'manager' | 'front_counter' | 'chef'
 
 export interface ErrorDetail {
   code: string
@@ -501,4 +504,87 @@ export interface OnboardingPublishRequest {
 
 export interface CallDisconnectRequest {
   call_id: string
+}
+
+export interface StaffPerson {
+  id: string
+  name: string
+  language: SpeakLang
+}
+
+export interface StaffSignupRequest {
+  name: string
+  language: SpeakLang
+  pin: string
+}
+
+export interface StaffLoginRequest {
+  staff_id: string
+  pin: string
+}
+
+export interface StaffLoginResult {
+  token: string
+  staff: StaffPerson
+  expires_at: string
+}
+
+export interface StaffHolder {
+  staff_id: string
+  name: string
+}
+
+export interface RoleSlot {
+  slot_id: string
+  label: string
+  kind: StaffRoleKind
+  station_id: string | null
+  holder: StaffHolder | null
+  mine: boolean
+}
+
+export interface RoleClaimRequest {
+  slot_id: string
+}
+
+export interface RoleReleaseRequest {
+  slot_id: string
+}
+
+export interface OnboardingDraftItem {
+  name: string
+  price_cents: number
+  category: string
+  station_id: string
+}
+
+export interface OnboardingDraftStation {
+  id: string
+  label: string
+  parallel_slots: number
+}
+
+export interface OnboardingDraft {
+  restaurant_name: string
+  source: 'toast' | 'text'
+  items: OnboardingDraftItem[]
+  stations: OnboardingDraftStation[]
+  roles: RoleSlot[]
+}
+
+export interface OnboardingDraftRequest {
+  restaurant_name: string
+  toast_url: string | null
+  menu_text: string | null
+}
+
+export interface OnboardingGoLiveRequest {
+  draft: OnboardingDraft
+  manager_name: string
+}
+
+export interface OnboardingGoLiveResult {
+  tenant_id: string
+  name: string
+  files: string[]
 }

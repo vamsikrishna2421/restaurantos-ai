@@ -13,7 +13,7 @@ dollars as floats; none of them is persisted or hashed. Secrets in request bodie
 from __future__ import annotations
 
 import datetime as dt
-from typing import Any, Literal, get_args
+from typing import Annotated, Any, Literal, get_args
 
 from pydantic import AwareDatetime, Field, SecretStr
 
@@ -27,6 +27,7 @@ from restaurantos.contracts.common import (
     Model,
     Role,
     RushPhase,
+    SpeakLang,
     SpendPool,
     Usd,
     UtcTime,
@@ -492,3 +493,120 @@ class OnboardingPublishRequest(Model):
 
 class CallDisconnectRequest(Model):
     call_id: str
+
+
+# ----- staff identity and shift role slots (P41) ------------------------------------------------------------------
+
+StaffRoleKind = Literal["manager", "front_counter", "chef"]
+Pin = Annotated[str, Field(pattern=r"^\d{4}$")]  # a 4-digit PIN, leading zeros kept (it is a string, not a number)
+
+
+class StaffPerson(Model):
+    """A staff member as other staff may see them: never a PIN, never a hash."""
+
+    id: str
+    name: str
+    language: SpeakLang
+
+
+class StaffSignupRequest(Model):
+    name: str = Field(min_length=1, max_length=60)
+    language: SpeakLang
+    pin: Pin
+
+
+class StaffLoginRequest(Model):
+    staff_id: str
+    pin: Pin
+
+
+class StaffLoginResult(Model):
+    """The signed staff token (sent back as ``Authorization: Bearer``), the person, and the token's expiry."""
+
+    token: str
+    staff: StaffPerson
+    expires_at: UtcTime
+
+
+class StaffHolder(Model):
+    staff_id: str
+    name: str
+
+
+class RoleSlot(Model):
+    """One claimable job for the shift. ``holder`` is null while the slot is open; ``mine`` marks the caller's."""
+
+    slot_id: str
+    label: str
+    kind: StaffRoleKind
+    station_id: str | None = None
+    holder: StaffHolder | None = None
+    mine: bool = False
+
+
+class RoleClaimRequest(Model):
+    slot_id: str
+
+
+class RoleReleaseRequest(Model):
+    slot_id: str
+
+
+# ----- restaurant onboarding (P39): the draft a menu becomes, and going live with it ------------------------------
+
+ONBOARDING_MAX_ITEMS = 200  # a big real-world menu; Toast pages beyond this are truncated at the cap
+
+
+class OnboardingDraftItem(Model):
+    """One menu line in a draft: what the source page said, and the station the draft proposes for it."""
+
+    name: str = Field(min_length=1, max_length=120)
+    price_cents: int = Field(ge=0)
+    category: str = Field(default="", max_length=80)
+    station_id: str
+
+
+class OnboardingDraftStation(Model):
+    """One kitchen station the draft proposes, with the number of parallel slots (cooks) it starts with."""
+
+    id: str
+    label: str  # the station's English name
+    parallel_slots: int = Field(ge=1, le=6)
+
+
+class OnboardingDraft(Model):
+    """The whole restaurant as one proposal: menu placed on stations, the stations, and the shift's job slots
+    derived from them (P41's ``RoleSlot`` shape, nobody holding anything yet). The manager edits this on one
+    review screen; confirming it is what ``POST /api/onboarding/go-live`` consumes."""
+
+    restaurant_name: str = Field(min_length=1, max_length=80)
+    source: Literal["toast", "text"]
+    items: list[OnboardingDraftItem] = Field(min_length=1, max_length=ONBOARDING_MAX_ITEMS)
+    stations: list[OnboardingDraftStation] = Field(min_length=1)
+    roles: list[RoleSlot] = Field(default_factory=list)
+
+
+class OnboardingDraftRequest(Model):
+    """Step 1 of onboarding: a name and ONE source — the public Toast ordering-page URL, or the menu pasted
+    as text. Exactly one of ``toast_url`` / ``menu_text`` must be set."""
+
+    restaurant_name: str = Field(min_length=1, max_length=80)
+    toast_url: str | None = Field(default=None, max_length=2000)
+    menu_text: str | None = Field(default=None, max_length=100_000)
+
+
+class OnboardingGoLiveRequest(Model):
+    """Confirm the reviewed draft. ``manager_name`` becomes the tenant's single seed person (the manager);
+    everyone else joins later from the staff sign-in's "I am new here"."""
+
+    draft: OnboardingDraft
+    manager_name: str = Field(default="Manager", min_length=1, max_length=60)
+
+
+class OnboardingGoLiveResult(Model):
+    """The tenant config is written and validated. ``files`` are the file names created under the tenant's
+    config directory, in seed order."""
+
+    tenant_id: str
+    name: str
+    files: list[str]

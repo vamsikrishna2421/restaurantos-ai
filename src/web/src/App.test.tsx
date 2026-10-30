@@ -53,7 +53,7 @@ test('router_coming_soon_for_missing_surface', async () => {
   cleanup()
   at('/')
   render(<App loaders={{}} />)
-  expect(screen.getByText('Action page: coming soon')).toBeInTheDocument()
+  expect(screen.getByText('Welcome: coming soon')).toBeInTheDocument()
 })
 
 test('renders the surface for a route with its params, and Not found for an unknown path', async () => {
@@ -179,7 +179,7 @@ test('Link navigates in place; matchRoute decodes params', () => {
   render(<App loaders={loaders} />)
   fireEvent.click(screen.getByRole('link', { name: 'Back to start' }))
   expect(window.location.pathname).toBe('/')
-  expect(screen.getByText('Action page: coming soon')).toBeInTheDocument()
+  expect(screen.getByText('Welcome: coming soon')).toBeInTheDocument()
 })
 
 test('Slot renders an optional package when present and nothing otherwise', async () => {
