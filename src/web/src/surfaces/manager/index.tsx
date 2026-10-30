@@ -2,14 +2,21 @@
  * `/manager` (P41 + P42): the manager console. The home is the attention feed — what needs the manager
  * right now, decisions attached — and the sections around it hold the working detail:
  *
- * - **Home** (the landing, founder-directed) — a grid of tiles, one per area below, each carrying a
- *   live headline from the reads the console already makes (cautions waiting, open orders and their
- *   value, jobs filled, today's till, the next daypart's forecast, guests remembered). Tapping a
- *   tile opens its section; the tabs remain the way around once inside.
+ * - **Home** (the landing, founder-directed) — a greeting on the business clock, the top three
+ *   cautions as a one-tap strip into Attention, then a grid of tiles, one per area below, each
+ *   carrying a live headline from the reads the console already makes (cautions waiting, open
+ *   orders and their value, jobs filled, today's till, the next daypart's forecast, guests
+ *   remembered). Tapping a tile opens its section; the tabs remain the way around once inside.
  * - **Attention** — the correlations' cards first (forecast capacity and stock trips from
  *   `/api/manager/analytics`, evaluated when the page is read), then the goodwill decisions (P43:
  *   a regular who drifted, a visit that went wrong, a milestone coming — a dish on the house, decided
  *   here), then shift readiness, GM approvals waiting, running low, and the open-orders count.
+ *   Pass 9 gives every card a severity pill (the engine's tone, named High / Medium / Low), draws
+ *   each correlation card's evidence on the card (a stock card's burn-down, a capacity card's
+ *   expected-vs-capacity bars — the checks' own numbers, no new math), filters the feed by kind
+ *   with live counts, and wires the two decisions that really exist: a stock card can 86 the
+ *   dishes its ingredient blocks (the kitchen's availability action), a capacity card opens
+ *   People. See attention.tsx for the severity and category mappings.
  * - **Orders** — the live board and a day's history from the order ledger.
  * - **People** — the roster, who is on shift now, job requests, and everyone's usual job (the staff API).
  * - **Timesheets** — the week's shift record; claiming a job is attendance, so the record is the claim log.
@@ -24,10 +31,11 @@
 
 import { ArrowRight, Check, RefreshCw } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { SampleBadge } from '../../components/badges'
+import { SampleBadge, useNow } from '../../components/badges'
 import { Avatar, Button, Card, Chip, cx, TabPanel, Tabs, TONE_EDGE, type Tone } from '../../components/ui'
 import type {
   ConsoleAnalytics,
+  ConsoleCard,
   GoodwillSuggestion,
   InventoryItemView,
   RoleRequest,
@@ -35,12 +43,16 @@ import type {
   StaffPerson,
 } from '../../contracts/generated'
 import { customersApi } from '../../lib/customers'
-import { formatCents } from '../../lib/format'
+import { bizNowMs, formatCents, TENANT_TZ } from '../../lib/format'
 import { managerApi } from '../../lib/manager'
 import { clearStaffSession, loadStaffSession, staffApi } from '../../lib/staff'
 import { Link, navigate, type SurfaceProps } from '../../router'
 import { useTenant } from '../../stores'
 import AnalyticsSection from './analytics'
+import {
+  BurnSparkline, CapacityBars, cardCategory, FEED_CATEGORIES, SEVERITY_RANK, SeverityPill, severityOf,
+  type FeedCategory,
+} from './attention'
 import CustomersSection from './customers'
 import OrdersSection from './orders'
 import PeopleSection from './people'
@@ -264,6 +276,68 @@ export default function ManagerSurface(props: SurfaceProps) {
 
   const cards = analytics?.cards ?? []
 
+  // pass 9: the feed's filter (view-only — the cards keep their global rank inside a filter), the
+  // stock card's 86 (the kitchen's real availability action, wired per dish), and the home greeting's
+  // clock. The greeting reads the business clock like every other surface in the console.
+  const [feedFilter, setFeedFilter] = useState<'all' | FeedCategory>('all')
+  const [confirm86, setConfirm86] = useState<string | null>(null)
+  const [busy86, setBusy86] = useState<string | null>(null)
+  const [done86, setDone86] = useState<ReadonlySet<string>>(new Set())
+  const [error86, setError86] = useState<Readonly<Record<string, string>>>({})
+  const clock = data?.tenant.clock
+  const ticking = clock !== undefined && (clock.mode === 'real' || clock.speed > 0)
+  const nowMs = useNow(ticking ? 1000 : null)
+  const bizHour = clock
+    ? Number(new Intl.DateTimeFormat('en-US', { hour: 'numeric', hourCycle: 'h23', timeZone: TENANT_TZ })
+      .format(new Date(bizNowMs(clock, nowMs))))
+    : null
+  const daypart = bizHour === null ? null : bizHour < 12 ? 'morning' : bizHour < 17 ? 'afternoon' : 'evening'
+
+  const eightySixDishes = async (card: ConsoleCard) => {
+    setBusy86(card.id)
+    try {
+      for (const dish of card.dishes ?? []) {
+        await managerApi.eightySix(dish.item_code)
+      }
+      setDone86((prev) => new Set(prev).add(card.id))
+      setConfirm86(null)
+    } catch {
+      setError86((prev) => ({
+        ...prev,
+        [card.id]: 'That could not be finished just now — check the menu before relying on it.',
+      }))
+    } finally {
+      setBusy86(null)
+    }
+  }
+
+  // the standing blocks' categories, counted from the same reads the feed renders (pass 9)
+  const feedCounts: Record<FeedCategory, number> = {
+    inventory: cards.filter((c) => cardCategory(c) === 'inventory').length + 1, // + Running low
+    staffing: cards.filter((c) => cardCategory(c) === 'staffing').length + 1, // + Shift readiness
+    guests: goodwill.length,
+    operations: 2, // Waiting for your approval + In the kitchen now
+  }
+  const feedTotal = cards.length + goodwill.length + 4
+  const inFilter = (category: FeedCategory) => feedFilter === 'all' || feedFilter === category
+
+  // the home strip: the feed's top three by severity, then by the feed's own rank (pass 9)
+  const topCautions = useMemo(() => {
+    const entries = [
+      ...cards.map((card, i) => ({
+        key: card.id, severity: severityOf(card.tone), rank: i, title: card.title,
+        action: card.action as string | null,
+      })),
+      ...goodwill.map((g, i) => ({
+        key: g.key, severity: severityOf(g.tone), rank: cards.length + i, title: g.title,
+        action: 'Put it on the house' as string | null,
+      })),
+    ]
+    return entries
+      .sort((a, b) => SEVERITY_RANK[a.severity] - SEVERITY_RANK[b.severity] || a.rank - b.rank)
+      .slice(0, 3)
+  }, [cards, goodwill])
+
   return (
     <main className="mx-auto flex min-h-full w-full max-w-4xl flex-col gap-6 p-6">
       <header className="flex flex-wrap items-center gap-3">
@@ -314,7 +388,31 @@ export default function ManagerSurface(props: SurfaceProps) {
             || goodwill.some((g) => g.tone === 'bad')
           const nextDaypart = analytics?.remaining_today[0] ?? analytics?.forecast[0]
           const approvals = requests?.length ?? 0
+          const firstName = me?.staff.name.split(' ')[0]
           return (
+            <>
+              {firstName && daypart && (
+                <div className="mb-4">
+                  <h2 className="text-xl font-black tracking-tight">Good {daypart}, {firstName}</h2>
+                  <p className="text-sm text-muted">The restaurant at a glance — tap a tile to open it.</p>
+                </div>
+              )}
+              {topCautions.length > 0 && (
+                <section aria-label="Top cautions" className="mb-4 flex flex-col gap-1.5">
+                  {topCautions.map((entry) => (
+                    <button key={entry.key} type="button" onClick={() => setSection('attention')}
+                      className="flex items-center gap-2.5 rounded-xl bg-panel px-3 py-2 text-left ring-1 ring-white/5 transition hover:ring-accent/50">
+                      <SeverityPill severity={entry.severity} />
+                      <span className="min-w-0 flex-1 truncate font-medium">{entry.title}</span>
+                      {entry.action && (
+                        <span className="hidden max-w-[45%] shrink-0 truncate text-sm text-muted sm:block">
+                          {entry.action}
+                        </span>
+                      )}
+                    </button>
+                  ))}
+                </section>
+              )}
             <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-3 xl:grid-cols-4">
               <HomeTile label="Attention"
                 tone={attentionBad ? 'bad' : attentionCount > 0 ? 'warn' : undefined}
@@ -356,25 +454,80 @@ export default function ManagerSurface(props: SurfaceProps) {
                 caption="Setup & stock"
                 onOpen={() => setSection('settings')} />
             </div>
+            </>
           )
         })()}
       </TabPanel>
 
       <TabPanel idPrefix="manager-sections" id="attention" value={section}>
         <div className="flex flex-col gap-6">
-          {cards.map((card) => (
+          <div className="flex flex-wrap gap-1.5" role="group" aria-label="Filter attention by kind">
+            <Chip selected={feedFilter === 'all'} onClick={() => setFeedFilter('all')}>
+              All ({feedTotal})
+            </Chip>
+            {FEED_CATEGORIES.map(({ id, label }) => (
+              <Chip key={id} selected={feedFilter === id} onClick={() => setFeedFilter(id)}>
+                {label} ({feedCounts[id]})
+              </Chip>
+            ))}
+          </div>
+
+          {cards.filter((card) => inFilter(cardCategory(card))).map((card) => (
             <Card key={card.id} title={card.title} tone={card.tone === 'bad' ? 'bad' : 'warn'}
+              actions={<SeverityPill severity={severityOf(card.tone)} />}
               className="motion-safe:animate-rise">
               <p>{card.detail}</p>
+              {card.kind === 'stock' && (card.burn_curve ?? []).length >= 2 && (
+                <BurnSparkline curve={card.burn_curve} tone={card.tone} />
+              )}
+              {card.kind === 'capacity' && card.expected_tickets != null && card.capacity_tickets != null && (
+                <CapacityBars expected={card.expected_tickets} capacity={card.capacity_tickets} />
+              )}
               <p className="mt-2 font-medium">
                 <span className="text-muted">Suggested: </span>{card.action}
               </p>
+              {card.kind === 'capacity' && (
+                <div className="mt-3">
+                  <Button size="sm" variant="ghost" onClick={() => setSection('people')}>Open People</Button>
+                </div>
+              )}
+              {card.kind === 'stock' && (card.dishes ?? []).length > 0 && (
+                done86.has(card.id) ? (
+                  <p className="mt-3 flex items-center gap-2 font-medium text-ok">
+                    <Check className="size-5 shrink-0" />
+                    {(card.dishes ?? []).map((d) => d.name).join(', ')} {(card.dishes ?? []).length === 1 ? 'is' : 'are'} off the menu now.
+                  </p>
+                ) : confirm86 === card.id ? (
+                  <div className="mt-3 flex flex-col gap-2">
+                    <p>
+                      Take {(card.dishes ?? []).map((d) => d.name).join(', ')} off the menu now?
+                      They use {card.subject ?? 'this ingredient'}, which is about to run out.
+                    </p>
+                    <div className="flex gap-2">
+                      <Button size="sm" variant="primary" loading={busy86 === card.id}
+                        onClick={() => void eightySixDishes(card)}>
+                        86 them
+                      </Button>
+                      <Button size="sm" variant="ghost" onClick={() => setConfirm86(null)}>Cancel</Button>
+                    </div>
+                    {error86[card.id] && <p role="alert" className="text-bad">{error86[card.id]}</p>}
+                  </div>
+                ) : (
+                  <div className="mt-3">
+                    <Button size="sm" variant="ghost" onClick={() => setConfirm86(card.id)}>
+                      86 dishes using {card.subject ?? 'this ingredient'}
+                    </Button>
+                    {error86[card.id] && <p role="alert" className="mt-1 text-bad">{error86[card.id]}</p>}
+                  </div>
+                )
+              )}
             </Card>
           ))}
 
-          {goodwill.map((suggestion) => (
+          {inFilter('guests') && goodwill.map((suggestion) => (
             <Card key={suggestion.key} title={suggestion.title}
               tone={suggestion.tone === 'bad' ? 'bad' : suggestion.tone === 'ok' ? 'ok' : 'warn'}
+              actions={<SeverityPill severity={severityOf(suggestion.tone)} />}
               className="motion-safe:animate-rise">
               <p>{suggestion.detail}</p>
               <p className="mt-1 text-sm text-muted">
@@ -412,10 +565,20 @@ export default function ManagerSurface(props: SurfaceProps) {
             </Card>
           ))}
 
+          {feedFilter === 'guests' && goodwill.length === 0 && (
+            <p className="text-muted">No guest needs a decision right now.</p>
+          )}
+
+          {inFilter('staffing') && (
           <Card title="Shift readiness" tone={slots !== null ? (open.length > 0 ? 'warn' : 'ok') : undefined}
             className="motion-safe:animate-rise"
             actions={slots !== null
-              ? <Chip tone={open.length > 0 ? 'warn' : 'ok'}>{`${filled.length} of ${slots.length} jobs filled`}</Chip>
+              ? (
+                <span className="flex items-center gap-2">
+                  <SeverityPill severity={severityOf(open.length > 0 ? 'warn' : 'ok')} />
+                  <Chip tone={open.length > 0 ? 'warn' : 'ok'}>{`${filled.length} of ${slots.length} jobs filled`}</Chip>
+                </span>
+              )
               : undefined}>
             {slotsError && <p role="alert" className="text-bad">The shift list could not be loaded.</p>}
             {slots === null && !slotsError && <p className="text-muted">Loading the shift list…</p>}
@@ -468,9 +631,16 @@ export default function ManagerSurface(props: SurfaceProps) {
               </div>
             )}
           </Card>
+          )}
 
+          {inFilter('operations') && (
           <Card title="Waiting for your approval" tone="ai" className="motion-safe:animate-rise"
-            actions={proposed.length > 0 ? <Chip tone="ai">{proposed.length}</Chip> : undefined}>
+            actions={(
+              <span className="flex items-center gap-2">
+                <SeverityPill severity="low" />
+                {proposed.length > 0 && <Chip tone="ai">{proposed.length}</Chip>}
+              </span>
+            )}>
             {data === null ? (
               <p className="text-muted">Loading…</p>
             ) : proposed.length === 0 ? (
@@ -488,9 +658,14 @@ export default function ManagerSurface(props: SurfaceProps) {
               </div>
             )}
           </Card>
+          )}
 
+          {(inFilter('inventory') || inFilter('operations')) && (
           <div className="grid gap-6 sm:grid-cols-2">
+            {inFilter('inventory') && (
             <Card title="Running low" className="motion-safe:animate-rise"
+              actions={<SeverityPill severity={severityOf(
+                lowStock.some((i) => i.forecast.band === 'act') ? 'bad' : lowStock.length > 0 ? 'warn' : 'ok')} />}
               tone={lowStock.some((i) => i.forecast.band === 'act') ? 'bad' : lowStock.length > 0 ? 'warn' : undefined}>
               {data === null ? (
                 <p className="text-muted">Loading…</p>
@@ -523,8 +698,11 @@ export default function ManagerSurface(props: SurfaceProps) {
                 </ul>
               )}
             </Card>
+            )}
 
-            <Card title="In the kitchen now" className="motion-safe:animate-rise">
+            {inFilter('operations') && (
+            <Card title="In the kitchen now" className="motion-safe:animate-rise"
+              actions={<SeverityPill severity="low" />}>
               {data === null ? (
                 <p className="text-muted">Loading…</p>
               ) : (
@@ -538,7 +716,9 @@ export default function ManagerSurface(props: SurfaceProps) {
                 </div>
               )}
             </Card>
+            )}
           </div>
+          )}
 
           <p className="text-sm text-muted">
             Looking for the full picture? The <Link to="/gm" className="underline">GM console</Link> has plans and

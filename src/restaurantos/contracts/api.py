@@ -756,10 +756,32 @@ class StockCheck(Model):
     supplier_name: str | None = None
 
 
+class BurnPoint(Model):
+    """One point of a stock card's burn-down: the projected free stock at a business moment, drawn from
+    the same segment walk that found the run-out (``domain.console.projected_stockout``'s even burn
+    inside each daypart — the curve is that walk presented, not a second forecast)."""
+
+    at_ms: int  # business-clock epoch ms
+    free: int  # projected free stock at that moment, in the ingredient's unit
+
+
+class CardDish(Model):
+    """A dish a stock card names: it is on sale now and its recipe uses the card's ingredient — the
+    dishes an 86 would take off the menu."""
+
+    item_code: str
+    name: str
+
+
 class ConsoleCard(Model):
     """One attention card the correlations raised, in templated language (no model wrote it): the numbers,
     what they mean, and the suggested move. ``id`` is deterministic for a kind + subject + day, so
-    re-evaluating on the next view returns the same card rather than a duplicate."""
+    re-evaluating on the next view returns the same card rather than a duplicate.
+
+    The evidence fields (pass 9) carry the already-computed numbers behind the card so the console can
+    draw them on the card itself: a stock card's burn curve and the dishes its ingredient blocks; a
+    capacity card's expected and capacity tickets. Nothing here is computed for the card — the checks
+    above already produced every value."""
 
     id: str
     kind: ConsoleCardKind
@@ -767,6 +789,11 @@ class ConsoleCard(Model):
     title: str
     detail: str
     action: str
+    subject: str | None = None  # the ingredient (stock) or station (capacity) the card is about
+    burn_curve: list[BurnPoint] = Field(default_factory=list)  # stock cards only
+    expected_tickets: int | None = None  # capacity cards only
+    capacity_tickets: int | None = None  # capacity cards only
+    dishes: list[CardDish] = Field(default_factory=list)  # stock cards only
 
 
 class ConsoleAnalytics(Model):

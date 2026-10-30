@@ -9,6 +9,7 @@ import type {
   ConsoleRevenue,
   ConsoleSettings,
   ConsoleTimesheets,
+  MenuItem,
 } from '../contracts/generated'
 import { api } from './api'
 
@@ -23,6 +24,13 @@ export const managerApi = {
   /** Sellers, station load, the forecast and its correlations — evaluated when read. */
   analytics(): Promise<ConsoleAnalytics> {
     return api<ConsoleAnalytics>('GET', '/api/manager/analytics')
+  },
+  /**
+   * The kitchen's 86 (KDS availability route): take one dish off the menu — the reason defaults to
+   * sold out on the server. Any kitchen role may 86; bringing a dish back is manager-only there.
+   */
+  eightySix(itemCode: string): Promise<MenuItem> {
+    return api<MenuItem>('POST', '/api/kds/availability', { item_code: itemCode, available: false, reason: '' })
   },
   /** One week of the shift record; `week` is any ISO date inside it (default: this week). */
   timesheets(week?: string): Promise<ConsoleTimesheets> {

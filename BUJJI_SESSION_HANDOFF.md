@@ -1035,3 +1035,222 @@ e616a6e 38 Spice Route photos · 27774d0 Scope A kiosk · 433d172 Scope D staff 
 6e5d77c Scope B front door + E1 picker · 1c3a4b0 Scope C manager grids · a0c1710 Scope E2
 KDS light · e79ceda screenshot fixes (grid + hero path) · f074479 staff full-viewport cream ·
 this handoff.
+
+## Pass 9 — the console steal: severity, evidence, filters, wired decisions, home greeting (+ Scopes K & L) (branch `bujji/pass9`, off bujji/pass8 21a3577; NOT pushed)
+
+The founder reviewed marketing frames of the manager console and approved stealing specific
+pieces into the REAL console. The console stays dark — no restyle, no sidebar, no invented
+features. Two founder-directed scopes arrived mid-pass (K: kiosk cart layering; L: stale
+on-device menu) and are included with their own commits.
+
+### What shipped
+
+1. **Severity pills on every Attention card.** One mapping for the whole feed, from the tone the
+   engine already assigned — nothing is re-scored: `bad` → High, `warn` → Medium, everything
+   else → Low. The goodwill tones land incident suggestions at High (their tone is `bad`),
+   lapsed regulars at Medium (`warn`), milestones at Low (`ok`) by the same rule. Shift
+   readiness derives its tone from the open-jobs condition it already computes; the approvals
+   and kitchen-now cards are informational → Low; Running low follows its own band tone.
+   Rendered as a small uppercase pill in the card header (`surfaces/manager/attention.tsx`).
+2. **Evidence visuals on the cards.** The payload was extended with the checks' already-computed
+   values (plumbing, no new math): `ConsoleCard` gains `subject`, `expected_tickets`,
+   `capacity_tickets`, `dishes` and `burn_curve`. The stock card's curve is the segment walk
+   `projected_stockout` already performs, drawn out (`_burn_curve` mirrors its arithmetic on the
+   same needs list; the contract test asserts the curve starts at the watch's free stock and
+   lands on zero exactly at its `stockout_biz`). The web draws a compact SVG sparkline (run-out
+   point dotted, both ends captioned in words) and an expected-vs-capacity bar pair whose
+   expected bar is split at the capacity point so the shortfall segment is the visible part.
+3. **Category filters with live counts.** All (n) · Inventory · Staffing · Guests · Operations.
+   Mapping: stock cards + Running low → Inventory; capacity cards + Shift readiness → Staffing;
+   goodwill → Guests; Waiting for your approval + In the kitchen now → Operations. Counts are
+   computed from the same reads the feed renders. Filtering is view-only; the server's rank
+   order is preserved inside a filter (pinned by a DOM-order test).
+4. **Decision buttons only where a real action exists.** The 86 mechanism EXISTS and is wired:
+   `POST /api/kds/availability` (kitchen service `set_availability`; any kitchen role may 86,
+   only a manager may un-86). A stock card's payload now names the dishes its run-out ingredient
+   blocks (on sale, recipes using it, menu order); the card offers "86 dishes using <subject>"
+   with an inline confirm naming every dish, then posts per dish and shows a done state (or an
+   honest inline error). Capacity cards get a working "Open People" deep link (section switch).
+   Goodwill Approve/Dismiss unchanged; text-only suggestions stay text-only.
+5. **Manager home.** A greeting on the business clock — "Good <morning/afternoon/evening>,
+   <manager's first name>" — and a Top cautions strip: the feed's top 3 by severity, then feed
+   rank, one line each (pill + headline + primary action), tapping through to Attention. Built
+   only from the reads home already loads (analytics + goodwill).
+
+### Scope K (founder-directed): the kiosk cart never overlays the dish grid
+
+Verified against the pass-8 layout at tablet 1180×820 and phone 390×844, collapsed and
+expanded: the cart bar/card are grid siblings of the menu viewport in the menu column's second
+row; expanding the cart shrank the menu viewport 598 → 219 px at tablet size with zero rect
+overlap, and `elementFromPoint` at every in-view tile's centre hits the tile, never the panel
+(tiles below the menu region are clipped by its own scroll edge — normal scrolling, not
+coverage). A new suite (`cart-layering.test.tsx`) pins the structural contract. One real gap
+fixed: the post-order "Order placed" card had no height cap or internal scroll — it now
+matches the cart card's, so a long order cannot overflow its row.
+
+### Scope L (founder-directed): a returning kiosk drops its stale sandbox menu
+
+Mechanism, proven end to end: the "on-device copy" is the session's sandbox. Its menu is a
+clone-time copy of the template tenant; a server menu change re-materializes the
+template/`live`/`demo` tenants (`seed/materialize.py`, keyed by `seed_hash`) but never the
+sandboxes, so a returning browser's `/api/state` served the pre-photo menu forever while a
+fresh profile cloned the new template. Nothing on the client persisted the menu — the
+persistence is the `ros_sess` cookie pointing at the stale clone. Fix (client, kiosk bootstrap,
+`surfaces/kiosk/menuSync.ts`): once per page load, fingerprint the served menu's seed-owned
+content (photos and prices included; availability and the tenant-local `menu_version` excluded —
+an 86 is not drift) against the public `live` snapshot (rebuilt from the same seed); on a
+mismatch, reset the session — the product's own re-clone — and load the fresh snapshot. An
+unreachable server or a refused reset keeps the cached copy serving; staleness only loses to a
+reachable, newer server state. Tests cover the stale, current and unreachable cases.
+
+### Tests
+
+- Web: **276 tests / 41 files, all passed** (pass 8: 266). New: manager-sections +5 (pills +
+  evidence rendering, filter counts + filtering + rank order, the 86 flow's three posts, Open
+  People navigation, greeting + strip order/navigation), `cart-layering.test.tsx` (2),
+  `menu-sync.test.tsx` (3). `npx tsc` clean; production build rebuilt.
+- Python: full clean-env run — 1547 collected, exactly one failure:
+  `tests/test_conftest_network.py::test_localhost_tcp_needs_opt_in` (Permission error), the
+  documented environmental failure recorded identically against passes 7 and 8 (it exercises
+  the sandbox's localhost-TCP opt-in; pass 9's Python diff is the console payload + contract
+  assertions). The manager routes suite is 8/8, including the new payload contract assertions.
+  Two process notes for the next builder: (a) a full-suite run WITH the shell's proxy env vars
+  set fails spuriously across tests/voice and tests/agents (httpx errors) — always unset them,
+  per the sandbox recipe; (b) a second full suite running concurrently on this box (a pass-10
+  worktree shared the venv) starved the run to a crawl at ~88% — rerun when the box is free.
+
+### Screenshots (goal files, pass9-shots/)
+
+Tablet 1180×820: `manager-attention.png` (HIGH pills, expected-vs-capacity bars, Open People,
+filter chips with live counts), `manager-attention-inventory.png` (Paneer stock card: burn-down
+sparkline, "1130 free now · runs out 7:21 PM", the wired "86 dishes using Paneer"),
+`manager-home.png` ("Good evening, Lakshmi" + the top-cautions strip over the tiles),
+`kiosk-cart-expanded-tablet.png` (Scope K: cart expanded with 3 items, the checkout capture
+visible in the card's own scroll, dish cards above it clipped only by the menu viewport's edge).
+
+### Commits (bujji/pass9, local — for the parent to merge)
+
+3cd3d5b backend payload (contracts + service + contract tests) · af6d649 web (pills, evidence,
+filters, 86, greeting/strip + tests) · 3dfe7b4 Scope K · fa2067e Scope L · this handoff.
+## Pass 10 — a realistic order history, simulated through the app itself (branch `bujji/pass10-sim`, off pass-8 head 21a3577; NOT pushed)
+
+The founder's ask (Oct 30): "simulate some orders with specific customer info at some particular
+days so we can make it look like a realistic analytics to showcase the power of our application."
+One new tool does it: `scripts/simulate_history.py`. No engine, projection or web code changed.
+
+### What the tool does
+
+- **History is real activity, replayed.** The script boots the app in-process (the real lifespan:
+  providers, commit hook, startup sync, handlers, bus) and winds the tenant's stored clock spec to
+  each simulated moment — the same statement shape `seed/scenario.py` uses to set a tenant clock.
+  Every order goes through `OrderService.place` (menu re-pricing, availability, station tickets,
+  stock reservations, `order.placed`), cooks through `KitchenService.ticket_action` (start, then
+  bump at a plausible wait; median ~15 min, a few long tails on anonymous orders only), and is
+  picked up via `OrderService.mark_picked_up`. Vikram's bad visit is cancelled through
+  `OrderService.cancel`; the bus runs throughout, so inventory consumes on bump and releases on
+  cancel exactly as in production. **No raw SQL writes to orders/lines/tickets/ledger/customers
+  anywhere** — the only direct row write is the tenant clock spec, restored verbatim at the end
+  (in a `finally`, so a crash restores it too).
+- **Guests identify like guests.** Each cast visit runs `CustomerService.identify` (name + phone,
+  a fresh session per visit) immediately before placing from that session, so customers.db session
+  links form exactly as kiosk identifications make them and repeat visits accumulate.
+- **The plan is pure and deterministic** (fixed seed 20261030; the plan layer imports no app
+  code). Window T-26..T-1 anchored to the tenant's own business clock read at runtime, every day
+  open; volume follows the tenant's demand-curve shape scaled to one kiosk (Mon ~22 → Sat ~44,
+  Fri/Sat heaviest, Mon quietest); daypart mix tilts the seed `item_mix` (tiffin at lunch, biryani
+  at dinner, paneer steady); plus 8 completed anonymous lunch orders earlier today (the
+  pre-existing open board is never in the plan and stays untouched). Plan totals: **814 orders
+  (813 paid, 1 cancelled), average placed ticket $19.84 incl. tax** ($18.55 subtotal).
+- **The cast** (phones are consistent 555-01xx): Priya — 9 visits T-26..T-19, then nothing:
+  lapsed regular, next visit is her 10th, usual Paneer Butter Masala. Asha — 6 visits, latest
+  T-2, usual Masala Dosa + Filter Coffee (the pair 4 times). Vikram — 5 visits, every ticket
+  $55+, plus exactly one cancelled order at T-5 as his latest contact: the incident candidate.
+  Ten more named guests (Rohan 4, Sneha 4, Diego 3, Fatima 3, Kenji 2, Maria 2, Tom 2, Grace 1,
+  Omar 1, Nina 1); everything else anonymous.
+- **Idempotent + guarded.** Every placement carries a deterministic idempotency key derived from
+  the plan hash (`pass10:<hash>:<seq>`), so a re-run can never double an order; a run-state file
+  in the tenant's data dir (`<data_dir>/simulate_history/<tenant>.json`) records the anchor day,
+  the original clock spec and completion — a completed re-run no-ops ("already simulated"), an
+  interrupted one resumes from the ledger's state. The tool refuses any tenant whose template is
+  not the sample template or whose name is not the sample name, unless `--force`.
+- **Inventory honesty.** 26 days of real placement drained most ingredients to zero through
+  recipes (paneer, chicken, flour, goat… all hit 0). After the run, every ingredient below its
+  run-start level is restored to that level through `InventoryService.adjust` (source
+  `receiving`) — the regular deliveries those 26 days would have brought, documented below as one
+  this-morning delivery. Paneer is then tuned through the same adjust path (one `count`
+  adjustment, 1610 → 762 g) until the console's own projected run-out lands in the evening
+  window: **7:46 PM tonight**, free 282 g against ~1200 g forecast use. No projection or engine
+  code was touched.
+
+### Sandbox proof (fresh `dinner_rush` sandbox `sbx_01M6773QAMWCM93G4ZMDJ32R5E`, T = Sat Nov 7 2026)
+
+Verified through the app's own services after the run (a re-run was also exercised: 6 s,
+"already simulated", exit 0):
+
+- **Cast, as the ledger reads it** — Priya 9 visits · $191.30 · last 19 days ago · usual Paneer
+  Butter Masala; Asha 6 · $100.45 · 2 days · Masala Dosa; Vikram 5 · $305.76 · 6 days; Rohan 4 ·
+  $90.87 · 3; Sneha 4 · $79.08 · 4; Diego 3 · $70.01 · 2; Fatima 3 · $66.28 · 5; Tom 2 · $49.71 ·
+  7; Kenji 2 · $41.15 · 6; Maria 2 · $35.27 · 3; Grace/Omar/Nina 1 each. 13 customers, 10 repeat.
+  Lapsed list: Priya only. A returning-guest kiosk read for Asha's phone returns known, 6 visits,
+  usual = Masala Dosa ×5, Filter Coffee ×4, Masala Chai ×1.
+- **Attention feed (15 cards)**: the two goodwill cards stand — **[incident] "Vikram's last order
+  was cancelled"** (5 visits, $305.76, options incl. Goat Biryani) and **[lapsed] "Priya hasn't
+  been in for 19 days"** ("Their usual: Paneer Butter Masala ($15.49 menu price)" — the demo
+  line) — plus **"Paneer runs out today about 7:46 PM"** and **"Curry looks short for Dinner
+  today"** (forecast ~14 tickets, nobody on the station), with the rest of the station family.
+- **Analytics**: forecast confidence **Steady — "Built from 3 past Sundays of this restaurant's
+  own sales, blended with the recent trend"** (history-based, no longer the demand prior). Best
+  sellers by real counts: Chicken Dum Biryani 91, Paneer Butter Masala 50, Chicken Tikka Masala
+  48, Goat Biryani 41, Veg Biryani 35.
+- **Revenue**: week Mon Nov 2 → today: $437.20 (23 orders, "1 cancelled" — Vikram's) · $489.59 ·
+  $514.68 · $617.89 · $827.81 (Fri) · today $347.44 / 19 orders (8 simulated lunch + the 11
+  pre-existing board orders); average ticket today $18.29; week total $3,234.61 / 166 orders.
+- **Stock at the end** (on hand / reserved / free): paneer 762 / 480 / 282 g (run-out 7:46 PM);
+  chicken 11,000 / 560 / 10,440 g; biryani rice 36 / 1 / 35 portions; makhani base 24 / 2 / 22
+  portions — i.e. every position back at the scenario's own levels except paneer, tuned as
+  above. The delivery restore covered 26 ingredients (the big ones: chicken 11,000 g, flour
+  11,000 g, onion 7,000 g, milk 6,000 ml, mixed veg 6,000 g, yogurt 6,000 g, potato 6,000 g, goat
+  5,600 g, lentil 4,500 g, spinach 3,000 g, mango pulp 3,000 ml, chickpea 2,640 g, butter 2,200 g,
+  cream 2,100 g, moong 1,980 g, paneer 1,610 g, cashew 1,500 g, coconut 1,100 g, garlic 1,100 g,
+  gongura 1,000 g; plus cauliflower 400 g, coffee 312 g, mustard 194 g, tea 140 g, egg 51,
+  biryani rice 36 portions, dosa batter 38, sambar 45, makhani base 24, gulab jamun 45, water 32,
+  soy sauce 20 ml).
+
+### Tests
+
+- New: `tests/infra/test_simulate_history_plan.py` (9 tests) — the plan's shape without running
+  the simulation: determinism, 700–900 window orders, avg ticket band, every day trades,
+  weekend > Monday, Priya/Asha/Vikram shapes (incl. the single T-5 cancellation as Vikram's
+  latest contact and every Vikram ticket ≥ $55), cast sizes/phones, opening-hours containment,
+  today-lunch-only.
+- Python full suite (clean env, all proxy vars unset): **1556 collected, 1 failed** —
+  `test_localhost_tcp_needs_opt_in`, the known environmental failure from the pass-7/8 record.
+  (An earlier contaminated run under `all_proxy` failed 18 httpx-URL tests; with the recipe env
+  every one of them passes — environment, not code.)
+- Web: 266 tests — 265 passed + 1 flake on the first run; **266/266 on the re-run**. Ruff clean
+  over `src tests scripts`. Typecheck unchanged (no web source touched).
+
+### Screenshots (goal files, pass10-shots/, tablet 1180×820)
+
+`03-manager-home.png` (Attention 15 · Revenue $347.44/19 orders · Analytics "Dinner: ~26 orders"
+· Customers "13 remembered, 2 goodwill dishes waiting"), `04-attention.png` +
+`05-attention-scrolled.png` (the capacity cautions, Curry first), `09-attention-goodwill.png`
+(Vikram incident + Priya lapsed cards with their on-the-house options), `11-attention-paneer.png`
+("Paneer runs out today about 7:46 PM"), `06-analytics.png` (Steady forecast + best sellers),
+`07-revenue.png` (week day-by-day), `08-customers.png` (regulars grid), plus the join/sign-in
+frames `00/01/02`. Capture route worth remembering: a join link's token is signed with the
+per-process session secret — mint and server must share `RESTOS_SESSION_SECRET`, and the token
+is single-use (a crashed browser attempt burns it).
+
+### Running it against production (a human step — NOT done here)
+
+    cd ~/workspace/restaurantos-ai-work && .venv/bin/python scripts/simulate_history.py --tenant live
+
+(Defaults read `RESTOS_DATA_DIR`; `--dry-run --today YYYY-MM-DD` previews the plan from the seed
+files. Expect ~5 minutes for the full run. Do not run it twice — the second run no-ops by
+design — and do not run it against `demo` as well unless a second, separate history there is
+actually wanted.)
+
+### Commits (bujji/pass10-sim, local — for the parent to merge)
+
+See git log on this branch: the simulator + its plan tests, then this handoff.

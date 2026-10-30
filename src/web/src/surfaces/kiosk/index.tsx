@@ -22,17 +22,21 @@ import { onPersisted, useSession, useTenant, type DegradedMap } from '../../stor
 import { CartPanel } from './CartPanel'
 import { KioskController, type KioskDeps } from './controller'
 import { MenuGrid } from './MenuGrid'
+import { refreshStaleSandboxMenu } from './menuSync'
 import { StaffBar } from './StaffBar'
 import type { KioskState } from './state'
 import { TalkPanel } from './TalkPanel'
 
 const LANGS: readonly VoiceLang[] = ['auto', 'en', 'te', 'ta', 'es']
 
-/** The session cookie for this kiosk: read it, and create it (with its sandbox) when the surface opens. */
+/** The session cookie for this kiosk: read it, and create it (with its sandbox) when the surface opens.
+ * A returning session is revalidated against the server's current menu (menuSync, Scope L): a sandbox
+ * cloned before a menu change would otherwise serve its stale copy of the menu forever. */
 export async function ensureSession(force: boolean): Promise<void> {
   const session = useSession.getState()
   const info = force ? await session.load(true) : session.info ?? (await session.load())
-  if (!info) await session.start()
+  if (!info) await session.start() // a fresh sandbox is cloned from the current seed: nothing stale
+  else await refreshStaleSandboxMenu()
 }
 
 /** Whether the session still exists: a REST read that only says no on a 401 (offline is "maybe", so keep trying). */
