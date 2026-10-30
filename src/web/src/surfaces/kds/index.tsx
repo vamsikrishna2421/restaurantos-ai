@@ -1,6 +1,7 @@
 /**
  * The kitchen display, `/kds?station=` (P19; CONTRACTS_API §8, ARCHITECTURE §9). Station tabs (plus All, the expo
- * view) with a per-station language toggle; ticket cards with timers, the NEW chime and the CHANGED flag; bump,
+ * view) with a per-station language toggle — except on a device signed in through `/staff` with a chef's role
+ * claim (P41), which is locked to its claimed station and shows no tabs; ticket cards with timers, the NEW chime and the CHANGED flag; bump,
  * recall and undo; the 86 banner; staff notices with their delivered and seen acks; FOH tasks with Done and
  * "Can't go"; the live call strip; and the `kitchen-ptt` slot. Built to be read from 2 m on a tablet.
  *
@@ -15,6 +16,7 @@ import { BrandHat, Button, Chip, cx, TabPanel, Tabs, toast, Toaster, type TabIte
 import type { MenuSnapshot, SpeakLang, StaffNotice, StaffTask, StationLoad, Ticket } from '../../contracts/generated'
 import { bizNowMs } from '../../lib/format'
 import { LANGUAGE_NAMES, SPEAK_LANGS, stationLang, stationName } from '../../lib/i18n'
+import { clearStaffSession, loadStaffSession, staffApi } from '../../lib/staff'
 import { panelProps, useVideoMode } from '../../lib/videoMode'
 import { Link, navigate, useLocation, type SurfaceProps } from '../../router'
 import { Slot } from '../../slots'
@@ -56,8 +58,25 @@ export default function KdsSurface(_props: SurfaceProps) {
 
 function KdsScreen({ data }: { data: TenantData }) {
   const { menu, orders_open: orders } = data
+  // A chef who arrived through staff sign-in (P41) is locked to the station they claimed: the tabs go away and
+  // the URL's ?station= is ignored. No claim on this device (a shared expo screen, the founders' laptop) = the
+  // display behaves exactly as before.
+  const [staffSession] = useState(loadStaffSession)
+  const claim = staffSession?.claim?.kind === 'chef' ? staffSession.claim : null
+  const lockedStation = claim?.station_id !== null && claim?.station_id !== undefined
+    && menu.stations.some((s) => s.id === claim.station_id) ? claim.station_id : null
   const asked = useLocation().query.get('station')
-  const station = asked !== null && menu.stations.some((s) => s.id === asked) ? asked : ALL
+  const station = lockedStation ?? (asked !== null && menu.stations.some((s) => s.id === asked) ? asked : ALL)
+  const endShift = useCallback(async () => {
+    if (!staffSession) return
+    try {
+      await staffApi.release(staffSession.token)
+    } catch {
+      // the local sign-out below stands even when the server cannot be reached
+    }
+    clearStaffSession()
+    navigate('/staff')
+  }, [staffSession])
   const [prefs, setPrefs] = useState(readLangPrefs)
   const langOf = useCallback((id: string): SpeakLang => prefs[id] ?? stationLang(menu, id), [prefs, menu])
   const lang = station === ALL ? 'en' : langOf(station)
@@ -141,6 +160,12 @@ function KdsScreen({ data }: { data: TenantData }) {
           <SimClock />
           <FeedDot />
           <div className="ml-auto flex flex-wrap items-center gap-2">
+            {lockedStation !== null && staffSession && (
+              <>
+                <Chip>{`${staffSession.staff.name} · ${claim!.label}`}</Chip>
+                <Button data-chrome="" variant="ghost" onClick={() => void endShift()}>End shift</Button>
+              </>
+            )}
             {station !== ALL && <LangToggle value={lang} onChange={setLang} />}
             <Button data-chrome="" variant="ghost" aria-pressed={chimeOn} icon={chimeOn ? <Bell /> : <BellOff />}
               onClick={toggleChime}>
@@ -149,8 +174,10 @@ function KdsScreen({ data }: { data: TenantData }) {
             <Slot name="kitchen-ptt" props={{ stationId: station === ALL ? null : station, lang }} />
           </div>
         </div>
-        <Tabs items={tabs} value={station} onChange={setStation} label="Stations" idPrefix="kds" size="lg"
-          className="border-b-0 px-2" />
+        {lockedStation === null && (
+          <Tabs items={tabs} value={station} onChange={setStation} label="Stations" idPrefix="kds" size="lg"
+            className="border-b-0 px-2" />
+        )}
       </header>
       <DegradedBanner />
       <SoldOutBanner menu={menu} lang={lang} />

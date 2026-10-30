@@ -13,7 +13,7 @@ dollars as floats; none of them is persisted or hashed. Secrets in request bodie
 from __future__ import annotations
 
 import datetime as dt
-from typing import Any, Literal, get_args
+from typing import Annotated, Any, Literal, get_args
 
 from pydantic import AwareDatetime, Field, SecretStr
 
@@ -27,6 +27,7 @@ from restaurantos.contracts.common import (
     Model,
     Role,
     RushPhase,
+    SpeakLang,
     SpendPool,
     Usd,
     UtcTime,
@@ -492,3 +493,60 @@ class OnboardingPublishRequest(Model):
 
 class CallDisconnectRequest(Model):
     call_id: str
+
+
+# ----- staff identity and shift role slots (P41) ------------------------------------------------------------------
+
+StaffRoleKind = Literal["manager", "front_counter", "chef"]
+Pin = Annotated[str, Field(pattern=r"^\d{4}$")]  # a 4-digit PIN, leading zeros kept (it is a string, not a number)
+
+
+class StaffPerson(Model):
+    """A staff member as other staff may see them: never a PIN, never a hash."""
+
+    id: str
+    name: str
+    language: SpeakLang
+
+
+class StaffSignupRequest(Model):
+    name: str = Field(min_length=1, max_length=60)
+    language: SpeakLang
+    pin: Pin
+
+
+class StaffLoginRequest(Model):
+    staff_id: str
+    pin: Pin
+
+
+class StaffLoginResult(Model):
+    """The signed staff token (sent back as ``Authorization: Bearer``), the person, and the token's expiry."""
+
+    token: str
+    staff: StaffPerson
+    expires_at: UtcTime
+
+
+class StaffHolder(Model):
+    staff_id: str
+    name: str
+
+
+class RoleSlot(Model):
+    """One claimable job for the shift. ``holder`` is null while the slot is open; ``mine`` marks the caller's."""
+
+    slot_id: str
+    label: str
+    kind: StaffRoleKind
+    station_id: str | None = None
+    holder: StaffHolder | None = None
+    mine: bool = False
+
+
+class RoleClaimRequest(Model):
+    slot_id: str
+
+
+class RoleReleaseRequest(Model):
+    slot_id: str

@@ -55,7 +55,9 @@ const route = (path: string, surface: string | null, title: string, feed: FeedKi
   session = true): RouteDef => ({ path, surface, title, feed, session })
 
 export const ROUTES: readonly RouteDef[] = [
-  route('/', 'judge', 'Action page'),
+  route('/', 'welcome', 'Welcome', 'none'),
+  route('/staff', 'staff', 'Staff sign-in', 'none'),
+  route('/manager', 'manager', 'Manager'),
   route('/kiosk', 'kiosk', 'Kiosk'),
   route('/kds', 'kds', 'Kitchen display'),
   route('/monitor', 'monitor', 'Call monitor'),

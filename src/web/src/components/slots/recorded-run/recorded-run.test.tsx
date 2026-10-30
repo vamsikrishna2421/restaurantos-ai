@@ -6,7 +6,7 @@ import { afterEach, beforeEach, expect, test, vi } from 'vitest'
 import type { RecordedRun } from '../../../contracts/generated'
 import { resetTenantFeedForTests, useTenant } from '../../../stores'
 import { event } from '../../../stores/testkit'
-import { approvalOf, fail, json, pendingAiPlan, stubFetch, type Call } from '../../../surfaces/judge/testkit'
+import { approvalOf, fail, json, pendingAiPlan, stubFetch, type Call } from '../../../test/story-kit'
 import RecordedRunSlot, { recordedLine } from '.'
 
 const RUN: RecordedRun = { id: 'rec_1', title: 'Dinner rush, start to verified', recorded_at: '2026-10-29T20:00:00.000Z',

@@ -1,5 +1,5 @@
 /**
- * Test-only helpers for the action page suites (never imported by app code): a stubbed same-origin `fetch` that
+ * Test-only helpers for the story-fixture suites (relocated from the deleted judge surface, P41) (never imported by app code): a stubbed same-origin `fetch` that
  * records every request, the REST answers the page expects, a voice turn result and the story's GM plan with its
  * T2 steps still pending (from the P18b story fixture).
  */
@@ -15,8 +15,8 @@ import type {
   StatusReport,
   ToolingMeter,
   VoiceTurnResult,
-} from '../../contracts/generated'
-import { FIXTURE_TENANT_ID, storyAiPlan, storyState } from '../../test/fixtures'
+} from '../contracts/generated'
+import { FIXTURE_TENANT_ID, storyAiPlan, storyState } from './fixtures'
 
 export interface Call {
   method: string

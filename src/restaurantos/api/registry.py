@@ -93,6 +93,7 @@ REQUIRED_ROUTERS: tuple[Entry, ...] = (
     Entry("voice.twilio_media", "P27b", "CP2"),
     Entry("api.routes_samples", "P30c", "CP3"),
     Entry("api.routes_proof", "P31a", "CP3"),
+    Entry("api.routes_staff", "P41", "CP4"),
 )
 
 OPTIONAL_ROUTERS: tuple[Entry, ...] = (
