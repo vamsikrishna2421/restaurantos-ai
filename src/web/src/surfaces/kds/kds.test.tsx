@@ -81,6 +81,8 @@ function show(state: TenantState, station?: string) {
   return render(kds())
 }
 
+const NAMES_CALL = { method: 'GET', path: '/api/customers/names', body: undefined }
+
 const card = (orderNo: number) => screen.getByRole('article', { name: new RegExp(`^Ticket #${orderNo} `) })
 const lineTexts = (el: HTMLElement) => within(el).getAllByRole('listitem').map((li) => li.textContent)
 
@@ -111,7 +113,7 @@ test('bump_then_undo', async () => {
   // the answer shows at once: the ticket leaves the grid for the rail, with a 10 s undo
   const undo = await screen.findByRole('button', { name: 'DESHACER #1047' })
   expect(undo).toHaveTextContent('DESHACER10s')
-  expect(calls).toEqual([{ method: 'POST', path: `/api/kds/tickets/${tkt.id}/bump`, body: {} }])
+  expect(calls).toEqual([NAMES_CALL, { method: 'POST', path: `/api/kds/tickets/${tkt.id}/bump`, body: {} }])
   expect(screen.queryByRole('article', { name: /^Ticket #1047 / })).toBeNull()
 
   fireEvent.click(undo)
@@ -123,6 +125,25 @@ test('bump_then_undo', async () => {
   act(() => useTenant.getState().apply(event(88, 'ticket.updated', { ticket: bumped, action: 'bump' })))
   act(() => useTenant.getState().apply(event(89, 'ticket.updated', { ticket: { ...tkt }, action: 'undo' })))
   expect(card(1047)).toHaveAttribute('data-status', 'queued')
+})
+
+test('guest_name_on_ticket_and_bumped_rail', async () => {
+  const state = storyState()
+  const tkt = ticketFor(state, 1047, 'STN_BIRYANI')
+  const bumped: Ticket = { ...tkt, status: 'bumped', bumped_biz: '2026-11-07T18:50:00-05:00',
+    undo_until: new Date(NOW_MS + 10_000).toISOString() }
+  respond = ({ path }) => path.endsWith('/api/customers/names')
+    ? json(200, [{ order_id: tkt.order_id, name: 'Asha' }])
+    : path.endsWith('/bump') ? json(200, bumped) : notFound()
+  show(state, 'STN_BIRYANI')
+
+  // the name the guest gave rides the ticket beside its number, in the station's grid
+  const name = await within(card(1047)).findByText('Asha')
+  expect(name).toHaveAttribute('data-guest-name', '')
+  // and once the ticket is bumped, the rail calls the same name at the pass
+  fireEvent.click(within(card(1047)).getByRole('button', { name: 'LISTO #1047' }))
+  const rail = await screen.findByRole('button', { name: 'DESHACER #1047' })
+  expect(rail.closest('li')?.querySelector('[data-guest-name]')).toHaveTextContent('Asha')
 })
 
 test('recall_after_the_undo_window', async () => {
@@ -137,7 +158,7 @@ test('recall_after_the_undo_window', async () => {
   expect(screen.queryByRole('button', { name: /^DESHACER/ })).toBeNull()
   fireEvent.click(screen.getByRole('button', { name: 'REGRESAR #1047' }))
   await waitFor(() => expect(card(1047)).toHaveAttribute('data-status', 'recalled'))
-  expect(calls).toEqual([{ method: 'POST', path: `/api/kds/tickets/${tkt.id}/recall`, body: {} }])
+  expect(calls).toEqual([NAMES_CALL, { method: 'POST', path: `/api/kds/tickets/${tkt.id}/recall`, body: {} }])
   expect(within(card(1047)).getByText('REGRESAR')).toBeInTheDocument()
 })
 
@@ -157,10 +178,11 @@ test('notice_delivered_ack_on_render', async () => {
   expect(within(notice).getByText(STORY_ACTION_LINES.arjun.en)).toHaveAttribute('lang', 'en')
   await within(notice).findByText('Delivered')
   const ack = { method: 'POST', path: `/api/kds/notices/${arjun.id}/delivered`, body: { station_id: 'STN_TANDOOR' } }
-  // once, and nothing for Carlos's notice (another station's, already seen)
-  expect(calls).toEqual([ack])
+  // once, and nothing for Carlos's notice (another station's, already seen). The ack is a child
+  // effect, so it lands ahead of the console's own callout-names read (parent effects run last).
+  expect(calls).toEqual([ack, NAMES_CALL])
   rerender(kds())
-  expect(calls).toEqual([ack])
+  expect(calls).toEqual([ack, NAMES_CALL])
 
   fireEvent.click(within(notice).getByRole('button', { name: 'చూశాను' }))
   await within(notice).findByText('Seen')
@@ -179,7 +201,7 @@ test('notice_ai_drafted_label_below_action_line', () => {
   expect(label.compareDocumentPosition(draft) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
   expect(within(notice).getByText('Seen')).toBeInTheDocument()
   expect(within(notice).queryByRole('button')).toBeNull()
-  expect(calls).toEqual([]) // already seen: no ack
+  expect(calls).toEqual([NAMES_CALL]) // already seen: no ack — only the callout-names read
 
   // a draft from a tainted report waits for approval and is never shown; the action line still is
   cleanup()
@@ -202,7 +224,7 @@ test('task_cant_go_posts_blocked', async () => {
   fireEvent.click(within(pickup).getByRole('button', { name: "Can't go" }))
   fireEvent.click(within(pickup).getByRole('button', { name: 'No one free to go' }))
   await within(pickup).findByText('Reported: No one free to go')
-  expect(calls).toEqual([{ method: 'POST', path: `/api/kds/tasks/${task.id}/blocked`,
+  expect(calls).toEqual([NAMES_CALL, { method: 'POST', path: `/api/kds/tasks/${task.id}/blocked`,
     body: { reason: 'No one free to go' } }])
   expect(within(pickup).queryByRole('button', { name: "Can't go" })).toBeNull()
   expect(within(pickup).getByRole('button', { name: 'Done' })).toBeEnabled()

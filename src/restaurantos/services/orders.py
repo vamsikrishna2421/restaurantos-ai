@@ -43,6 +43,8 @@ from restaurantos.store import repo as store_repo
 from restaurantos.store import tables as t
 
 if TYPE_CHECKING:
+    from pathlib import Path
+
     from sqlalchemy.engine import RowMapping
     from sqlalchemy.ext.asyncio import AsyncConnection
 
@@ -63,6 +65,32 @@ QTY_MAX = cart_rules.DEFAULT_CAPS.handoff_qty_over  # a line correction stays in
 CLOSED_STATUSES = ("picked_up", "cancelled")
 CART_FLAGS = frozenset({"qty_flagged", "large_order_handoff", "injection_suspected"})  # codes, never free text
 KEPT_ORDER_FLAGS = ("injection_suspected",)  # carried from the cart; qty_flagged is recomputed from the lines
+
+
+def goodwill_comp(tenant_id: str, session_id: str, data_dir: Path, menu: MenuSnapshot,
+                  stock: Availability) -> tuple[OrderLine, str] | None:
+    """The goodwill dish waiting for this order (P43), as a $0 line and its credit id — or None.
+
+    The placing session's guest may hold an approved credit in the customer book (``services.customers``);
+    when they do, their dish joins the order at no charge: the kitchen cooks it, the reservation holds
+    its ingredients, and the total does not move (``pricing.totals`` reads it as qty × 0). A dish the
+    menu no longer carries, or one 86'd today, does not block the order — the credit simply waits for
+    a day it can be served. A book that cannot be read never blocks an order either.
+    """
+    try:
+        from restaurantos.services import customers as cust
+
+        credit = cust.store_for(data_dir).pending_credit_for_session(tenant_id, session_id)
+    except Exception:
+        log.warning("goodwill: the customer book could not be read; placing without the comp", exc_info=True)
+        return None
+    if credit is None:
+        return None
+    item = next((dish for dish in menu.items if dish.code == credit.item_code), None)
+    if item is None or guard.reject_reason(credit.item_code, menu, stock) is not None:
+        return None
+    return (OrderLine(line_no=0, item_code=item.code, qty=1, modifiers=[], unit_price_cents=0,
+                      line_total_cents=0), credit.credit_id)
 
 
 # ----- pure helpers -----------------------------------------------------------------------------------------------
@@ -348,6 +376,7 @@ class OrderService:
         of ``idem_key`` returns the first order; the same key with another cart is 409 ``idempotency_key_reused``."""
         tenant_id, key = _tenant_of(ctx), _idem_key(idem_key)
         create_tickets, repo = self._kitchen("create_tickets"), self._repo()
+        comp_credit: str | None = None
         async with self._store().write() as tx:
             if (first := await self._by_key(tx.conn, tenant_id, key)) is not None:
                 if first.cart_id != cart.cart_id:
@@ -355,7 +384,13 @@ class OrderService:
                                    details={"reason": "idempotency_key_reused", "order_id": first.id})
                 return first
             tenant, menu = await repo.tenant(tx.conn, tenant_id), await repo.menu_snapshot(tx.conn, tenant_id)
-            lines, flags = placeable_lines(cart, menu, await repo.availability(tx.conn, tenant_id))
+            stock = await repo.availability(tx.conn, tenant_id)
+            lines, flags = placeable_lines(cart, menu, stock)
+            comp = goodwill_comp(tenant_id, cart.session_id, self._c.settings.data_dir, menu, stock)
+            if comp is not None:  # a goodwill dish on the house (P43): cooked and reserved, never charged
+                comp_line, comp_credit = comp
+                lines = [*lines, comp_line.model_copy(update={"line_no": len(lines) + 1})]
+                flags = [*flags, "goodwill_comp"]
             now_biz, now_real = self._clock.for_tenant(tenant.clock).now_biz_ms(), self._clock.now_real_ms()
             offsets = await repo.active_offsets(tx.conn, tenant_id, now_biz)
             loads = load.station_loads(await repo.open_tickets(tx.conn, tenant_id), menu.stations, menu, offsets,
@@ -374,6 +409,15 @@ class OrderService:
                                   GUEST_ACTOR, causation_id=ctx.trace_id, correlation_id=order.id)
             reserve = inventory.reserve(lines, await repo.recipes(tx.conn, tenant_id), ref_id=order.id)
             await self._move_stock(tx, tenant_id, reserve, SYSTEM_ACTOR)
+        if comp_credit is not None:  # the order stands, so the credit is spent — in the book, not the ledger
+            try:
+                from restaurantos.services import customers as cust
+
+                cust.store_for(self._c.settings.data_dir).mark_redeemed(
+                    tenant_id, comp_credit, order.id, self._clock.now_real_ms())
+            except Exception:
+                log.warning("goodwill: credit %s could not be marked redeemed for order %s",
+                            comp_credit, order.id, exc_info=True)
         log.info("%s: order #%d placed (%d lines, %d tickets, quote %d min)", tenant_id, order.order_no, len(lines),
                  len(tickets), quote.minutes)
         return order

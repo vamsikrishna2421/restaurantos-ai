@@ -682,3 +682,132 @@ own them safely.
   failure is `staff.test.tsx > switch_job_for_today_releases_without_ending_the_shift`, a synchronous
   lookup racing an async fetch under parallel load — it fails identically on the unmodified pass-5 base
   in this sandbox and passes standalone on both branches (7/7). `npm run build` clean.
+## Pass 7 — customer memory + goodwill engine (P43) — built by Bujji, branch bujji/pass7
+
+The restaurant remembers its customers, and goodwill reaches the manager as a decision. Zero LLM
+calls anywhere in this pass: recognition, the guest book, and every goodwill card are statistics
+over the order ledger + the customer store, evaluated on read like P42's correlations.
+
+### Surfaces
+
+- **Kiosk checkout capture** (`surfaces/kiosk/CustomerCapture.tsx`, inside the cart panel when the
+  cart has lines): optional name + phone with the honest line — "So we can call your name when it's
+  ready, and remember your usual. Skip it and order as usual — nothing changes." Identify is
+  debounced, fail-soft (a failed save says so and never touches the order), and never gates
+  ordering: a guest who skips gets the pass-6 flow byte-for-byte. A returning number surfaces
+  "Welcome back, <name> — your usual:" with one-tap add chips (dish · ordered N×), and a pending
+  goodwill dish is announced before placement ("Good news — your Masala Chai is on us today…").
+  The name is kept with its cart id, so the next guest at the same kiosk never inherits it.
+- **Ready-surface callout**: the placed card speaks the name beside the order number ("We'll call
+  Asha when it's ready" / "Asha, your order is ready!"), and the KDS ticket card and the bumped
+  (ready) rail call the name next to the ticket number. Names are fetched alongside the feed
+  (`GET /api/customers/names`, open orders only) and fail soft to numbers-only. The public `/live`
+  board deliberately does NOT get names — its projection strips personal data by design.
+- **Manager console**: new **Customers** section (guest book: totals, top regulars by visits then
+  spend, the drifted, approved dishes still waiting) and **goodwill cards in Attention** next to
+  the P42 correlation cards — reason with real numbers, masked phone, the freebie options as
+  selectable chips, Put it on the house / Not now for the manager on shift (staff token; the
+  server enforces manager-on-shift). The Attention tab badge counts both card kinds.
+
+### Data model — `customers.db` (new store, staff.db idiom; the orders ledger is untouched)
+
+Core store has no column migrations, so identity lives in its own SQLite file per data dir:
+
+- `customers` PK (tenant, phone_key): name, phone as given, `marketing_opt_in` DEFAULT 0
+  (schema only — nothing sends marketing anywhere), first/updated stamps.
+- `session_links` (append-only): tenant, session_id, phone_key, name snapshot, linked_ms. An
+  order belongs to the link live at the order's `created_ms` within its session (latest link at or
+  before, else the session's earliest) — so history survives name changes and shared kiosks.
+- `goodwill_state` PK (tenant, key): status pending/approved/dismissed, chosen item, decider,
+  decided_ms. `goodwill_credits` PK (tenant, credit_id): suggestion key, phone, item, status,
+  redeemed_order_id. Phone key = digits as typed, leading US 1 dropped, 7–15 digits (else 400).
+  Phones are stored as given (the restaurant's own book, on its own volume), masked as
+  `···` + last 4 in every manager surface, and never written to app logs.
+
+### The goodwill engine — `domain/customers.py` + `services/customers.py`, named constants
+
+- Signals, priority incident > lapsed > milestone, one standing suggestion per customer per read:
+  (a) **incident** — high-value customer whose order inside 30 days was cancelled, or waited
+  ≥ 2.0× the tenant's median wait AND ≥ 30 min (median from trailing 28 business days of
+  non-cancelled ready orders; `placed_biz_ms`/`ready_at_biz_ms` support waits — if no median
+  exists, cancellations only); high-value = spend ≥ $150.00, and once ≥ 10 identified spenders
+  exist the threshold becomes min($150, the 90th-percentile spend).
+  (b) **lapsed** — ≥ 3 visits and none in ≥ 14 days.
+  (c) **milestone** — the next visit is the 10th, 25th, or 50th.
+- Deterministic keys: `goodwill:<phone_key>:incident:<order_id>` / `:lapsed:<last_order_id>` /
+  `:milestone:<next_visit_no>` — re-reads reproduce the same suggestion, decisions stick to it.
+  Approved keys never re-suggest; dismissed keys cool down 14 days (`DISMISS_COOLDOWN_DAYS`).
+- Options: their usual (most-ordered dish), a cheaper other dish from their history, and the
+  next-most-ordered other dish ("also loved"). Value is the dish's **menu price, labeled as
+  such** — tenant recipes carry quantities only, no ingredient costs exist to label "kitchen cost".
+
+### Redemption — the comped dish rides the order
+
+An approval mints a pending credit keyed to the phone, visible in the Customers view until spent.
+At placement (`OrderService.place`), after the cart's lines are priced, a pending credit appends a
+zero-priced line for the dish: totals recompute from lines, so the bill never moves; the kitchen
+cooks it, inventory reserves it, the order carries the `goodwill_comp` flag, the guest's bill shows
+"On the house", and the credit is marked redeemed once placement commits. If the dish is gone or
+86'd that day the credit simply waits — an order is never blocked by a goodwill read.
+
+### Deliberate limits (and why)
+
+- **Percentage-off alternate dropped**: `pricing.totals` recomputes the subtotal from
+  qty × unit_price; there is no discount representation in the order model, and adding one would
+  corrupt ledger math every other surface trusts. Both alternates are dishes instead.
+- **Phone-channel callers are not linked**: orders carry `session_id`, but `caller_hash` is always
+  NULL today, so there is no honest key to attach a phone order to a guest. The Customers view
+  says so in its own note rather than implying coverage it doesn't have.
+- **No scheduler, no push**: like P42, everything is evaluated on read; the scheduled routines
+  (morning lookahead / pre-service / live watch) remain the documented next step that will carry
+  these cards too.
+- **Names never touch the ledger**: order events may not carry guest free text (CONTRACTS §5), so
+  the callout name travels via the customers store + its own endpoint, never the Order contract.
+
+### Tests
+
+- Python: domain `tests/domain/test_customers.py` (11), routes `tests/api/test_customers_routes.py`
+  (7: gates, recognition excluding cancelled orders, callout names, view math + masking + tenant
+  isolation, decide→credit→redeem at placement through the real OrderService). Full suite
+  (JUnit-exact): **1547 tests — 1541 passed, 3 skipped, 3 failed**, and all three failures are
+  wall-clock/sandbox tests, none in pass-7 code: `test_approval_executes_within_200ms_while_gm_stream_runs`
+  and `test_localhost_tcp_needs_opt_in` fail identically on the unmodified pass-6 base (19a923d,
+  clean worktree; the latter is a sandbox PermissionError raised in conftest itself), and
+  `test_kds_fanout_p95_local` passes standalone on BOTH this branch and the base — it flaked only
+  inside the loaded full run (the 86-sync sub-1s test did the same in an earlier run and likewise
+  passes standalone on both). Ruff clean across src + tests.
+- Web: 264 tests / 38 files — new suites: kiosk capture (4), manager customers + goodwill (2), KDS
+  guest name (1), manager home grid (1); the five KDS story expectations now include the names read
+  (strictness unchanged). Full runs twice passed everything; the final runs flaked only the known
+  staff timing test (`switch_job_for_today_releases_without_ending_the_shift`, 263/264) — it is
+  intermittent on the unmodified base since pass 6 (documented there), passes standalone on this
+  tree, and pass 7's diff over pass 6 touches no staff code at all.
+- Demo data seeded into the local sandbox tenant for the screenshots (Asha the regular, Priya the
+  lapsed regular, Marco at 9 visits): `files/pass7-shots/`.
+
+### Founder-directed addition — the console's grid home
+
+The manager console now lands on a **Home grid** (the founder's standing ask from the hackathon
+plan): one tile per area — Attention, Orders, People, Timesheets, Revenue, Analytics, Customers,
+Settings — each a real button in the Card shell carrying a live headline from reads the console
+already makes (cautions + goodwill waiting, open orders and their value, jobs filled, on shift
+now, today's till, the next daypart's forecast or "No sales history yet", guests remembered +
+goodwill waiting, the restaurant's name over "Setup & stock"). The Attention tile takes the bad
+tone when any standing card is bad. No new backend: the shell additionally reads the existing
+revenue and customers endpoints for two headlines and fails soft on both. The tabs remain the way
+around (Home is the first tab, the way back); `?section=` deep links are unchanged; the grid is
+2 columns at phone width, 3–4 at tablet/desktop. Tests: a new home-grid suite (all eight headlines
+from fixtures + tile navigation), and four existing tests gained the one-tap landing step the new
+default requires — the two pass-5 manager tests, the sections correlation test, and the goodwill
+decision test, which now enters Attention through its tile.
+
+### Note — the kiosk's look is Pass 8's, not this pass's
+
+Two founder-reported kiosk fixes (the empty cart reserving 45% of the large-screen layout, and the
+slashed microphone shown in the idle state) were built during this pass as a separate commit, then
+dropped by the founder the same day in favor of a full kiosk redesign (Pass 8, from his supplied
+reference design), which will own the kiosk's look, mic-state presentation, and cart layout. The
+fix commit and its revert are both on this branch; the shipped tree is exactly the Pass 7 scope
+above. For Pass 8: `CustomerCapture` and the placement-time goodwill line are deliberately
+self-contained (capture = one component + one endpoint; redemption = one zero-priced line in
+`OrderService.place`) so both re-home into the redesigned cart/checkout without surgery.

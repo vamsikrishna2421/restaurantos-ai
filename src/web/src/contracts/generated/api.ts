@@ -35,6 +35,10 @@ export type ForecastConfidence = 'steady' | 'early' | 'prior' | 'none'
 
 export type ConsoleCardKind = 'capacity' | 'stock'
 
+export type GoodwillReason = 'incident' | 'lapsed' | 'milestone'
+
+export type GoodwillOptionKind = 'usual' | 'cheaper' | 'also_loved'
+
 export interface ErrorDetail {
   code: string
   message: string
@@ -775,6 +779,86 @@ export interface ConsoleSettings {
   menu: SettingsMenuItem[]
   stations: SettingsStation[]
   tickets_per_cook_hour: number
+}
+
+export interface IdentifyRequest {
+  phone: string
+  name: string | null
+  session_id: string
+}
+
+export interface UsualItem {
+  item_code: string
+  name: string
+  times_ordered: number
+}
+
+export interface PendingCreditView {
+  item_code: string
+  name: string
+  price_cents: number
+}
+
+export interface IdentifyResult {
+  known: boolean
+  name: string | null
+  visits: number
+  usual: UsualItem[]
+  pending_credit: PendingCreditView | null
+}
+
+export interface CustomerOrderName {
+  order_id: string
+  name: string
+}
+
+export interface ConsoleCustomer {
+  phone_masked: string
+  name: string | null
+  visits: number
+  spend_cents: number
+  first_visit_biz: string
+  last_visit_biz: string
+  days_since_last: number
+  usual_name: string | null
+  pending_credit: PendingCreditView | null
+}
+
+export interface ConsoleCustomers {
+  regulars: ConsoleCustomer[]
+  lapsed: ConsoleCustomer[]
+  total_customers: number
+  repeat_customers: number
+  note: string
+}
+
+export interface GoodwillOption {
+  item_code: string
+  name: string
+  kind: GoodwillOptionKind
+  price_cents: number
+  label: string
+}
+
+export interface GoodwillSuggestion {
+  key: string
+  reason: GoodwillReason
+  tone: 'warn' | 'bad' | 'ok'
+  title: string
+  detail: string
+  customer_name: string | null
+  phone_masked: string
+  options: GoodwillOption[]
+}
+
+export interface GoodwillFeed {
+  suggestions: GoodwillSuggestion[]
+}
+
+export interface GoodwillDecision {
+  key: string
+  approve: boolean
+  item_code: string | null
 }
 
 export interface OnboardingDraftItem {

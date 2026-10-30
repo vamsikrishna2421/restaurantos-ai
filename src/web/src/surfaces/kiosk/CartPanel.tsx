@@ -7,12 +7,13 @@
  */
 
 import { CircleCheck, Minus, Plus, ShoppingBag, Trash2 } from 'lucide-react'
-import { memo } from 'react'
+import { memo, useState } from 'react'
 import { Button, Card, Chip } from '../../components/ui'
 import type { Cart, MenuSnapshot, Order, RejectedOp, RejectReason } from '../../contracts/generated'
 import { formatCents, formatOrderNo } from '../../lib/format'
 import { pickLabel } from '../../lib/i18n'
 import type { VoiceLang } from '../../lib/audio/voiceSocket'
+import { CustomerCapture } from './CustomerCapture'
 import { dishNames } from './MenuGrid'
 
 const REASONS: Readonly<Record<RejectReason, string>> = {
@@ -78,8 +79,12 @@ function modLabel(menu: MenuSnapshot, code: string, lang: VoiceLang): string {
   return pickLabel(mod?.labels, lang === 'auto' ? 'en' : lang, code)
 }
 
-function Placed({ placed, onNewOrder }: Pick<CartPanelProps, 'onNewOrder'> & { placed: NonNullable<CartPanelProps['placed']> }) {
+function Placed({ placed, onNewOrder, menu, lang, guestName }: Pick<CartPanelProps, 'onNewOrder' | 'menu' | 'lang'> & {
+  placed: NonNullable<CartPanelProps['placed']>
+  guestName: string | null
+}) {
   const { order } = placed
+  const priceOf = (code: string) => menu.items.find((i) => i.code === code)?.price_cents ?? 0
   return (
     <Card panel="cart" tone="ok" title="Order placed">
       <div role="status" className="flex flex-col items-center gap-3 py-4 text-center">
@@ -87,10 +92,25 @@ function Placed({ placed, onNewOrder }: Pick<CartPanelProps, 'onNewOrder'> & { p
         {order ? (
           <>
             <p className="text-3xl font-bold tabular-nums">{formatOrderNo(order.order_no)}</p>
+            {guestName && (order.status === 'ready' ? (
+              <p className="text-2xl font-bold text-ok">{guestName}, your order is ready!</p>
+            ) : (
+              <p className="text-lg">We&apos;ll call <span className="font-semibold">{guestName}</span> when it&apos;s ready</p>
+            ))}
             <p className="text-lg">
               {order.pickup_quote_min != null ? `Ready in about ${order.pickup_quote_min} minutes` : 'Sent to the kitchen'}
               {' · '}{formatCents(order.total_cents)}
             </p>
+            <ul className="w-full max-w-sm text-left" aria-label="What you ordered">
+              {order.lines.filter((l) => l.status === 'active').map((line) => (
+                <li key={line.line_no} className="flex items-baseline justify-between gap-3 py-0.5">
+                  <span>{line.qty}× {dishNames(menu, line.item_code, lang).primary}</span>
+                  {line.line_total_cents === 0 && priceOf(line.item_code) > 0
+                    ? <span className="font-semibold text-ok">On the house</span>
+                    : <span className="tabular-nums">{formatCents(line.line_total_cents)}</span>}
+                </li>
+              ))}
+            </ul>
           </>
         ) : (
           <p className="text-lg">{placed.replyText ?? 'Your order is on its way to the kitchen.'}</p>
@@ -103,7 +123,13 @@ function Placed({ placed, onNewOrder }: Pick<CartPanelProps, 'onNewOrder'> & { p
 
 function CartPanelView(props: CartPanelProps) {
   const { menu, lang, cart, readback, busy, placing, enabled, placed, onQty, onConfirm } = props
-  if (placed && (cart?.lines.length ?? 0) === 0) return <Placed placed={placed} onNewOrder={props.onNewOrder} />
+  // the name this guest gave at checkout (P43), kept with its cart id so the next guest at this
+  // kiosk never inherits it: the placed card speaks it, the counter calls it
+  const [guest, setGuest] = useState<{ cartId: string; name: string | null } | null>(null)
+  if (placed && (cart?.lines.length ?? 0) === 0) {
+    const guestName = placed.order && guest?.cartId === placed.order.cart_id ? guest.name : null
+    return <Placed placed={placed} onNewOrder={props.onNewOrder} menu={menu} lang={lang} guestName={guestName} />
+  }
   const lines = cart?.lines ?? []
   const count = lines.reduce((n, l) => n + l.qty, 0)
   const handoff = cart?.flags.includes('large_order_handoff') ?? false
@@ -187,6 +213,11 @@ function CartPanelView(props: CartPanelProps) {
             )
           })}
         </ul>
+      )}
+      {cart && lines.length > 0 && (
+        <CustomerCapture key={cart.cart_id} menu={menu} lang={lang} sessionId={cart.session_id}
+          locked={busy || readback} onAdd={props.onAdd}
+          onName={(name) => setGuest({ cartId: cart.cart_id, name })} />
       )}
     </Card>
   )
