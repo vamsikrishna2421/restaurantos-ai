@@ -1,8 +1,116 @@
-# Bujji session handoff — front door, pass 1
+# Bujji session handoff — front door, pass 1 + onboarding, pass 2
 
 Branch: `bujji/front-door` (off `main`). Written 2026-10-30 by Bujji (the assistant builder) so any later
 session — Claude Code contributor session included — can pick this work up cold: what shipped, the decisions
-behind it, how to run it, and what is deliberately left for pass 2.
+behind it, how to run it, and what is deliberately left for later. Pass 2 (restaurant onboarding) is the
+first section; pass 1 follows below it.
+
+## Pass 2 — Restaurant onboarding (P39): a restaurant drafts itself from its menu
+
+Built 2026-10-30, same branch, commits `50ed235`…`3d9740a` on top of pass 1. `config/features.yaml`:
+**P39 flipped `pending` → `go`** (the routes module now exists and imports cleanly).
+
+### The flow (spec: onboarding is "Step zero", the demo's opening act)
+
+`/onboard` is no longer a placeholder. **Step 1 asks for almost nothing**: the restaurant's name and its
+public **Toast ordering-page link** — or, behind a "No Toast page?" toggle, the menu **pasted as text**.
+One button: **Build my restaurant draft**. **Step 2 is one review screen**: the whole proposal — menu
+grouped by station, station sizes, the shift's job list — with light inline editing only (rename the
+restaurant, remove a dish, move a dish to another station via dropdown, step a station's cook count up or
+down, give the manager's name). **Go live** posts exactly what the screen shows; the success state names
+the restaurant and its tenant id.
+
+### Backend (`services/onboarding.py`, `api/routes_onboarding.py`, contracts in `contracts/api.py`)
+
+- `POST /api/onboarding/draft` (session auth, like every mutating route) → `OnboardingDraft`
+  `{restaurant_name, source, items[{name, price_cents, category, station_id}], stations[{id, label,
+  parallel_slots}], roles[RoleSlot]}`. Exactly one source or 400. The roles are P41's
+  `staff_identity.derive_slots` over the draft stations — the same derivation the live tenant uses.
+- `POST /api/onboarding/go-live` → writes the tenant config (below). 409 `tenant_exists`, never overwrites.
+- **Toast parsing** (`parse_toast_html`): Toast public pages are Next.js apps, so it reads the embedded
+  `__NEXT_DATA__` JSON and walks it — a named dict with a price and no item list is a dish (dollar floats
+  and integer cents both handled); a named dict with an item list is a group and becomes the category; an
+  item's own subtree is never descended into, so modifier add-on prices are not collected as dishes. If the
+  JSON is absent or yields nothing, a best-effort rendered-text scan (headings = categories, `$` prices =
+  items) runs. If that also finds nothing → **422 `menu_unparseable`** with a plain-language message. Fetch
+  failures (transport error, non-200, >8 MB) → **502 `menu_fetch_failed`**. Nothing is ever fabricated:
+  no source items, no draft.
+- **Paste parsing** (`parse_menu_text`): headings (`## X`, `X:`, ALL-CAPS) set the category; an item line
+  ends in a price (`$12.99`, or a bare trailing `12.99`); description lines are skipped, not guessed.
+- **Station inference** (`infer_station`): keyword rules, category hits weighing double name hits, word
+  boundaries throughout. biryani/pulao/fried rice → `STN_BIRYANI`; dosa/idli/vada/tiffin/breakfast →
+  `STN_TIFFIN`; naan/roti/kebab/tikka/breads → `STN_TANDOOR`; curry/masala/gravy/entrees/mains →
+  `STN_CURRY`; 65/manchurian/pakora/samosa/appetizers/starters → `STN_FRY`; drinks/desserts/lassi/chai/
+  coffee → `STN_BAR`; no signal → `STN_CURRY`. Tie-breaks favour the more specific station (a masala main
+  is Curry, not Tandoor; fried rice is Biryani station, not Fry). It reuses the template's station ids,
+  names (all four languages), default languages and modifier sets verbatim (`STATION_DEFS`), so the KDS,
+  role slots and `config/i18n_kitchen.yaml` labels all stay consistent.
+- **Station sizing**: the template's parallel_slots, +1 (cap 4) for a section with ≥12 dishes, 1 for a
+  section of ≤2 dishes. The review screen's steppers override it before go-live.
+- Draft dish defaults for the seed menu (drafts, all reviewable later): `is_veg` from a non-veg keyword
+  list (default veg), `spice_level` 2 for spicy/masala-style names else 1, `prep_min` per station,
+  item codes generated UPPER_SNAKE ≤16 chars.
+
+### What go-live actually does (read this before assuming a tenant is "live")
+
+`publish_tenant` renders **the nine files `seed.loader` reads** — `tenant.yaml`, `stations.yaml`,
+`staff.yaml`, `modifiers.yaml` (the template's, verbatim), `menu.yaml`, `ingredients.yaml`,
+`recipes.yaml`, `suppliers.yaml`, `demand.yaml` — under `config/tenants/<slug>/` (`<slug>` = slugified
+restaurant name; `RESTOS_TENANTS_DIR` overrides the root, as tests use). `staff.yaml` seeds exactly one
+person: the manager named on the review screen (`STF_MANAGER`, role `manager`, `en`). Placeholders a
+manager replaces in Settings: hours 11:00–22:00, timezone America/New_York, `tax_bp: 0`, one generic
+stock ingredient (`ING_MAIN`, every dish's starter recipe = 1 portion) and one placeholder supplier.
+Files are rendered into a staging dir, **validated, and only then moved into place**: every file against
+the loader's own schemas (`seed.loader.parse_yaml` + the `seed.validate` models) plus the referential
+checks of `check_seed` that apply to a generated tenant (known stations/sets/ingredients everywhere,
+a recipe per item, demand inside hours and `item_mix` summing to exactly 1 in Decimal, station names equal
+to the kitchen labels). A validation failure writes nothing and answers 400 `draft_invalid` with the
+problem list.
+
+**The honest limitation:** the runtime seed loader still materializes **only the template tenant**
+(`spice_route`) into the served `live`/`demo`/sandbox tenants — `seed.loader.TENANT_DIR` is a constant.
+So a newly onboarded restaurant is fully set up on disk in the exact seed format, but the running app does
+**not** serve it yet; no fake live tenant is minted and the UI never claims otherwise. Making onboarded
+tenants servable = generalizing `load_seed`/`materialize_template` beyond the template (and deciding how
+sessions pick a real tenant) — that is the next backend step, deliberately separate from this pass.
+
+**Second limitation:** draft dish names are English-only. The generated `menu.yaml` carries the English
+name into the te/ta/es fields (romanizations = lowercased English) and flags the file
+`review_status: unreviewed` — the same flag the sample tenant carries for its unchecked translations.
+The loader's native-script fluency checks are therefore the one `check_seed` family the go-live validation
+deliberately does not run; translating dish names is a review task, not something to fabricate.
+
+### Checks run for pass 2
+
+- Python: `tests/onboarding/test_onboarding_service.py` (parsing against a saved Toast-like
+  `__NEXT_DATA__` fixture — no live network — inference table, draft assembly, publish/validate/409)
+  and `tests/api/test_onboarding_routes.py` (session gate, paste draft, Toast draft with a monkeypatched
+  fetch, honest 502/422, go-live writes + repeat 409) — **30 tests, all passing**; ruff clean.
+  `tests/api tests/contracts tests/security tests/meta tests/onboarding tests/seed
+  tests/integration/test_registry.py` pass in their own suites. (One combined mega-run showed flaky
+  sandbox failures in seed/registry that do not reproduce per-suite — the same proxy-environment flakiness
+  pass 1 recorded.)
+- Web: full suite **35 files, 242 tests, all passing** (239 from pass 1 + 3 new onboard tests: paste →
+  review, review edits are what goes live, honest 422). `npm run build` passes.
+- Also fixed a pass-1 leftover: `tests/integration/test_registry.py`'s `EXPECTED_MODULES` now includes
+  `api.routes_staff` (pass 1 added the router but not the expectation, so
+  `test_registry_tables_match_contract` had failed on this branch ever since).
+
+### Still open after pass 2
+
+1. **Serve onboarded tenants** (loader generalization, above) — the big one; until then onboarding output
+   is a validated config directory, not a running restaurant.
+2. **Settings surface**: the spec wants everything onboarding created editable later in a Settings area
+   with the same structure. Not built; the files are the settings until then.
+3. **Menu photos / PDF fallback** (the spec's other sources) — same parse → draft pipeline, needs the
+   perception stack; the paste fallback covers the no-Toast case meanwhile.
+4. **Modifier extraction** from Toast pages: the draft carries no per-item modifier sets beyond the
+   station default. Toast modifier groups are parsed past today, not into the draft.
+5. Onboarding endpoints ride the device **session cookie** like the rest of the app (the surface starts
+   a session on entry, same as `/staff`). Before a public multi-tenant launch, go-live wants a stronger
+   gate than a sandbox session.
+
+---
 
 ## Product direction (read this first)
 
@@ -157,12 +265,10 @@ Checks run for this pass:
 
 ## Left for later (deliberately, in order)
 
-1. **Onboarding automation — pass 2.** `/onboard` is still a placeholder. The intended flow: paste the
-   restaurant's public Toast ordering link (fallbacks: menu photos / PDF) → AI drafts the menu (items,
-   categories, prices, modifiers) → stations inferred from categories → the cuisine-aware role map proposed
-   from the stations → one review/confirm screen, exceptions only → everything editable later in Settings.
-   Note: Toast rejected the integration-partner application, so build against the *public* menu page, not a
-   partner API.
+1. **Onboarding automation — pass 2. DONE (see the pass-2 section at the top of this file).** Toast link
+   or pasted menu → draft → one review screen → validated tenant config written. What remains of the
+   original item: serving onboarded tenants (loader generalization), the Settings surface, and the
+   menu-photo/PDF source fallback.
 2. **Kiosk voice panel docked right.** Voice ordering exists on the kiosk; the permanent right-side panel
    arrangement from the product sketch is a layout pass on `src/web/src/surfaces/kiosk/`.
 3. **Manager attention v2.** Rank the feed harder: fold in open GM incidents and live station load

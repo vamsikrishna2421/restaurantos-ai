@@ -550,3 +550,41 @@ export interface RoleClaimRequest {
 export interface RoleReleaseRequest {
   slot_id: string
 }
+
+export interface OnboardingDraftItem {
+  name: string
+  price_cents: number
+  category: string
+  station_id: string
+}
+
+export interface OnboardingDraftStation {
+  id: string
+  label: string
+  parallel_slots: number
+}
+
+export interface OnboardingDraft {
+  restaurant_name: string
+  source: 'toast' | 'text'
+  items: OnboardingDraftItem[]
+  stations: OnboardingDraftStation[]
+  roles: RoleSlot[]
+}
+
+export interface OnboardingDraftRequest {
+  restaurant_name: string
+  toast_url: string | null
+  menu_text: string | null
+}
+
+export interface OnboardingGoLiveRequest {
+  draft: OnboardingDraft
+  manager_name: string
+}
+
+export interface OnboardingGoLiveResult {
+  tenant_id: string
+  name: string
+  files: string[]
+}
