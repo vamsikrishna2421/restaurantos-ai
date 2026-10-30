@@ -124,6 +124,21 @@ function stockView() {
   }]
 }
 
+const GOODWILL_HOME = {
+  suggestions: [{
+    key: 'goodwill:7745550199:lapsed:O40', reason: 'lapsed', tone: 'warn',
+    customer_name: 'Priya', phone_masked: '···0199', title: 'Priya has drifted away',
+    detail: 'Priya has visited 5 times and spent $81.23, but has not been in for 19 days.',
+    options: [{ kind: 'usual', item_code: 'PNR_BM', name: 'Paneer Butter Masala',
+      menu_price_cents: 1549, label: 'Their usual: Paneer Butter Masala ($15.49 menu price)' }],
+  }],
+}
+
+const CUSTOMERS_HOME = {
+  total_customers: 7, repeat_customers: 5, note: 'Guests appear here once they give a number.',
+  regulars: [], lapsed: [],
+}
+
 let calls: Call[] = []
 
 function respond(call: Call): Response {
@@ -135,6 +150,8 @@ function respond(call: Call): Response {
   if (call.method === 'GET' && call.path === '/api/manager/analytics') return json(200, ANALYTICS)
   if (call.method === 'GET' && call.path === '/api/manager/timesheets') return json(200, TIMESHEETS)
   if (call.method === 'GET' && call.path === '/api/manager/settings') return json(200, SETTINGS)
+  if (call.method === 'GET' && call.path === '/api/manager/goodwill') return json(200, GOODWILL_HOME)
+  if (call.method === 'GET' && call.path === '/api/manager/customers') return json(200, CUSTOMERS_HOME)
   if (call.method === 'GET' && call.path === '/api/inventory') return json(200, stockView())
   if (call.method === 'POST' && call.path === '/api/inventory/adjust') {
     stockOnHand = (call.body as { to_qty: number }).to_qty
@@ -163,6 +180,29 @@ function openSection(name: RegExp) {
   fireEvent.click(screen.getByRole('tab', { name }))
 }
 
+test('home_grid_shows_every_area_with_its_live_headline', async () => {
+  render(<ManagerSurface params={{}} query={new URLSearchParams()} />)
+  const tile = (name: RegExp) => screen.findByRole('button', { name })
+  // Attention counts the correlation card and the standing goodwill decision together
+  expect(await tile(/^Attention/)).toHaveTextContent('2 to look at')
+  const state = fixtureState()
+  const openValue = state.orders_open.reduce((n, o) => n + o.total_cents, 0)
+  expect(await tile(/^Orders/)).toHaveTextContent(`${state.orders_open.length} open`)
+  expect(await tile(/^Orders/)).toHaveTextContent(`$${(openValue / 100).toFixed(2)}`)
+  expect(await tile(/^People/)).toHaveTextContent('2 of 2 jobs filled')
+  expect(await tile(/^Timesheets/)).toHaveTextContent('2 on shift now')
+  expect(await tile(/^Revenue/)).toHaveTextContent('$123.45')
+  expect(await tile(/^Revenue/)).toHaveTextContent('9 orders so far today')
+  expect(await tile(/^Analytics/)).toHaveTextContent('Dinner rush: ~8 orders')
+  expect(await tile(/^Customers/)).toHaveTextContent('7 remembered')
+  expect(await tile(/^Customers/)).toHaveTextContent('1 goodwill dish waiting on you')
+  expect(await tile(/^Settings/)).toHaveTextContent(state.tenant.name)
+  expect(await tile(/^Settings/)).toHaveTextContent('Setup & stock')
+  // tapping a tile opens its section
+  fireEvent.click(await tile(/^Customers/))
+  expect(await screen.findByText('Remembered guests')).toBeInTheDocument()
+})
+
 test('orders_section_shows_the_live_board_and_the_days_history', async () => {
   render(<ManagerSurface params={{}} query={new URLSearchParams()} />)
   openSection(/^Orders/)
@@ -187,7 +227,8 @@ test('revenue_section_shows_today_the_week_and_the_hours', async () => {
 
 test('correlation_cards_lead_attention_and_analytics_shows_the_working', async () => {
   render(<ManagerSurface params={{}} query={new URLSearchParams()} />)
-  // the capacity card is on the Attention home without opening anything
+  // the console lands on the home grid; the capacity card leads the Attention section
+  fireEvent.click(screen.getByRole('tab', { name: /^Attention/ }))
   expect(await screen.findByText('Curry may be short-handed for Dinner rush (Sun, Nov 8)'))
     .toBeInTheDocument()
   expect(screen.getByText(/usual team covers ≈24/)).toBeInTheDocument()

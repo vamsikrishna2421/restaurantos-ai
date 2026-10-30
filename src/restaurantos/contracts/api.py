@@ -865,6 +865,134 @@ class ConsoleSettings(Model):
     tickets_per_cook_hour: int
 
 
+# ----- customer memory and goodwill (P43) -----------------------------------------------------------------------
+#
+# A guest who gives a name and number at the kiosk is remembered by the number (its digits are the key;
+# the full number never leaves the server — every surface below carries a masked form). Their orders are
+# the ledger orders placed from the sessions they identified in. A "visit" is one non-cancelled order.
+# Goodwill is statistics, not sentiment (``domain.customers``): a lapsed regular, a valuable guest whose
+# last visit went wrong, or a round-number visit coming up earns a suggestion in the manager's attention
+# feed — a dish on the house, chosen from the guest's own history, at its MENU price (recipes carry
+# quantities, not costs, so no kitchen-cost figure exists anywhere in this section). Approving mints a
+# credit keyed to the number; the credit applies itself, as a $0 line, to the guest's next order.
+# ``marketing_opt_in`` exists in the store from day one and defaults off; nothing in this pass sends
+# anything to anyone.
+
+GoodwillReason = Literal["incident", "lapsed", "milestone"]
+GoodwillOptionKind = Literal["usual", "cheaper", "also_loved"]
+
+
+class IdentifyRequest(Model):
+    """The kiosk's checkout capture: a number, optionally a name, and the dialogue session it belongs to.
+    Both fields are the guest's choice — the kiosk offers them and orders fine without."""
+
+    phone: str = Field(min_length=1, max_length=32)
+    name: str | None = Field(default=None, max_length=60)
+    session_id: str = Field(min_length=1, max_length=80)
+
+
+class UsualItem(Model):
+    """One dish from a returning guest's own history: how many of their orders carried it."""
+
+    item_code: str
+    name: str
+    times_ordered: int
+
+
+class PendingCreditView(Model):
+    """A goodwill dish already approved and waiting for the guest's next order."""
+
+    item_code: str
+    name: str
+    price_cents: int  # the dish's menu price — what the house gives, labelled as menu price
+
+
+class IdentifyResult(Model):
+    """What the kiosk learns from an identify: whether this number has ordered before, the name on file,
+    their usual (one-tap adds), and a credit waiting for this very order."""
+
+    known: bool
+    name: str | None = None
+    visits: int = 0
+    usual: list[UsualItem] = Field(default_factory=list)
+    pending_credit: PendingCreditView | None = None
+
+
+class CustomerOrderName(Model):
+    """The name an open order is called by at the counter (the guest gave it for exactly this)."""
+
+    order_id: str
+    name: str
+
+
+class ConsoleCustomer(Model):
+    """One remembered guest as the manager reads them. ``phone_masked`` is the number's last four digits
+    — enough to recognize the guest at the counter, never the number itself."""
+
+    phone_masked: str
+    name: str | None = None
+    visits: int
+    spend_cents: int
+    first_visit_biz: AwareDatetime
+    last_visit_biz: AwareDatetime
+    days_since_last: int
+    usual_name: str | None = None  # their most-ordered dish, when they have one
+    pending_credit: PendingCreditView | None = None
+
+
+class ConsoleCustomers(Model):
+    """The Customers section: the regulars, the regulars who have drifted, and what the numbers stand
+    on. ``note`` states the capture's limit in plain words — kiosk numbers only, in this version."""
+
+    regulars: list[ConsoleCustomer] = Field(default_factory=list)
+    lapsed: list[ConsoleCustomer] = Field(default_factory=list)
+    total_customers: int = 0
+    repeat_customers: int = 0
+    note: str
+
+
+class GoodwillOption(Model):
+    """One dish the manager can put on the house for a suggestion: ``label`` says which of the guest's
+    dishes it is and its menu price, composed server-side like the console cards' sentences."""
+
+    item_code: str
+    name: str
+    kind: GoodwillOptionKind
+    price_cents: int
+    label: str
+
+
+class GoodwillSuggestion(Model):
+    """One goodwill decision in the attention feed, in templated language (no model wrote it): who,
+    what their history says, and the dishes on offer. ``key`` is deterministic for the case, so the
+    manager's answer stays attached to exactly this suggestion."""
+
+    key: str
+    reason: GoodwillReason
+    tone: Literal["warn", "bad", "ok"]
+    title: str
+    detail: str
+    customer_name: str | None = None
+    phone_masked: str
+    options: list[GoodwillOption] = Field(default_factory=list)
+
+
+class GoodwillFeed(Model):
+    """Every goodwill suggestion standing right now, most urgent first (a visit that went wrong, then a
+    regular who drifted, then a milestone coming up). Evaluated when read, like the console's cards."""
+
+    suggestions: list[GoodwillSuggestion] = Field(default_factory=list)
+
+
+class GoodwillDecision(Model):
+    """The manager's answer on one suggestion: approve (with the dish chosen from its options — the
+    first option when none is named) mints the credit; declining rests the case for the cooldown."""
+
+    key: str
+    approve: bool
+    item_code: str | None = None
+
+
 # ----- restaurant onboarding (P39): the draft a menu becomes, and going live with it ------------------------------
 
 ONBOARDING_MAX_ITEMS = 200  # a big real-world menu; Toast pages beyond this are truncated at the cap

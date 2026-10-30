@@ -45,10 +45,12 @@ export interface TicketCardProps {
   busy: boolean
   /** The order's promised ready time (business time). */
   dueBiz: string | null
+  /** The name the guest gave at checkout, to be called at the counter (P43); absent = number only. */
+  guestName?: string | null
   onAction: (ticket: Ticket, action: TicketAction) => void
 }
 
-export function TicketCard({ ticket, menu, lang, bizNow, showStation, isNew, busy, dueBiz, onAction }:
+export function TicketCard({ ticket, menu, lang, bizNow, showStation, isNew, busy, dueBiz, guestName, onAction }:
   TicketCardProps) {
   const view = renderTicket(ticket, menu, lang)
   const accent = stationAccent(menu, ticket.station_id)
@@ -75,6 +77,7 @@ export function TicketCard({ ticket, menu, lang, bizNow, showStation, isNew, bus
       <header className="flex items-start justify-between gap-3 px-4 pt-3">
         <div className="min-w-0">
           <p className="font-mono text-4xl font-black leading-none tracking-tight">{no}</p>
+          {guestName && <p className="mt-1 truncate text-2xl font-bold" data-guest-name="">{guestName}</p>}
           <p className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm font-semibold text-muted">
             {showStation && (
               <span lang={lang} className="uppercase tracking-wider" style={{ color: accent }}>
@@ -159,10 +162,13 @@ export interface BumpedRailProps {
   menu: MenuSnapshot
   langOf: (stationId: string) => SpeakLang
   busy: ReadonlySet<string>
+  /** Callout names by order id (P43): a bumped ticket is food at the pass, and the name is what gets
+   * called — the number stays beside it for the guest who only knows their number. */
+  names?: ReadonlyMap<string, string>
   onAction: (ticket: Ticket, action: TicketAction) => void
 }
 
-export function BumpedRail({ tickets, menu, langOf, busy, onAction }: BumpedRailProps) {
+export function BumpedRail({ tickets, menu, langOf, busy, names, onAction }: BumpedRailProps) {
   const left = (t: Ticket) => (isoMs(t.undo_until) ?? 0) - Date.now()
   useNow(tickets.some((t) => left(t) > 0) ? 250 : null) // re-render while an undo countdown runs
   if (tickets.length === 0) return null
@@ -180,6 +186,9 @@ export function BumpedRail({ tickets, menu, langOf, busy, onAction }: BumpedRail
               className="flex items-center justify-between gap-3 rounded-xl bg-panel-2 px-3 py-2">
               <span className="flex min-w-0 flex-col">
                 <span className="font-mono text-2xl font-black leading-tight">{no}</span>
+                {names?.get(t.order_id) && (
+                  <span className="truncate text-lg font-bold" data-guest-name="">{names.get(t.order_id)}</span>
+                )}
                 <span lang={lang} className="truncate text-sm font-bold uppercase tracking-wider"
                   style={{ color: stationAccent(menu, t.station_id) }}>
                   {stationName(menu, t.station_id, lang)}

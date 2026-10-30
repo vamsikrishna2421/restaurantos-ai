@@ -2,14 +2,20 @@
  * `/manager` (P41 + P42): the manager console. The home is the attention feed — what needs the manager
  * right now, decisions attached — and the sections around it hold the working detail:
  *
- * - **Attention** (home) — the correlations' cards first (forecast capacity and stock trips from
- *   `/api/manager/analytics`, evaluated when the page is read), then shift readiness, GM approvals
- *   waiting, running low, and the open-orders count, all from the staff API and the tenant feed.
+ * - **Home** (the landing, founder-directed) — a grid of tiles, one per area below, each carrying a
+ *   live headline from the reads the console already makes (cautions waiting, open orders and their
+ *   value, jobs filled, today's till, the next daypart's forecast, guests remembered). Tapping a
+ *   tile opens its section; the tabs remain the way around once inside.
+ * - **Attention** — the correlations' cards first (forecast capacity and stock trips from
+ *   `/api/manager/analytics`, evaluated when the page is read), then the goodwill decisions (P43:
+ *   a regular who drifted, a visit that went wrong, a milestone coming — a dish on the house, decided
+ *   here), then shift readiness, GM approvals waiting, running low, and the open-orders count.
  * - **Orders** — the live board and a day's history from the order ledger.
  * - **People** — the roster, who is on shift now, job requests, and everyone's usual job (the staff API).
  * - **Timesheets** — the week's shift record; claiming a job is attendance, so the record is the claim log.
  * - **Revenue** — today and this week from the ledger (no payment mix exists in the data, so none shows).
  * - **Analytics** — sellers, station load, and the forecast with its working shown.
+ * - **Customers** — the guest book (P43): regulars, the drifted, and goodwill dishes already waiting.
  * - **Settings** — the restaurant's setup as onboarding made it (read-only), plus live stock counts.
  *
  * Presentation stays the pass-3 system: urgency as the kit's tones, people as avatars, the open-orders
@@ -19,20 +25,23 @@
 import { ArrowRight, Check, RefreshCw } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { SampleBadge } from '../../components/badges'
-import { Avatar, Button, Card, Chip, cx, TabPanel, Tabs } from '../../components/ui'
+import { Avatar, Button, Card, Chip, cx, TabPanel, Tabs, TONE_EDGE, type Tone } from '../../components/ui'
 import type {
   ConsoleAnalytics,
+  GoodwillSuggestion,
   InventoryItemView,
   RoleRequest,
   RoleSlot,
   StaffPerson,
 } from '../../contracts/generated'
+import { customersApi } from '../../lib/customers'
 import { formatCents } from '../../lib/format'
 import { managerApi } from '../../lib/manager'
 import { clearStaffSession, loadStaffSession, staffApi } from '../../lib/staff'
 import { Link, navigate, type SurfaceProps } from '../../router'
 import { useTenant } from '../../stores'
 import AnalyticsSection from './analytics'
+import CustomersSection from './customers'
 import OrdersSection from './orders'
 import PeopleSection from './people'
 import RevenueSection from './revenue'
@@ -40,11 +49,12 @@ import SettingsSection from './settings'
 import TimesheetsSection from './timesheets'
 
 const LOW_STOCK_MAX = 6
-const SECTIONS = ['attention', 'orders', 'people', 'timesheets', 'revenue', 'analytics', 'settings'] as const
+const SECTIONS = ['home', 'attention', 'orders', 'people', 'timesheets', 'revenue', 'analytics',
+  'customers', 'settings'] as const
 type Section = (typeof SECTIONS)[number]
 const SECTION_LABELS: Record<Section, string> = {
-  attention: 'Attention', orders: 'Orders', people: 'People', timesheets: 'Timesheets',
-  revenue: 'Revenue', analytics: 'Analytics', settings: 'Settings',
+  home: 'Home', attention: 'Attention', orders: 'Orders', people: 'People', timesheets: 'Timesheets',
+  revenue: 'Revenue', analytics: 'Analytics', customers: 'Customers', settings: 'Settings',
 }
 
 /** Closest to running out first: an item with a runway beats one without, a shorter runway beats a longer one. */
@@ -63,12 +73,37 @@ function runwayText(item: InventoryItemView): string {
   return band === 'ok' ? 'Stock is fine' : 'Running low'
 }
 
+/**
+ * One tile of the home grid: the area's name, its live headline, and one line of context. A real
+ * button wearing the Card shell (same panel, edge and glow language), so the grid reads as the
+ * console's own furniture and tapping anywhere on the tile opens the section.
+ */
+function HomeTile({ label, headline, caption, tone, onOpen }: {
+  label: string
+  headline: string
+  caption: string
+  tone?: Tone
+  onOpen: () => void
+}) {
+  return (
+    <button type="button" onClick={onOpen}
+      className={cx('flex min-w-0 flex-col rounded-2xl border border-white/8 bg-panel',
+        'bg-linear-to-b from-panel-2/70 to-panel p-4 text-left text-text shadow-glow transition',
+        'hover:border-white/25 focus-visible:outline-2 focus-visible:outline-accent',
+        tone && 'border-l-4', tone && TONE_EDGE[tone])}>
+      <span className="text-xs font-bold uppercase tracking-widest text-muted">{label}</span>
+      <span className="mt-1.5 text-2xl font-black leading-tight">{headline}</span>
+      <span className="mt-0.5 text-sm text-muted">{caption}</span>
+    </button>
+  )
+}
+
 export default function ManagerSurface(props: SurfaceProps) {
   const [me] = useState(loadStaffSession)
   const data = useTenant((s) => s.data)
   const initial = props.query.get('section')
   const [section, setSection] = useState<Section>(
-    SECTIONS.includes(initial as Section) ? (initial as Section) : 'attention')
+    SECTIONS.includes(initial as Section) ? (initial as Section) : 'home')
   const [slots, setSlots] = useState<RoleSlot[] | null>(null)
   const [slotsError, setSlotsError] = useState(false)
   const [busy, setBusy] = useState<string | null>(null)
@@ -93,10 +128,54 @@ export default function ManagerSurface(props: SurfaceProps) {
     }
   }, [])
 
+  // goodwill (P43): the customer-memory decisions standing in the feed, evaluated when read like the
+  // correlations; a failed read leaves them off rather than breaking the console
+  const [goodwill, setGoodwill] = useState<GoodwillSuggestion[]>([])
+  const [picks, setPicks] = useState<Record<string, string>>({})
+  const refreshGoodwill = useCallback(async () => {
+    try {
+      setGoodwill((await customersApi.goodwill()).suggestions)
+    } catch {
+      setGoodwill([])
+    }
+  }, [])
+
+  // the home grid's remaining headlines (founder-directed, pass 7 tail): today's till from the
+  // revenue read and the guest-book size from the customers read — both endpoints the console
+  // already serves; a failed read leaves the tile quiet rather than breaking the home
+  const [revenueToday, setRevenueToday] = useState<{ orders: number; gross_cents: number } | null>(null)
+  const [guestTotal, setGuestTotal] = useState<number | null>(null)
+  const refreshHome = useCallback(async () => {
+    try {
+      setRevenueToday((await managerApi.revenue()).today)
+    } catch {
+      setRevenueToday(null)
+    }
+    try {
+      setGuestTotal((await customersApi.customers()).total_customers)
+    } catch {
+      setGuestTotal(null)
+    }
+  }, [])
+
   useEffect(() => {
     void refreshSlots()
     void refreshAnalytics()
-  }, [refreshSlots, refreshAnalytics])
+    void refreshGoodwill()
+    void refreshHome()
+  }, [refreshSlots, refreshAnalytics, refreshGoodwill, refreshHome])
+
+  const decideGoodwill = async (suggestion: GoodwillSuggestion, approve: boolean) => {
+    if (!me) return
+    setBusy(suggestion.key)
+    try {
+      await customersApi.decideGoodwill(me.token, suggestion.key, approve,
+        approve ? (picks[suggestion.key] ?? suggestion.options[0]?.item_code) : undefined)
+      await refreshGoodwill()
+    } finally {
+      setBusy(null)
+    }
+  }
 
   const open = useMemo(() => (slots ?? []).filter((s) => s.holder === null), [slots])
   const filled = useMemo(() => (slots ?? []).filter((s) => s.holder !== null), [slots])
@@ -196,6 +275,8 @@ export default function ManagerSurface(props: SurfaceProps) {
               void refreshSlots()
               void refreshTeam()
               void refreshAnalytics()
+              void refreshGoodwill()
+              void refreshHome()
             }}>
             Refresh
           </Button>
@@ -220,9 +301,64 @@ export default function ManagerSurface(props: SurfaceProps) {
           id,
           label: SECTION_LABELS[id],
           badge: id === 'people' && requests !== null && requests.length > 0 ? requests.length
-            : id === 'attention' && cards.length > 0 ? cards.length
+            : id === 'attention' && cards.length + goodwill.length > 0 ? cards.length + goodwill.length
               : undefined,
         }))} />
+
+      <TabPanel idPrefix="manager-sections" id="home" value={section}>
+        {(() => {
+          const openOrders = data?.orders_open ?? []
+          const openValue = openOrders.reduce((n, o) => n + o.total_cents, 0)
+          const attentionCount = cards.length + goodwill.length
+          const attentionBad = cards.some((c) => c.tone === 'bad')
+            || goodwill.some((g) => g.tone === 'bad')
+          const nextDaypart = analytics?.remaining_today[0] ?? analytics?.forecast[0]
+          const approvals = requests?.length ?? 0
+          return (
+            <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-3 xl:grid-cols-4">
+              <HomeTile label="Attention"
+                tone={attentionBad ? 'bad' : attentionCount > 0 ? 'warn' : undefined}
+                headline={attentionCount > 0 ? `${attentionCount} to look at` : 'All clear'}
+                caption={approvals > 0
+                  ? `Including ${approvals} job ${approvals === 1 ? 'approval' : 'approvals'} waiting`
+                  : 'Cautions and goodwill, ranked for you'}
+                onOpen={() => setSection('attention')} />
+              <HomeTile label="Orders"
+                headline={`${openOrders.length} open`}
+                caption={openOrders.length > 0 ? `${formatCents(openValue)} on the board right now`
+                  : 'Nothing on the board right now'}
+                onOpen={() => setSection('orders')} />
+              <HomeTile label="People"
+                headline={slots ? `${filled.length} of ${slots.length} jobs filled` : '—'}
+                caption={approvals > 0 ? `${approvals} waiting to be approved` : 'Team and job requests'}
+                onOpen={() => setSection('people')} />
+              <HomeTile label="Timesheets"
+                headline={`${filled.length} on shift now`}
+                caption="Who worked, and for how long"
+                onOpen={() => setSection('timesheets')} />
+              <HomeTile label="Revenue"
+                headline={revenueToday ? formatCents(revenueToday.gross_cents) : '—'}
+                caption={revenueToday ? `${revenueToday.orders} orders so far today` : 'Today’s till'}
+                onOpen={() => setSection('revenue')} />
+              <HomeTile label="Analytics"
+                headline={nextDaypart ? `${nextDaypart.label}: ~${nextDaypart.expected_orders} orders`
+                  : analytics ? 'No sales history yet' : '—'}
+                caption="Forecast, sellers and station load"
+                onOpen={() => setSection('analytics')} />
+              <HomeTile label="Customers"
+                headline={guestTotal !== null ? `${guestTotal} remembered` : '—'}
+                caption={goodwill.length > 0
+                  ? `${goodwill.length} goodwill ${goodwill.length === 1 ? 'dish' : 'dishes'} waiting on you`
+                  : 'Regulars, the drifted, dishes on the house'}
+                onOpen={() => setSection('customers')} />
+              <HomeTile label="Settings"
+                headline={data?.tenant.name ?? '—'}
+                caption="Setup & stock"
+                onOpen={() => setSection('settings')} />
+            </div>
+          )
+        })()}
+      </TabPanel>
 
       <TabPanel idPrefix="manager-sections" id="attention" value={section}>
         <div className="flex flex-col gap-6">
@@ -233,6 +369,46 @@ export default function ManagerSurface(props: SurfaceProps) {
               <p className="mt-2 font-medium">
                 <span className="text-muted">Suggested: </span>{card.action}
               </p>
+            </Card>
+          ))}
+
+          {goodwill.map((suggestion) => (
+            <Card key={suggestion.key} title={suggestion.title}
+              tone={suggestion.tone === 'bad' ? 'bad' : suggestion.tone === 'ok' ? 'ok' : 'warn'}
+              className="motion-safe:animate-rise">
+              <p>{suggestion.detail}</p>
+              <p className="mt-1 text-sm text-muted">
+                {suggestion.customer_name ?? 'A regular'} · {suggestion.phone_masked}
+              </p>
+              {isManager && me ? (
+                <div className="mt-3 flex flex-col gap-2.5">
+                  <div className="flex flex-wrap gap-1.5" role="radiogroup" aria-label="Dish on the house">
+                    {suggestion.options.map((option) => (
+                      <Chip key={option.item_code} tone="accent"
+                        selected={(picks[suggestion.key] ?? suggestion.options[0]?.item_code)
+                          === option.item_code}
+                        onClick={() => setPicks((p) => ({ ...p, [suggestion.key]: option.item_code }))}>
+                        {option.label}
+                      </Chip>
+                    ))}
+                  </div>
+                  <div className="flex gap-2">
+                    <Button size="sm" variant="primary" loading={busy === suggestion.key}
+                      onClick={() => void decideGoodwill(suggestion, true)}>
+                      Put it on the house
+                    </Button>
+                    <Button size="sm" variant="ghost" loading={busy === suggestion.key}
+                      onClick={() => void decideGoodwill(suggestion, false)}>
+                      Not now
+                    </Button>
+                  </div>
+                </div>
+              ) : (
+                <p className="mt-2 text-sm text-muted">
+                  The manager on shift decides these. On offer:{' '}
+                  {suggestion.options.map((o) => o.label).join(' · ')}
+                </p>
+              )}
             </Card>
           ))}
 
@@ -387,6 +563,9 @@ export default function ManagerSurface(props: SurfaceProps) {
       </TabPanel>
       <TabPanel idPrefix="manager-sections" id="analytics" value={section}>
         <AnalyticsSection analytics={analytics} error={analyticsError} />
+      </TabPanel>
+      <TabPanel idPrefix="manager-sections" id="customers" value={section}>
+        <CustomersSection />
       </TabPanel>
       <TabPanel idPrefix="manager-sections" id="settings" value={section}>
         <SettingsSection />

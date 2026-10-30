@@ -92,6 +92,8 @@ afterEach(() => {
 
 test('readiness_gaps_first_then_the_rest_of_the_day', async () => {
   render(<ManagerSurface params={{}} query={new URLSearchParams()} />)
+  // the console lands on the home grid now; Attention is one tap in
+  fireEvent.click(screen.getByRole('tab', { name: /^Attention/ }))
   expect(await screen.findByText('Still open — needs someone:')).toBeInTheDocument()
   expect(screen.getByText('Front Counter')).toBeInTheDocument()
   expect(screen.getByText('2 of 3 jobs filled')).toBeInTheDocument()
@@ -157,12 +159,14 @@ test('the_manager_changes_a_usual_job_from_the_team_list', async () => {
 
 test('the_manager_on_shift_can_release_a_slot', async () => {
   render(<ManagerSurface params={{}} query={new URLSearchParams()} />)
+  // the readiness card (with its Release buttons) lives in Attention
+  fireEvent.click(screen.getByRole('tab', { name: /^Attention/ }))
   const release = await screen.findByRole('button', { name: 'Release' })
   fireEvent.click(release)
   await waitFor(() => expect(
     calls.some((c) => c.method === 'POST' && c.path === '/api/staff/roles/release-other'
       && (c.body as { slot_id: string }).slot_id === 'STN_CURRY#1'),
   ).toBe(true))
-  // after the release the slot reads open again
+  // after the release the slot reads open again on the readiness line
   await waitFor(() => expect(screen.getByText('1 of 3 jobs filled')).toBeInTheDocument())
 })

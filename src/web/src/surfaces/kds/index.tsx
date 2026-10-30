@@ -14,6 +14,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { SampleBadge, SimClock, useNow } from '../../components/badges'
 import { BrandHat, Button, Chip, cx, TabPanel, Tabs, toast, Toaster, type TabItem } from '../../components/ui'
 import type { MenuSnapshot, SpeakLang, StaffNotice, StaffTask, StationLoad, Ticket } from '../../contracts/generated'
+import { customersApi } from '../../lib/customers'
 import { bizNowMs } from '../../lib/format'
 import { LANGUAGE_NAMES, SPEAK_LANGS, stationLang, stationName } from '../../lib/i18n'
 import { clearStaffSession, loadStaffSession, staffApi } from '../../lib/staff'
@@ -102,6 +103,21 @@ function KdsScreen({ data }: { data: TenantData }) {
 
   const openOrders = useMemo(() => new Set(orders.map((o) => o.id)), [orders])
   const dueOf = useMemo(() => new Map(orders.map((o) => [o.id, o.ready_biz])), [orders])
+  // the counter's callout names (P43): fetched alongside the feed, refreshed when the open set moves
+  // and every 30 s besides; a failed read just leaves the tickets numbered, exactly as before
+  const [guestNames, setGuestNames] = useState<ReadonlyMap<string, string>>(new Map())
+  const openKey = useMemo(() => orders.map((o) => o.id).sort().join(','), [orders])
+  useEffect(() => {
+    let alive = true
+    const load = () => {
+      customersApi.names()
+        .then((rows) => { if (alive) setGuestNames(new Map(rows.map((r) => [r.order_id, r.name]))) })
+        .catch(() => { /* fail soft: the number is always there */ })
+    }
+    load()
+    const timer = setInterval(load, 30_000)
+    return () => { alive = false; clearInterval(timer) }
+  }, [openKey])
   const shown = useMemo(() => openTickets(tickets.items, station), [tickets.items, station])
   const counts = useMemo(() => openCounts(tickets.items), [tickets.items])
   const bumped = useMemo(() => bumpedTickets(tickets.items, station, openOrders), [tickets.items, station, openOrders])
@@ -213,7 +229,8 @@ function KdsScreen({ data }: { data: TenantData }) {
                         <TicketCard key={t.id} ticket={t} menu={menu}
                           lang={station === ALL ? langOf(t.station_id) : lang} bizNow={bizNow}
                           showStation={station === ALL} isNew={t.status === 'queued' && fresh.has(t.id)}
-                          busy={tickets.busy.has(t.id)} dueBiz={dueOf.get(t.order_id) ?? null} onAction={onTicket} />
+                          busy={tickets.busy.has(t.id)} dueBiz={dueOf.get(t.order_id) ?? null}
+                          guestName={guestNames.get(t.order_id) ?? null} onAction={onTicket} />
                       ))}
                     </div>
                   )}
@@ -223,7 +240,8 @@ function KdsScreen({ data }: { data: TenantData }) {
           ))}
         </div>
         <aside aria-label="Bumped tickets, notices and tasks" className="flex min-w-0 flex-col gap-4">
-          <BumpedRail tickets={bumped} menu={menu} langOf={langOf} busy={tickets.busy} onAction={onTicket} />
+          <BumpedRail tickets={bumped} menu={menu} langOf={langOf} busy={tickets.busy} names={guestNames}
+            onAction={onTicket} />
           <NoticesPanel notices={stationNoticeList} menu={menu} lang={station === ALL ? null : lang}
             busy={notices.busy} onRendered={onRendered} onSeen={onSeen} />
           <FohTasks tasks={taskList} busy={tasks.busy} onDone={onDone} onBlocked={onBlocked} />
