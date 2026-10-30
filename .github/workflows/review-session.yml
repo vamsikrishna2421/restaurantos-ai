@@ -2,6 +2,11 @@
 # quick-tunnel URL so the founder can review the live product from his phone without any hosting
 # account. The URL is posted as a comment on the standing "Live review session" issue. A session
 # lasts until the job's 350-minute cap; start a new one with workflow_dispatch.
+#
+# ORDER MATTERS: the tunnel starts BEFORE the app because the app only accepts session starts
+# whose Origin matches RESTOS_PUBLIC_BASE_URL (security/auth.origin_allowed). The container is
+# therefore launched with RESTOS_PUBLIC_BASE_URL set to the tunnel URL; starting the app first
+# leaves every session POST 403ing with bad_origin and the staff screen spinning forever.
 name: review-session
 
 on:
@@ -25,18 +30,7 @@ jobs:
       - name: Build the app image
         run: docker build -t restaurantos .
 
-      - name: Start the app
-        run: |
-          docker run -d --name app -p 8000:8000 restaurantos
-          for i in $(seq 1 60); do
-            if curl -sf http://localhost:8000/api/health > /dev/null; then echo "app is healthy"; break; fi
-            sleep 5
-          done
-          curl -sf http://localhost:8000/api/health
-
-      - name: Open the tunnel and post the URL
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Open the tunnel first and capture its URL
         run: |
           curl -sL https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64 -o cloudflared
           chmod +x cloudflared
@@ -49,7 +43,25 @@ jobs:
           done
           if [ -z "$URL" ]; then echo "tunnel did not come up"; cat tunnel.log; exit 1; fi
           echo "Tunnel URL: $URL"
-          BODY=$(printf 'RestaurantOS review session is live: %s\n\nStarted %s UTC from commit %s. The session runs until this job ends (about 5.5 hours max). AI runs in mock mode in this environment, so voice transcription is simulated; everything else is the real product.' "$URL" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$GITHUB_SHA")
+          echo "TUNNEL_URL=$URL" >> "$GITHUB_ENV"
+
+      - name: Start the app bound to the tunnel origin
+        run: |
+          docker run -d --name app -p 8000:8000 \
+            -e RESTOS_PUBLIC_BASE_URL="$TUNNEL_URL" \
+            -e RESTOS_GIT_SHA="$GITHUB_SHA" \
+            restaurantos
+          for i in $(seq 1 60); do
+            if curl -sf http://localhost:8000/api/health > /dev/null; then echo "app is healthy"; break; fi
+            sleep 5
+          done
+          curl -sf http://localhost:8000/api/health
+
+      - name: Post the URL to the review issue
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          BODY=$(printf 'RestaurantOS review session is live: %s\n\nStarted %s UTC from commit %s. The session runs until this job ends (about 5.5 hours max). AI runs in mock mode in this environment, so voice transcription is simulated; everything else is the real product.' "$TUNNEL_URL" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$GITHUB_SHA")
           NUM=$(gh issue list --search 'Live review session in:title' --state open --json number --jq '.[0].number // empty')
           if [ -n "$NUM" ]; then
             gh issue comment "$NUM" --body "$BODY"
