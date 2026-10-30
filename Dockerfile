@@ -59,9 +59,10 @@ WORKDIR /app
 COPY pyproject.toml ./
 COPY config/ config/
 COPY src/restaurantos/ src/restaurantos/
-# The phrase pre-render (P15b) runs on the machine as a release step (scripts/deploy.sh phrases). Until that script
-# exists the wildcard matches nothing, which BuildKit (Fly's builders) copies as nothing instead of failing.
-COPY scripts/build_phrase_cache.py* scripts/
+# The operator scripts that run on the machine: the phrase pre-render (P15b, a release step in scripts/deploy.sh)
+# and the order-history simulator (pass 10). Until a script exists its wildcard matches nothing, which BuildKit
+# (Fly's builders) copies as nothing instead of failing.
+COPY scripts/build_phrase_cache.py* scripts/simulate_history.py* scripts/
 COPY --from=web /build/src/web/dist/ src/web/dist/
 RUN python -m compileall -q src/restaurantos \
  && python -c "import restaurantos.app, restaurantos.__main__"

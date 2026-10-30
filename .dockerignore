@@ -12,6 +12,7 @@
 !src/web/**
 !config/**
 !scripts/build_phrase_cache.py
+!scripts/simulate_history.py
 
 # Never shipped, even from inside an allowlisted folder.
 src/web/node_modules

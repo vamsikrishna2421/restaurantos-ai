@@ -25,7 +25,7 @@ from restaurantos.config import ENV_CAPS
 ROOT = Path(__file__).resolve().parents[2]
 SECRET_NAMES = ("meta_muse_api_key", "twilio_credentials", "elevenlabs_api_key", "fly_token")
 ALLOWED_PREFIXES = ("pyproject.toml", "requirements.lock", "src/restaurantos/", "src/web/", "config/",
-                    "scripts/build_phrase_cache.py")
+                    "scripts/build_phrase_cache.py", "scripts/simulate_history.py")
 
 
 # ----- a port of Docker's .dockerignore matcher -------------------------------------------------------------------
@@ -160,7 +160,8 @@ def test_dockerignore_excludes_secrets(tmp_path: Path, patterns: list[Pattern]) 
     needed = ["pyproject.toml", "requirements.lock", "src/restaurantos/__init__.py", "src/restaurantos/app.py",
               "src/restaurantos/voice/tts/base.py", "src/web/package.json", "src/web/package-lock.json",
               "src/web/index.html", "src/web/src/main.tsx", "config/features.yaml",
-              "config/tenants/spice_route/menu.yaml", "scripts/build_phrase_cache.py"]
+              "config/tenants/spice_route/menu.yaml", "scripts/build_phrase_cache.py",
+              "scripts/simulate_history.py"]
     for rel in secrets + private + needed:
         (tmp_path / rel).parent.mkdir(parents=True, exist_ok=True)
         (tmp_path / rel).write_text("x", encoding="utf-8")
