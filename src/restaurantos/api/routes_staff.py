@@ -219,7 +219,7 @@ async def release_role(request: Request, who: SessionAuth, c: ContainerDep, stor
     """End your shift: drop your slot (a no-op when you hold none)."""
     await _base(c, store, who.tenant_id)
     caller = _caller(request, c, who.tenant_id)
-    staff_store(c).release(who.tenant_id, caller.id)
+    staff_store(c).release(who.tenant_id, caller.id, c.clock.now_real_ms())
     return OkResult()
 
 
@@ -234,7 +234,7 @@ async def release_other(body: RoleReleaseRequest, request: Request, who: Session
         raise Forbidden("Only the manager on shift can release someone else's job", code="manager_required")
     if all(d.slot_id != body.slot_id for d in _tenant_defs(c, who.tenant_id, predefined)):
         raise si.slot_not_found(body.slot_id)
-    staff_store(c).release_slot(who.tenant_id, body.slot_id)
+    staff_store(c).release_slot(who.tenant_id, body.slot_id, c.clock.now_real_ms())
     return OkResult()
 
 

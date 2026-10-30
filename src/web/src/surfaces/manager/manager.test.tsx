@@ -115,6 +115,7 @@ test('job_requests_are_decided_from_the_attention_view', async () => {
     detail: 'Covers Curry, Biryani',
   }]
   render(<ManagerSurface params={{}} query={new URLSearchParams()} />)
+  fireEvent.click(screen.getByRole('tab', { name: /People/ }))
   expect(await screen.findByText('Job requests')).toBeInTheDocument()
   expect(screen.getByText(/Runner/)).toHaveTextContent('Ravi')
   expect(screen.getByText('Covers Curry, Biryani')).toBeInTheDocument()
@@ -139,6 +140,7 @@ test('the_manager_changes_a_usual_job_from_the_team_list', async () => {
     },
   ]
   render(<ManagerSurface params={{}} query={new URLSearchParams()} />)
+  fireEvent.click(screen.getByRole('tab', { name: /People/ }))
   expect(await screen.findByText('Team jobs')).toBeInTheDocument()
   // a waiting ask is pointed at the requests card, not offered as a select
   expect(screen.getByText(/Asked for Manager/)).toBeInTheDocument()

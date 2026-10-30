@@ -567,3 +567,118 @@ founder hit himself (the onboarding dead end, and the staff boot spinner).
 - Web: 35 files / **250 tests green** (242 at pass 4 + 8 new: auto-claim login, taken-default picker,
   custom-job signup waiting state, switch-for-today, manager requests + team jobs, KDS bound tabs,
   onboard Start links), `npm run build` clean.
+
+## Pass 6 — the manager console (bujji/pass6, off bujji/pass5 e499155; NOT pushed)
+
+The manager surface stops being a single feed and becomes a console: the attention feed stays the home,
+and six sections sit beside it (kit Tabs, deep-linkable as `/manager?section=…`). Everything shown traces
+to the tenant's own rows — orders ledger, shift record, staff roster, tenant config — computed by a new
+server package and read through one service. No model is called anywhere in this pass: detection is
+arithmetic, wording is templated, per the founder's token-economy rule.
+
+### What was built
+
+- **Contracts (P42)** in `contracts/api.py`: `ConsoleOrders/ConsoleOrder`, `ConsoleRevenue`,
+  `ConsoleAnalytics` (sellers, station load, `ForecastDaypart`, `CapacityCheck`, `StockCheck`,
+  `ConsoleCard`), `ConsoleTimesheets`, `ConsoleSettings`. TS regenerated; only the generated file changed.
+- **Domain** (`domain/console.py`, pure functions, no I/O): ledger aggregations (day revenue, hourly
+  distribution, item sales, station×daypart load), the forecast, both correlations, templated card text.
+- **Service** (`services/manager_console.py`): loads the session tenant's snapshot + orders + shift log,
+  derives business days in the tenant zone from the business clock, real-clock local days for shifts.
+- **Routes** (`api/routes_manager.py`, registered in the CP4 registry): `GET /api/manager/orders`
+  (`?day=`), `/revenue`, `/analytics`, `/timesheets` (`?week=`), `/settings`. SessionAuth; the tenant
+  comes from the device session only, never from a parameter. Staffing facts reuse the staff routes'
+  own helpers — no second derivation.
+- **Shift log** (`staff.db`): a `shift_log` table (tenant/staff/slot/claimed_ms/released_ms). Claims
+  append a row; releases close the open row; still-open claims were backfilled once at store open
+  (idempotent). The pass-5 claim rows themselves are untouched.
+- **Web**: `surfaces/manager/` is now a shell (`index.tsx`) + one file per section + `lib/manager.ts`.
+  Attention keeps every pass-5 card (readiness, GM approvals, running low, in the kitchen now) and gains
+  the correlation cards at the top. Job requests + Team jobs moved into **People** unchanged (same staff
+  endpoints and handlers); People also shows the roster with who is on shift now. **Settings** includes
+  the stock-count editor, which writes through the EXISTING `POST /api/inventory/adjust`.
+
+### Where every number comes from
+
+- **Orders**: open orders = ledger rows not in a terminal state, age from the business clock; history =
+  one business day's rows (placed that day, or still open from it). Cancelled orders render as cancelled
+  and are excluded from every value. The ledger has no voids/refunds and no payment method — neither is
+  shown anywhere.
+- **Revenue**: non-cancelled ledger totals by business day; today + current week (Monday start), order
+  counts, average ticket (null, shown as —, when a day has no orders), today's per-hour distribution.
+- **Timesheets**: the shift log. An open shift's minutes run to the moment of the read and it is labelled
+  "On shift now". Days/weeks are real-clock local days in the tenant zone (claims stamp real time).
+- **Analytics**: trailing 14-day window for sellers (qty desc, top/bottom five; the bottom excludes the
+  top when the menu is small) and station×daypart ticket/item counts — all from ledger lines joined to
+  the menu snapshot for station names.
+
+### The forecast and the correlations
+
+- **Forecast ladder** (tomorrow, plus the rest of today): with ≥3 same-weekday days in the trailing 28
+  days it is "steady" — the same-weekday mean per daypart, blended by a recent-trend factor (last-7-days
+  mean ÷ window mean, clamped 0.7–1.4, only with ≥7 history days). With some sales but a thin pattern it
+  is "early" (all-history mean). With no sales at all it falls back to the tenant's setup demand curve
+  (`demand.yaml`: orders/hour × daypart hours, dishes via `item_mix`) labelled "prior"; a tenant with
+  neither gets zeros and says so. Every figure is half-up rounded (house style); sub-half dishes/tickets
+  per daypart are dropped. The basis sentence and confidence label are part of the payload — the UI shows
+  its working.
+- **Capacity correlation**: for today's not-yet-ended dayparts (cooks = currently claimed, capped at the
+  station's `parallel_slots`) and all of tomorrow's (cooks = approved usual-job holders for that station),
+  expected station tickets (forecast orders × the trailing window's station share) are compared with
+  capacity = cooks × daypart hours × **6 tickets/cook-hour** — a documented conservative default in
+  `domain/console.py` (menu prep runs 1–14 min, median ≈8; one ticket per cook per 10 min leaves batching
+  and expo headroom; deliberately low so the warning comes early). Surfaced in Settings. A shortfall
+  generates a card: `bad` when nobody is expected or the shortfall is ≥10 tickets, else `warn`.
+- **Burn-down correlation**: forecast dishes × `recipes.yaml` = ingredient need per daypart segment
+  (rest of today, then tomorrow); free stock = on hand − reserved (the inventory store's own numbers).
+  `projected_stockout` walks the segments spreading burn evenly inside each. The earliest plausible
+  restock is the soonest `cutoff_local + lead_min` across suppliers carrying the ingredient (calendar-
+  correct across DST). A card trips ONLY when the stockout lands before that restock (or no supplier
+  carries it); `bad` when the stockout is today. Everything with an in-horizon stockout is listed in the
+  stock watch whether carded or not — against the Spice Route seed, par-stock paneer is watched but
+  correctly NOT carded, because tonight's dairy restock lands first.
+- **Cards are evaluated when the analytics endpoint is read** (page load / Refresh), keyed deterministically
+  (`capacity:<station>:<date>:<daypart>`, `stock:<ingredient>`) so re-reads dedupe. There is NO scheduler
+  and no push in this pass: the founder's morning-lookahead / pre-service / live-watch routines are the
+  documented next step, to run this same evaluation on a clock.
+
+### Settings, honestly
+
+Profile, menu and stations are **read-only** here. They are tenant config created by onboarding and
+applied on activation; the config layer validates whole-tenant writes, not field edits, so a live field
+editor would bypass the validation that keeps Spice Route bit-for-bit stable. The section says exactly
+that, in product language. Stock counts are the one live edit because the inventory endpoints already
+own them safely.
+
+### Limits, plainly
+
+- **Timesheet history has a hard floor**: passes 1–5 deleted claim rows on release, so shifts that ended
+  before the shift log existed were never recorded and cannot be reconstructed. The record starts with
+  this pass (plus backfilled still-open claims), and the Timesheets payload carries a `note` saying so —
+  the section shows it verbatim. Nothing was back-estimated.
+- Console reads are SessionAuth (any signed-in device session), matching the staff/orders/inventory read
+  posture; writes still go through the existing role-gated endpoints. The single-restaurant-tablet trust
+  model is unchanged.
+- The GM report's "today" still resolves through env-level tenant selection (pass-4 limit, unchanged);
+  the console itself is session-tenant throughout.
+- Capacity uses claimed/usual-job staffing — it cannot see a manager's verbal plan, a day off, or a
+  no-show; the card wording says "the usual team" / "claimed so far", never a promise.
+- Forecast dayparts are the tenant's configured ones; a tenant whose history predates a menu change will
+  blend old-menu sales into station shares until the window rolls past it (14 days).
+
+### Tests
+
+- Python: new suites — `tests/domain/test_console.py` 13 (aggregations, forecast ladder incl. trend clamp
+  and prior fallback, capacity trip/no-trip, stockout-vs-restock trip logic, half-up rounding),
+  `tests/api/test_manager_routes.py` 8 (session-tenant isolation, orders/revenue figures against a seeded
+  ledger, the seeded capacity + stock cards, prior-only forecast honesty, timesheet open/completed shifts,
+  settings read model). Staff API still 19 (shift log is behaviour-invisible to the old assertions),
+  registry green with the new router. Full `tests/` run: only two failures, BOTH proven environmental
+  against the unmodified pass-5 base — `test_localhost_tcp_needs_opt_in` (documented pre-existing) and
+  `test_approval_executes_within_200ms_while_gm_stream_runs` (a 200 ms wall-clock budget; the base fails
+  it identically in isolation in this sandbox, 534 ms vs 568 ms). Ruff clean.
+- Web: 36 files / **256 tests** (250 at pass 5 + 6 new section tests in `manager-sections.test.tsx`; the
+  two pass-5 manager tests now open the People tab first). Full-suite runs here show 255/256: the one
+  failure is `staff.test.tsx > switch_job_for_today_releases_without_ending_the_shift`, a synchronous
+  lookup racing an async fetch under parallel load — it fails identically on the unmodified pass-5 base
+  in this sandbox and passes standalone on both branches (7/7). `npm run build` clean.

@@ -13,7 +13,7 @@ import type {
   SpeakLang,
   SpendPool,
 } from './common'
-import type { TurnPath, TurnSpans } from './orders'
+import type { OrderStatus, TurnPath, TurnSpans } from './orders'
 import type { Incident, Plan, SituationReport } from './gm'
 import type { ComponentState, DegradedComponent, EventEnvelope, ScenarioName } from './events'
 
@@ -30,6 +30,10 @@ export type ConsentKind = 'eval_clip' | 'sample_clip' | 'call_recording' | 'on_c
 export type RushAction = 'start' | 'stop'
 
 export type StaffRoleKind = 'manager' | 'front_counter' | 'chef'
+
+export type ForecastConfidence = 'steady' | 'early' | 'prior' | 'none'
+
+export type ConsoleCardKind = 'capacity' | 'stock'
 
 export interface ErrorDetail {
   code: string
@@ -583,6 +587,194 @@ export interface RoleRequestDecision {
 export interface SetDefaultRequest {
   staff_id: string
   slot_id: string | null
+}
+
+export interface ConsoleOrderLine {
+  line_no: number
+  item_code: string
+  name: string
+  qty: number
+  line_total_cents: number
+  station_id: string | null
+  station_name: string | null
+  status: string
+}
+
+export interface ConsoleOrder {
+  id: string
+  order_no: number
+  status: OrderStatus
+  channel: Channel
+  placed_biz: string
+  age_min: number | null
+  total_cents: number
+  stations: string[]
+  lines: ConsoleOrderLine[]
+}
+
+export interface ConsoleOrders {
+  day: string
+  open: ConsoleOrder[]
+  open_value_cents: number
+  history: ConsoleOrder[]
+  history_value_cents: number
+  cancelled_count: number
+}
+
+export interface RevenueDay {
+  date: string
+  orders: number
+  gross_cents: number
+  cancelled: number
+}
+
+export interface RevenueHour {
+  hour: number
+  orders: number
+  gross_cents: number
+}
+
+export interface ConsoleRevenue {
+  today: RevenueDay
+  today_avg_ticket_cents: number | null
+  hours_today: RevenueHour[]
+  week_start: string
+  week: RevenueDay[]
+  week_orders: number
+  week_gross_cents: number
+  week_avg_ticket_cents: number | null
+}
+
+export interface ItemSales {
+  item_code: string
+  name: string
+  qty: number
+  revenue_cents: number
+}
+
+export interface StationDaypartLoad {
+  station_id: string
+  station_name: string
+  daypart: string
+  daypart_label: string
+  tickets: number
+  items: number
+}
+
+export interface ForecastDaypart {
+  daypart: string
+  label: string
+  expected_orders: number
+}
+
+export interface CapacityCheck {
+  date: string
+  daypart: string
+  label: string
+  station_id: string
+  station_name: string
+  expected_tickets: number
+  expected_cooks: number
+  capacity_tickets: number
+  shortfall_tickets: number
+  basis: string
+}
+
+export interface StockCheck {
+  ingredient_id: string
+  name: string
+  unit: string
+  free: number
+  projected_need: number
+  stockout_biz: string | null
+  restock_biz: string | null
+  supplier_name: string | null
+}
+
+export interface ConsoleCard {
+  id: string
+  kind: ConsoleCardKind
+  tone: 'warn' | 'bad'
+  title: string
+  detail: string
+  action: string
+}
+
+export interface ConsoleAnalytics {
+  window_days: number
+  best_sellers: ItemSales[]
+  worst_sellers: ItemSales[]
+  station_load: StationDaypartLoad[]
+  forecast_date: string
+  forecast: ForecastDaypart[]
+  remaining_today: ForecastDaypart[]
+  confidence: ForecastConfidence
+  basis: string
+  capacity: CapacityCheck[]
+  stock_watch: StockCheck[]
+  cards: ConsoleCard[]
+}
+
+export interface TimesheetShift {
+  staff_id: string
+  name: string
+  slot_id: string
+  slot_label: string
+  day: string
+  started_at: string
+  ended_at: string | null
+  minutes: number
+  in_progress: boolean
+}
+
+export interface TimesheetDay {
+  date: string
+  minutes: number
+  shifts: TimesheetShift[]
+}
+
+export interface TimesheetPerson {
+  staff_id: string
+  name: string
+  week_minutes: number
+  days: TimesheetDay[]
+}
+
+export interface ConsoleTimesheets {
+  week_start: string
+  week_end: string
+  people: TimesheetPerson[]
+  note: string
+}
+
+export interface SettingsMenuItem {
+  code: string
+  name: string
+  category: string
+  price_cents: number
+  station_id: string
+  station_name: string
+  available: boolean
+  is_veg: boolean
+}
+
+export interface SettingsStation {
+  id: string
+  name: string
+  parallel_slots: number
+}
+
+export interface ConsoleSettings {
+  name: string
+  timezone: string
+  open_local: string
+  close_local: string
+  tax_bp: number
+  address: string
+  phone_display: string | null
+  menu: SettingsMenuItem[]
+  stations: SettingsStation[]
+  tickets_per_cook_hour: number
 }
 
 export interface OnboardingDraftItem {

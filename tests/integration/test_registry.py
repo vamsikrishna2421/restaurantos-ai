@@ -29,7 +29,7 @@ EXPECTED_MODULES = {
                          "voice.tts.routes_phrases", "api.routes_gm", "api.routes_approvals", "api.routes_ledger",
                          "api.routes_supplier", "api.routes_ops", "api.routes_session", "api.routes_judge",
                          "voice.twilio_http", "voice.twilio_media", "api.routes_samples", "api.routes_proof",
-                         "api.routes_staff"],
+                         "api.routes_staff", "api.routes_manager"],
     "OPTIONAL_ROUTERS": ["api.routes_perception", "api.routes_onboarding"],
     "OPTIONAL_MODULES": ["kitchen_voice.commands", "agents.openweight"],
     "HANDLERS": ["services.inventory", "services.kitchen", "governance.executor", "gm.trigger", "obs.metrics",
