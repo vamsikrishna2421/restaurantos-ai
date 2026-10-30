@@ -44,7 +44,7 @@ from restaurantos.contracts.ledger import (  # noqa: F401 - approval payloads, r
     PlanPreviewRequest,
     StepStatusView,
 )
-from restaurantos.contracts.orders import TurnPath, TurnSpans
+from restaurantos.contracts.orders import OrderStatus, TurnPath, TurnSpans
 from restaurantos.contracts.ws import (  # noqa: F401 - realtime sync payloads, re-exported
     ActiveCall,
     EventsPage,
@@ -606,6 +606,263 @@ class SetDefaultRequest(Model):
 
     staff_id: str
     slot_id: str | None = None
+
+
+# ----- manager console (P42): orders, revenue, analytics, timesheets and settings ---------------------------------
+#
+# Every number in this section traces to the tenant's own rows: the order ledger (orders + lines + tickets),
+# the claim record (staff.db's shift log), the stock rows, the recipes, and the tenant's config files. There
+# is no payment-method field on an order, so no payment mix exists here; there are no voids or refunds in
+# the order model, so none are reported. Forecasts and their correlations are computed in
+# ``domain.console`` — statistics and thresholds only, no model calls; the sentences arrive pre-composed so
+# the web renders them verbatim.
+
+ForecastConfidence = Literal["steady", "early", "prior", "none"]
+ConsoleCardKind = Literal["capacity", "stock"]
+
+
+class ConsoleOrderLine(Model):
+    """One line of an order as the manager reads it: the dish's English name and its station's name joined
+    from the tenant's own menu (``station_id``/``station_name`` null for a dish the menu no longer carries)."""
+
+    line_no: int
+    item_code: str
+    name: str
+    qty: int
+    line_total_cents: int
+    station_id: str | None = None
+    station_name: str | None = None
+    status: str  # the order line's own status (active | removed)
+
+
+class ConsoleOrder(Model):
+    """One order for the console: when it was placed (business time), how long it has been open (``age_min``,
+    open orders only), what it totals, and the stations working on it (names, menu order)."""
+
+    id: str
+    order_no: int
+    status: OrderStatus
+    channel: Channel
+    placed_biz: AwareDatetime
+    age_min: int | None = None
+    total_cents: int
+    stations: list[str] = Field(default_factory=list)
+    lines: list[ConsoleOrderLine] = Field(default_factory=list)
+
+
+class ConsoleOrders(Model):
+    """The Orders section for one business day: the live board (every open order, oldest first) and that
+    day's history (newest first). ``history_value_cents`` sums the day's non-cancelled orders only."""
+
+    day: dt.date
+    open: list[ConsoleOrder] = Field(default_factory=list)
+    open_value_cents: int = 0
+    history: list[ConsoleOrder] = Field(default_factory=list)
+    history_value_cents: int = 0
+    cancelled_count: int = 0
+
+
+class RevenueDay(Model):
+    """One business day's take from the ledger: non-cancelled orders and their gross; cancelled orders are
+    counted apart and never in the gross."""
+
+    date: dt.date
+    orders: int
+    gross_cents: int
+    cancelled: int
+
+
+class RevenueHour(Model):
+    """One clock hour of a day (business time): non-cancelled orders placed in it and their gross."""
+
+    hour: int  # 0-23, the tenant's wall clock
+    orders: int
+    gross_cents: int
+
+
+class ConsoleRevenue(Model):
+    """The Revenue section: today with its hourly shape, and the current week (Monday first) day by day.
+    Averages are over non-cancelled orders and are null on a day/week with none."""
+
+    today: RevenueDay
+    today_avg_ticket_cents: int | None = None
+    hours_today: list[RevenueHour] = Field(default_factory=list)
+    week_start: dt.date
+    week: list[RevenueDay] = Field(default_factory=list)
+    week_orders: int = 0
+    week_gross_cents: int = 0
+    week_avg_ticket_cents: int | None = None
+
+
+class ItemSales(Model):
+    """A dish's sales over the analytics window: active lines of non-cancelled orders only."""
+
+    item_code: str
+    name: str
+    qty: int
+    revenue_cents: int
+
+
+class StationDaypartLoad(Model):
+    """Tickets and dishes a station handled in one daypart over the analytics window (from ticket rows:
+    a ticket counts once, its lines' quantities are the dishes)."""
+
+    station_id: str
+    station_name: str
+    daypart: str
+    daypart_label: str
+    tickets: int
+    items: int
+
+
+class ForecastDaypart(Model):
+    """Expected orders in one daypart of the forecast day, from the demand forecast (``domain.console``)."""
+
+    daypart: str
+    label: str
+    expected_orders: int
+
+
+class CapacityCheck(Model):
+    """One station in one upcoming daypart, forecast against hands: ``expected_cooks`` is who is on that
+    station now (today's remaining dayparts) or whose usual job it is (tomorrow); ``capacity_tickets`` is
+    cooks × the planning rate × the daypart's hours. ``shortfall_tickets`` is what does not fit."""
+
+    date: dt.date
+    daypart: str
+    label: str
+    station_id: str
+    station_name: str
+    expected_tickets: int
+    expected_cooks: int
+    capacity_tickets: int
+    shortfall_tickets: int
+    basis: str  # where the cook count came from, in words
+
+
+class StockCheck(Model):
+    """One ingredient's burn-down against the forecast: free stock (on hand − reserved) and the projected
+    need over the horizon (the rest of today and tomorrow). ``stockout_biz`` is when the projected burn
+    reaches the free stock, if it does inside the horizon; ``restock_biz`` is the earliest a new order
+    could land (the carrying supplier's next cutoff + its lead time), null when no supplier carries it."""
+
+    ingredient_id: str
+    name: str
+    unit: str
+    free: int
+    projected_need: int
+    stockout_biz: AwareDatetime | None = None
+    restock_biz: AwareDatetime | None = None
+    supplier_name: str | None = None
+
+
+class ConsoleCard(Model):
+    """One attention card the correlations raised, in templated language (no model wrote it): the numbers,
+    what they mean, and the suggested move. ``id`` is deterministic for a kind + subject + day, so
+    re-evaluating on the next view returns the same card rather than a duplicate."""
+
+    id: str
+    kind: ConsoleCardKind
+    tone: Literal["warn", "bad"]
+    title: str
+    detail: str
+    action: str
+
+
+class ConsoleAnalytics(Model):
+    """The Analytics section: what sold (trailing window), where the load fell, and the forecast with its
+    two correlations. ``basis`` says in one sentence what the forecast stands on; ``confidence`` is
+    ``steady`` (3+ same-weekday days of history), ``early`` (some sales, thin), ``prior`` (the tenant's
+    configured demand curve only) or ``none`` (nothing to stand on)."""
+
+    window_days: int
+    best_sellers: list[ItemSales] = Field(default_factory=list)
+    worst_sellers: list[ItemSales] = Field(default_factory=list)
+    station_load: list[StationDaypartLoad] = Field(default_factory=list)
+    forecast_date: dt.date
+    forecast: list[ForecastDaypart] = Field(default_factory=list)
+    remaining_today: list[ForecastDaypart] = Field(default_factory=list)
+    confidence: ForecastConfidence
+    basis: str
+    capacity: list[CapacityCheck] = Field(default_factory=list)
+    stock_watch: list[StockCheck] = Field(default_factory=list)
+    cards: list[ConsoleCard] = Field(default_factory=list)
+
+
+class TimesheetShift(Model):
+    """One recorded shift from the claim record: claim to release (real time). A shift still open has
+    ``ended_at`` null and ``in_progress`` set; its minutes run to the moment the timesheet was read."""
+
+    staff_id: str
+    name: str
+    slot_id: str
+    slot_label: str
+    day: dt.date  # the local day the shift started; an overnight shift stays whole on its start day
+    started_at: UtcTime
+    ended_at: UtcTime | None = None
+    minutes: int
+    in_progress: bool = False
+
+
+class TimesheetDay(Model):
+    date: dt.date
+    minutes: int
+    shifts: list[TimesheetShift] = Field(default_factory=list)
+
+
+class TimesheetPerson(Model):
+    staff_id: str
+    name: str
+    week_minutes: int
+    days: list[TimesheetDay] = Field(default_factory=list)
+
+
+class ConsoleTimesheets(Model):
+    """The Timesheets section for one week (Monday–Sunday). ``note`` states the record's limit in plain
+    words: shifts were only recorded once the claim record kept them, so earlier shifts are absent rather
+    than estimated."""
+
+    week_start: dt.date
+    week_end: dt.date
+    people: list[TimesheetPerson] = Field(default_factory=list)
+    note: str
+
+
+class SettingsMenuItem(Model):
+    """One dish as Settings shows it: the live menu row (name, price, station, availability)."""
+
+    code: str
+    name: str
+    category: str
+    price_cents: int
+    station_id: str
+    station_name: str
+    available: bool
+    is_veg: bool
+
+
+class SettingsStation(Model):
+    id: str
+    name: str
+    parallel_slots: int
+
+
+class ConsoleSettings(Model):
+    """The Settings section: the active tenant's profile from its own config file (name, hours, tax),
+    its live menu and stations, and the capacity planning assumption the Analytics correlations use.
+    Menu, station and profile edits are config changes (made through onboarding, applied on activation),
+    so this view is read-only apart from stock counts, which the inventory endpoints already own."""
+
+    name: str
+    timezone: str
+    open_local: str
+    close_local: str
+    tax_bp: int
+    address: str
+    phone_display: str | None = None
+    menu: list[SettingsMenuItem] = Field(default_factory=list)
+    stations: list[SettingsStation] = Field(default_factory=list)
+    tickets_per_cook_hour: int
 
 
 # ----- restaurant onboarding (P39): the draft a menu becomes, and going live with it ------------------------------

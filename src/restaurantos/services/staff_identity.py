@@ -11,6 +11,10 @@ The front-door layer the product spec adds on top of the sandbox engine. Three s
 - **Claim** (per shift): a row in ``role_claims``. The table's primary key is ``(tenant_id, slot_id)`` and a second
   unique index covers ``(tenant_id, staff_id)``: a slot has at most one holder and a person holds at most one
   slot — the spec's hard rule, enforced by the schema, not by courtesy.
+- **Shift log** (pass 6): claims are also appended to ``shift_log`` (claim ms, release ms when it ends) and
+  never deleted, because the manager's timesheets read it. The record starts when it starts: claims open
+  when the table first appears are backfilled with their claim time, but shifts that had already ENDED by
+  then were never recorded anywhere — the timesheet says so rather than estimating them.
 
 Storage is a small dedicated SQLite file (``<data_dir>/staff.db``), deliberately outside the event store: identity
 is account data, not kitchen events, and a sandbox reset must not wipe the staff roster. Operations are tiny and
@@ -165,6 +169,13 @@ CREATE TABLE IF NOT EXISTS role_claims (
     PRIMARY KEY (tenant_id, slot_id),
     UNIQUE (tenant_id, staff_id)
 );
+CREATE TABLE IF NOT EXISTS shift_log (
+    tenant_id   TEXT NOT NULL,
+    staff_id    TEXT NOT NULL,
+    slot_id     TEXT NOT NULL,
+    claimed_ms  INTEGER NOT NULL,
+    released_ms INTEGER
+);
 CREATE TABLE IF NOT EXISTS custom_roles (
     tenant_id  TEXT NOT NULL,
     role_id    TEXT NOT NULL,
@@ -186,6 +197,16 @@ class StaffRecord:
     person: StaffPerson
     pin_salt: str
     pin_hash: str
+
+
+@dataclass(frozen=True, slots=True)
+class ShiftRecord:
+    """One recorded shift (pass 6): a claim and, once it ends, its release. Real epoch ms, like the claims."""
+
+    staff_id: str
+    slot_id: str
+    claimed_ms: int
+    released_ms: int | None
 
 
 def _default_json(slot_id: str, pending: bool = False) -> str:
@@ -234,6 +255,13 @@ class StaffStore:
         columns = {r[1] for r in self._conn.execute("PRAGMA table_info(staff)")}
         if "default_role" not in columns:
             self._conn.execute("ALTER TABLE staff ADD COLUMN default_role TEXT")
+        # pass 6: shifts still open when the log first appears join it with their real claim time (the
+        # NOT EXISTS guard keeps this a one-time backfill however often the file is opened afterwards)
+        self._conn.execute(
+            "INSERT INTO shift_log (tenant_id, staff_id, slot_id, claimed_ms, released_ms)"
+            " SELECT c.tenant_id, c.staff_id, c.slot_id, c.claimed_ms, NULL FROM role_claims c"
+            " WHERE NOT EXISTS (SELECT 1 FROM shift_log l WHERE l.tenant_id = c.tenant_id"
+            " AND l.staff_id = c.staff_id AND l.slot_id = c.slot_id AND l.claimed_ms = c.claimed_ms)")
         self._conn.commit()
         self._lock = threading.Lock()
 
@@ -424,9 +452,19 @@ class StaffStore:
                 self._conn.execute(
                     "INSERT INTO role_claims (tenant_id, slot_id, staff_id, claimed_ms) VALUES (?, ?, ?, ?)",
                     (tenant_id, slot_def.slot_id, staff_id, now_ms))
+                self._conn.execute(
+                    "INSERT INTO shift_log (tenant_id, staff_id, slot_id, claimed_ms, released_ms)"
+                    " VALUES (?, ?, ?, ?, NULL)", (tenant_id, staff_id, slot_def.slot_id, now_ms))
 
-    def release(self, tenant_id: str, staff_id: str) -> str | None:
-        """Drop whatever slot ``staff_id`` holds; returns the slot id, or None when they held none."""
+    def _close_shift(self, tenant_id: str, staff_id: str, now_ms: int) -> None:
+        """Stamp the release on the person's open shift-log row (at most one exists: one claim per person)."""
+        self._conn.execute(
+            "UPDATE shift_log SET released_ms = ? WHERE tenant_id = ? AND staff_id = ?"
+            " AND released_ms IS NULL", (now_ms, tenant_id, staff_id))
+
+    def release(self, tenant_id: str, staff_id: str, now_ms: int) -> str | None:
+        """Drop whatever slot ``staff_id`` holds; returns the slot id, or None when they held none. The
+        shift-log row stays, closed at ``now_ms`` — the claim record is the timesheet's source."""
         with self._lock, self._conn:
             row = self._conn.execute("SELECT slot_id FROM role_claims WHERE tenant_id = ? AND staff_id = ?",
                                      (tenant_id, staff_id)).fetchone()
@@ -434,9 +472,10 @@ class StaffStore:
                 return None
             self._conn.execute("DELETE FROM role_claims WHERE tenant_id = ? AND staff_id = ?",
                                (tenant_id, staff_id))
+            self._close_shift(tenant_id, staff_id, now_ms)
         return row[0]
 
-    def release_slot(self, tenant_id: str, slot_id: str) -> str | None:
+    def release_slot(self, tenant_id: str, slot_id: str, now_ms: int) -> str | None:
         """Drop a slot's holder whoever it is (the manager's release); returns the holder's id, if any."""
         with self._lock, self._conn:
             row = self._conn.execute("SELECT staff_id FROM role_claims WHERE tenant_id = ? AND slot_id = ?",
@@ -445,7 +484,19 @@ class StaffStore:
                 return None
             self._conn.execute("DELETE FROM role_claims WHERE tenant_id = ? AND slot_id = ?",
                                (tenant_id, slot_id))
+            self._close_shift(tenant_id, row[0], now_ms)
         return row[0]
+
+    def shift_history(self, tenant_id: str, from_ms: int, to_ms: int) -> list[ShiftRecord]:
+        """Recorded shifts that STARTED in [from_ms, to_ms), oldest first (pass 6, for timesheets). A shift
+        still open has ``released_ms`` None. Shifts that ended before the log existed are not here — see the
+        module docstring; nothing is reconstructed."""
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT staff_id, slot_id, claimed_ms, released_ms FROM shift_log WHERE tenant_id = ?"
+                " AND claimed_ms >= ? AND claimed_ms < ? ORDER BY claimed_ms, rowid",
+                (tenant_id, from_ms, to_ms)).fetchall()
+        return [ShiftRecord(staff_id=r[0], slot_id=r[1], claimed_ms=r[2], released_ms=r[3]) for r in rows]
 
 
 # ----- staff tokens ---------------------------------------------------------------------------------------------
