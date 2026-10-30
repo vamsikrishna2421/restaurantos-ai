@@ -33,6 +33,36 @@
   --shadow-glow-ok-sm: 0 2px 16px -5px rgb(46 204 113 / 0.4);
   --shadow-glow-warn-sm: 0 2px 16px -5px rgb(245 176 65 / 0.5);
   --shadow-glow-bad-sm: 0 2px 16px -5px rgb(255 93 93 / 0.5);
+  /* Depth without light: `pop` seats a raised tile or key above its panel, `lift` is the deeper shadow a card
+     earns on hover. Both are plain black shadows, so they read as height, not as another colour of glow. */
+  --shadow-pop: 0 10px 24px -10px rgb(0 0 0 / 0.55), 0 2px 6px -2px rgb(0 0 0 / 0.4);
+  --shadow-lift: 0 28px 48px -20px rgb(0 0 0 / 0.65), 0 10px 20px -10px rgb(0 0 0 / 0.45);
+  /* Entrances: a short rise-and-settle for hero blocks and cards, a pop for a success mark. Transform/opacity
+     only, and callers gate them behind `motion-safe:` so reduced motion gets the finished state at once. */
+  --animate-rise: rise 0.55s cubic-bezier(0.22, 1, 0.36, 1) both;
+  --animate-pop: pop 0.45s cubic-bezier(0.22, 1, 0.36, 1) both;
+
+  @keyframes rise {
+    from {
+      opacity: 0;
+      transform: translateY(12px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  @keyframes pop {
+    from {
+      opacity: 0;
+      transform: scale(0.6);
+    }
+    to {
+      opacity: 1;
+      transform: scale(1);
+    }
+  }
 }
 
 html,
@@ -43,14 +73,21 @@ body,
 
 body {
   margin: 0;
-  /* The night sky: two faint, static glows over the ink (blue top-left, orange top-right). They scroll with the
-     page and never repeat down it. */
+  /* The night sky: two faint, static glows over the ink (blue top-left, orange top-right), closed by a soft
+     vignette that darkens the foot of the page so content floats toward the light. They scroll with the page
+     and never repeat down it. */
   background:
     radial-gradient(48rem 32rem at 0% 0%, rgb(30 120 255 / 0.1), transparent 70%),
     radial-gradient(44rem 30rem at 100% 0%, rgb(255 138 61 / 0.08), transparent 70%),
+    radial-gradient(120% 75% at 50% 108%, rgb(0 0 0 / 0.32), transparent 60%),
     var(--color-ink);
   background-repeat: no-repeat;
   color: var(--color-text);
   font-family: var(--font-sans);
   -webkit-font-smoothing: antialiased;
+}
+
+::selection {
+  background: var(--color-accent);
+  color: var(--color-ink);
 }

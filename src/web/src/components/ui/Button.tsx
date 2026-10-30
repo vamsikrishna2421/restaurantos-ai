@@ -22,20 +22,21 @@ export interface ButtonProps extends ComponentPropsWithRef<'button'> {
 
 const VARIANTS: Readonly<Record<ButtonVariant, string>> = {
   primary: 'bg-linear-to-r from-accent to-accent-2 text-ink shadow-glow-accent-sm hover:from-accent/90 ' +
-    'hover:to-accent-2/90 focus-visible:outline-accent',
-  secondary: 'border border-white/10 bg-panel-2 text-text hover:border-muted focus-visible:outline-accent',
-  ghost: 'text-text hover:bg-panel-2 focus-visible:outline-accent',
-  danger: 'bg-bad text-ink shadow-glow-bad-sm hover:bg-bad/90 focus-visible:outline-bad',
-  ok: 'bg-ok text-ink shadow-glow-ok-sm hover:bg-ok/90 focus-visible:outline-ok',
+    'hover:to-accent-2/90 hover:shadow-glow-accent focus-visible:outline-accent',
+  secondary: 'border border-white/10 bg-linear-to-b from-panel-2 to-panel text-text shadow-pop ' +
+    'hover:border-accent/40 focus-visible:outline-accent',
+  ghost: 'text-text hover:bg-white/5 focus-visible:outline-accent',
+  danger: 'bg-bad text-ink shadow-glow-bad-sm hover:bg-bad/90 hover:shadow-glow-bad focus-visible:outline-bad',
+  ok: 'bg-ok text-ink shadow-glow-ok-sm hover:bg-ok/90 hover:shadow-glow-ok focus-visible:outline-ok',
   ai: 'bg-linear-to-r from-ai to-ai-2 text-ink shadow-glow-ai-sm hover:from-ai/90 hover:to-ai-2/90 ' +
-    'focus-visible:outline-ai',
+    'hover:shadow-glow-ai focus-visible:outline-ai',
 }
 
 const SIZES: Readonly<Record<ButtonSize, string>> = {
-  sm: 'gap-1.5 rounded-md px-2.5 py-1 text-sm',
-  md: 'gap-2 rounded-lg px-4 py-2 text-base',
-  lg: 'gap-2 rounded-lg px-5 py-3 text-lg',
-  xl: 'min-h-14 gap-3 rounded-xl px-6 py-4 text-xl',
+  sm: 'gap-1.5 rounded-lg px-2.5 py-1 text-sm',
+  md: 'gap-2 rounded-xl px-4 py-2 text-base',
+  lg: 'gap-2 rounded-xl px-5 py-3 text-lg',
+  xl: 'min-h-14 gap-3 rounded-2xl px-6 py-4 text-xl',
 }
 
 export function Button({
@@ -56,7 +57,9 @@ export function Button({
       aria-busy={loading || undefined}
       data-variant={variant}
       className={cx(
-        'inline-flex select-none items-center justify-center font-semibold leading-tight transition-colors',
+        'inline-flex select-none items-center justify-center font-semibold leading-tight',
+        'transition-[color,background-color,border-color,box-shadow,transform] duration-200',
+        'motion-safe:active:translate-y-px',
         'focus-visible:outline-2 focus-visible:outline-offset-2 disabled:cursor-not-allowed disabled:opacity-50',
         'disabled:shadow-none',
         VARIANTS[variant],

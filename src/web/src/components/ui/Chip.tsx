@@ -47,9 +47,11 @@ export function Chip({ tone = 'neutral', icon, onClick, selected = false, disabl
       lang={lang}
       className={cx(
         CHIP,
-        'ring-inset transition-colors focus-visible:outline-2 focus-visible:outline-offset-2',
-        'focus-visible:outline-accent disabled:opacity-50',
-        selected ? 'bg-accent text-ink ring-accent' : cx(TONE_SOFT[tone], 'hover:ring-muted'),
+        'ring-inset transition-[color,background-color,box-shadow] focus-visible:outline-2',
+        'focus-visible:outline-offset-2 focus-visible:outline-accent disabled:opacity-50',
+        selected
+          ? 'bg-linear-to-r from-accent to-accent-2 text-ink shadow-glow-accent-sm ring-accent/60'
+          : cx(TONE_SOFT[tone], 'hover:ring-muted'),
         className,
       )}
     >

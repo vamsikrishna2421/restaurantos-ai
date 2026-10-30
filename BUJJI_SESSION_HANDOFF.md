@@ -284,3 +284,78 @@ Checks run for this pass:
    small follow-up.
 5. **Force PIN change on first login** for seeded accounts before any real deployment, and consider a
    manager-set PIN reset.
+
+## Pass 3 — Visual redesign of the front door (branch `bujji/ui-polish`)
+
+Built 2026-10-30 on top of pass 2 (branch point `b324c3b`, the tree that merged to main). Vamsi's verdict on
+passes 1–2 was that the UI "looks like a science project, not a billion-dollar application" — flat bordered
+cards, no depth, no craft. Pass 3 is **presentation only**: no route, API call, navigation target, role/slot
+rule, onboarding behaviour, or copy meaning changed, and the full web suite (35 files / 242 tests) passes
+unmodified — no test needed editing.
+
+### Design approach: deepen the system, don't replace it
+
+The "kitchen at night" theme in `src/web/src/index.css` was already rich (glow shadow family, orange→gold
+brand gradient, AI violet) — the surfaces just weren't using it. Pass 3 exploits it and adds only what was
+missing:
+
+- **`--shadow-pop` / `--shadow-lift`** — plain-black depth shadows, so elements sit at different *heights*
+  (raised keys, tiles, steppers) and cards earn a deeper shadow on hover. Black reads as height; the coloured
+  glows stay reserved for meaning (tone, brand, urgency).
+- **`--animate-rise` / `--animate-pop`** — transform/opacity-only entrances; every use is behind
+  `motion-safe:`, so reduced motion gets the finished state instantly. No blur filters anywhere (the radial
+  "light pools" on the welcome and onboard-done screens are `radial-gradient` backgrounds, painted once).
+- **A soft vignette** closes the body background at the foot of the page; selection colour is now the accent.
+- `cx.ts` learned that `pop`/`lift` are shadow sizes, so a caller's shadow still overrides a component's glow.
+
+### The kit (`src/web/src/components/ui/`)
+
+- **Button** — coloured variants bloom from the small glow to the full glow on hover and press down a pixel
+  (`motion-safe:active:translate-y-px`); `secondary` is now a gradient panel with a pop shadow; radii grew one
+  step at every size. Padding/sizes unchanged, so kiosk/KDS touch targets are identical.
+- **Card** — panels get a top-lit gradient (`panel-2` → `panel`) and hairline-white header/footer dividers
+  instead of the flat fill and hard `line` border. The toned left edge and glow contract is untouched.
+- **Chip** — a selected toggle wears the primary gradient with its glow (staff language pills reuse this
+  treatment locally for their selected state).
+- **Tabs** — the selected tab gets a faint sheen and its count badge lights up in accent.
+- **BrandMark** — the hat's corner radius is now a share of its size (app-icon proportions at any size) and
+  "AI" wears the orange→gold gradient wherever the brand appears, including the router header.
+- **Avatar (new)** — initials on a gradient disc; the tint is a hash of the person's name, so someone is the
+  same colour on every surface and shift. Decorative; the name beside it stays the accessible text.
+- **Badge — deliberately unchanged.** It lives in dense GM/KDS rows where flat and quiet is the job.
+
+### The surfaces
+
+- **Welcome (`/`)** — the cover: the designed hat sits in a gradient app-icon tile with the kit glow, over
+  three soft radial pools of the palette's light (orange above, blue left, violet right). The wordmark is
+  display type (6xl/7xl) with the gradient on "AI". Enter blooms to the full accent glow. The three ways in
+  are raised cards, each with a tinted icon tile (orange Customer, violet Staff, gold Set up), lifting on
+  hover and staggered in on arrival. Back is a quiet pill.
+- **Staff (`/staff`)** — people are identity cards (Avatar, bold name, language as a designed chip, chevron,
+  hover lift). The PIN screen leads with the person's avatar; pad keys are raised gradient discs that press
+  in, and the dots fill with the brand gradient and glow. Job slots carry a tinted icon tile per kind (crown
+  = manager, chef's hat = chef, bell = front counter); an open slot shows a lit green "Open", a taken one is
+  dimmed with the holder's avatar and a lock. Signup inputs get real focus rings (accent border + soft ring);
+  errors sit in a proper tinted alert box instead of bare red text.
+- **Manager (`/manager`)** — the feed now carries urgency as tone: shift readiness glows **warn** while any
+  job is open and **ok** when the shift is full (the filled-count chip matches), open jobs sit on amber tiles,
+  filled ones carry holder avatars; approvals wear the **AI violet** with a count chip and plan summaries on
+  soft violet tiles; low-stock rows get urgency dots that escalate with the forecast band (`watch` → amber,
+  `act` → red) and the card's tone follows the worst item; the open-orders count is a display-size number in
+  the brand gradient. Calm states keep the same polish — an all-quiet day still looks like a product.
+- **Onboard (`/onboard`)** — a two-step progress rail (Menu → Review: current step lit in the brand gradient,
+  finished step green-checked, `aria-current="step"`). Step 1's form sits in a lit card under the hat tile;
+  the Toast link is the hero input (link icon in the field, focus ring). The review screen: dish prices in
+  gold tabular figures, station selects and remove buttons with real focus/hover states, cook steppers as
+  round raised keys with a display-size count, job chips carrying their kind's icon. Going live lands on a
+  ceremony — a glowing green check (`animate-pop`) over soft pools of green/warm light, the restaurant's
+  facts set like a receipt, tenant ID as a gold mono chip.
+
+### Deliberately left alone
+
+- **Kiosk, KDS, GM and the remaining surfaces** — not redesigned; they inherit the kit upgrades (gradient
+  cards, deeper buttons, lit tabs, gradient brand mark), which were checked against them via the full suite.
+  KDS paint cost is unchanged: no new filters, shadows are the same box-shadow family.
+- **Modal and Toast** — self-styled already; untouched.
+- **All copy** — every string is the pass-1/2 wording. The only new words in the product are the step rail's
+  "Menu" / "Review" labels.

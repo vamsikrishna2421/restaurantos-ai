@@ -31,7 +31,7 @@ export function Card({ title, actions, footer, tone, panel, as: Tag = 'section',
     <Tag
       {...panelProps(panel, focus)}
       className={cx(
-        'flex min-w-0 flex-col rounded-2xl border border-white/8 bg-panel text-text shadow-glow',
+        'flex min-w-0 flex-col rounded-2xl border border-white/8 bg-panel bg-linear-to-b from-panel-2/70 to-panel text-text shadow-glow',
         tone && 'border-l-4',
         tone && TONE_EDGE[tone],
         tone && TONE_GLOW[tone],
@@ -40,13 +40,13 @@ export function Card({ title, actions, footer, tone, panel, as: Tag = 'section',
       {...rest}
     >
       {(title || actions) && (
-        <header className="flex items-center justify-between gap-3 border-b border-line px-4 py-3">
+        <header className="flex items-center justify-between gap-3 border-b border-white/6 px-4 py-3">
           {title && <h2 className="min-w-0 text-base font-semibold tracking-tight">{title}</h2>}
           {actions && <div className="flex shrink-0 items-center gap-2">{actions}</div>}
         </header>
       )}
       <div className={cx('min-w-0 flex-1 p-4', bodyClassName)}>{children}</div>
-      {footer && <footer className="border-t border-line px-4 py-3 text-sm text-muted">{footer}</footer>}
+      {footer && <footer className="border-t border-white/6 px-4 py-3 text-sm text-muted">{footer}</footer>}
     </Tag>
   )
 }
