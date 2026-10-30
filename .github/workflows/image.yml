@@ -1,0 +1,33 @@
+# Builds the production Docker image and pushes it to GHCR so the Fly
+# Machines API can pull it (the Fly token lives with Bujji's connector,
+# not in GitHub secrets, so flyctl-based deploy.yml is not used here).
+name: image
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile
+          push: true
+          tags: |
+            ghcr.io/vamsikrishna2421/restaurantos-ai:latest
+            ghcr.io/vamsikrishna2421/restaurantos-ai:sha-${{ github.sha }}
