@@ -1,33 +1,14 @@
 /**
- * `/` (P41): the front door. A splash first — the brand banner and a hello that cycles through the languages the
- * restaurant speaks — behind one Enter button; then the mode choice: Customer (the kiosk), Staff (shift sign-in),
+ * `/` (P41): the front door. A splash first — the designed brand mark (the hat logo and the RestaurantOS AI
+ * wordmark, large) — behind one Enter button; then the mode choice: Customer (the kiosk), Staff (shift sign-in),
  * or setting up a new restaurant (onboarding). Nothing here creates a session or reads tenant data: this is the
  * cover of the product, and everyone who opens the app lands here first.
  */
 
 import { ArrowLeft, ArrowRight, ChefHat, Store, UtensilsCrossed } from 'lucide-react'
-import { useEffect, useState, type ComponentType } from 'react'
+import { useState, type ComponentType } from 'react'
 import { BrandHat, Button } from '../../components/ui'
 import { navigate, type SurfaceProps } from '../../router'
-
-/** The hello moment: the greeting in each language the product speaks, plus the founders' Bonjour nod. */
-const GREETINGS: readonly { text: string; lang: string }[] = [
-  { text: 'Hello', lang: 'en' },
-  { text: 'Bonjour', lang: 'fr' },
-  { text: 'నమస్కారం', lang: 'te' },
-  { text: 'வணக்கம்', lang: 'ta' },
-  { text: 'Hola', lang: 'es' },
-]
-const GREETING_MS = 2200
-
-function useGreeting(): number {
-  const [index, setIndex] = useState(0)
-  useEffect(() => {
-    const timer = window.setInterval(() => setIndex((i) => (i + 1) % GREETINGS.length), GREETING_MS)
-    return () => window.clearInterval(timer)
-  }, [])
-  return index
-}
 
 interface Mode {
   title: string
@@ -44,15 +25,11 @@ const MODES: readonly Mode[] = [
 
 export default function WelcomeSurface(_props: SurfaceProps) {
   const [entered, setEntered] = useState(false)
-  const greeting = GREETINGS[useGreeting()]
   return (
     <main className="flex min-h-full flex-col items-center justify-center gap-10 p-6 text-center">
       <div className="flex flex-col items-center gap-4">
-        <BrandHat size={72} />
-        <p key={greeting.text} lang={greeting.lang} className="text-5xl font-black tracking-tight sm:text-6xl">
-          {greeting.text}
-        </p>
-        <h1 className="text-2xl font-bold tracking-tight">
+        <BrandHat size={88} />
+        <h1 className="text-5xl font-black tracking-tight sm:text-6xl">
           RestaurantOS <span className="text-accent">AI</span>
         </h1>
         <p className="max-w-md text-muted">

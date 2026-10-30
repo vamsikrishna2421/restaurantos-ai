@@ -1,5 +1,10 @@
 # Bujji session handoff — front door, pass 1 + onboarding, pass 2
 
+> **Update 2026-10-30 (Vamsi's correction, post-pass-2):** the splash no longer cycles greetings
+> (Hello / Bonjour / …). Vamsi's "Bonjour" was about the typography, not the word. The front door is now
+> just the designed brand: the hat logo (`/favicon.png`, via `BrandHat`) large, with "RestaurantOS AI" as
+> the big display wordmark in that same heavy type. No greeting text anywhere on the splash.
+
 Branch: `bujji/front-door` (off `main`). Written 2026-10-30 by Bujji (the assistant builder) so any later
 session — Claude Code contributor session included — can pick this work up cold: what shipped, the decisions
 behind it, how to run it, and what is deliberately left for later. Pass 2 (restaurant onboarding) is the
