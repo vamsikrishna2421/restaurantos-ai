@@ -47,7 +47,7 @@ afterEach(() => {
 test('a_chef_claim_locks_the_display_to_the_claimed_station', () => {
   saveStaffSession({
     token: 'tok_carlos',
-    staff: { id: 'STF_CARLOS', name: 'Carlos', language: 'es' },
+    staff: { id: 'STF_CARLOS', name: 'Carlos', language: 'es', default_role: null },
     claim: { slot_id: 'STN_CURRY#1', label: 'Curry Chef 1', kind: 'chef', station_id: 'STN_CURRY' },
   })
   render(<KdsSurface params={{}} query={new URLSearchParams()} />)
@@ -56,6 +56,28 @@ test('a_chef_claim_locks_the_display_to_the_claimed_station', () => {
   expect(screen.getByRole('button', { name: 'End shift' })).toBeInTheDocument()
   // the header names the locked station, in its own language toggle's default (English here)
   expect(screen.getByRole('heading', { name: 'Curry' })).toBeInTheDocument()
+})
+
+test('a_custom_job_claim_shows_only_its_own_stations', () => {
+  // pass 5: Ravi's "Runner" job covers Curry and Biryani — its display gets exactly those two tabs
+  saveStaffSession({
+    token: 'tok_ravi',
+    staff: {
+      id: 'STF_RAVI', name: 'Ravi', language: 'en',
+      default_role: { slot_id: 'custom:CUS_1', label: 'Runner', pending: false },
+    },
+    claim: {
+      slot_id: 'custom:CUS_1', label: 'Runner', kind: 'chef', station_id: 'STN_CURRY',
+      station_ids: ['STN_CURRY', 'STN_BIRYANI'],
+    },
+  })
+  render(<KdsSurface params={{}} query={new URLSearchParams()} />)
+  expect(screen.getByRole('tab', { name: /^Curry/ })).toBeInTheDocument()
+  expect(screen.getByRole('tab', { name: /^Biryani/ })).toBeInTheDocument()
+  expect(screen.queryByRole('tab', { name: /^All stations/ })).not.toBeInTheDocument()
+  expect(screen.queryByRole('tab', { name: /^Tandoor/ })).not.toBeInTheDocument()
+  expect(screen.getByText('Ravi · Runner')).toBeInTheDocument()
+  expect(screen.getByRole('button', { name: 'End shift' })).toBeInTheDocument()
 })
 
 test('without_a_claim_the_station_tabs_are_there_as_always', () => {

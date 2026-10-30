@@ -477,3 +477,93 @@ review and killed it. Now:
   sandbox's known combined-run flakiness (every suite passes standalone); the only reproducible failure
   anywhere, `tests/test_conftest_network.py::test_localhost_tcp_needs_opt_in`, fails identically on the
   pristine base branch — environmental, not pass 4. Ruff clean on the tree.
+
+## Pass 5 — Usual jobs: a person's role is their default (branch `bujji/pass5`)
+
+Founder redesign from the 2026-10-30 live review: picking a job on every sign-in was wrong. A job is
+chosen ONCE and belongs to the person; a shift claim is just the day's instance of it. Plus two fixes the
+founder hit himself (the onboarding dead end, and the staff boot spinner).
+
+### The model
+
+- **Default role lives on the person**: a `default_role` column on the staff row in `staff.db`, holding
+  JSON `{"slot_id", "pending"}` — the slot id plus whether it still waits on approval (only the Manager
+  job uses the stored flag). Resolved for display against the tenant's own slots, so a default whose
+  station no longer exists resolves to nothing rather than dangling. `StaffPerson.default_role` carries it
+  (`StaffDefaultRole {slot_id, label, pending}`).
+- **Predefined jobs** are unchanged: `derive_slots` over the SESSION tenant's stations (pass-4 behavior),
+  so defaults and customs are per-tenant like everything else. Seed personas start with the usual job
+  their seed role implies: manager/owner → Manager, foh → Front Counter, cook → their FIRST station's #1
+  slot (Lakshmi → Manager; Carlos → STN_CURRY#1; Meena → STN_TIFFIN#1; Arjun → STN_TANDOOR#1;
+  Maria → Front Counter).
+- **Custom jobs** live in a new `custom_roles` table (per tenant): a name (case-insensitive unique among
+  live roles — a declined name may be asked for again) and a station binding (a list of station ids,
+  possibly empty = floor). Slot id `custom:<role_id>`; its `RoleSlot` carries `station_ids` (predefined
+  slots send null) and kind chef when it binds stations, front_counter when it binds none. Orders still
+  route by station, never by person — a custom job just subscribes its holder to its stations' queues.
+- **Approval**: custom jobs and the Manager job start `pending`. Pending is a state, not a notification:
+  the manager on shift clears it from the manager surface (`GET /api/staff/role-requests`,
+  `POST /api/staff/role-requests/decide`; request ids are `custom:<role_id>` and `manager:<staff_id>`).
+  Declining a custom job retires it and clears its creator's default pointer. The seed manager always
+  starts approved, so approvals can always bootstrap.
+- **Claim gates** (in `StaffStore.claim`): a pending slot answers 403 `role_pending`; the Manager slot
+  and any custom slot are claimable ONLY by the person whose approved usual job they are (403
+  `role_not_approved` for everyone else). A caller sees their own pending custom slot in their roles view
+  (flagged `pending_approval`, claimable by nobody) and nobody else sees it at all.
+- **The manager can move defaults**: `POST /api/staff/default` (Manager-slot holder only) sets or clears
+  anyone's usual job; a manager-set job is active immediately — setting it IS the approval. Releasing
+  others' slots is unchanged (release-other).
+
+### The flows, as built
+
+- **Signup**: name/language → PIN (twice) → "What's your job?" — the predefined list (the Manager job
+  notes it needs approval) or "Something else" (name + station multi-select). One signup call carries
+  `{default_slot_id}` or `{custom_role: {name, station_ids}}`. An active predefined pick is claimed at
+  once and lands on its screen; a waiting pick lands on the signed-in panel, which names the usual job
+  and its "Waiting for the manager's OK" state.
+- **Login**: PIN → the usual job auto-claims when set, approved and free → straight to its surface via
+  `staffHome`. The picker appears only when the usual job is taken this shift (with the note "Your usual
+  job — X — is taken this shift") or the person has no usual job yet; picking a predefined job with no
+  default SETS it as the default (server-side, in the claim route; the web mirrors it locally).
+- **Switch job for today**: on the signed-in panel — releases the held slot and shows the picker; the
+  default never changes. Ends with End shift / Sign out as before.
+- **KDS**: a custom claim's `station_ids` drive the display — several stations narrow the tabs to exactly
+  those (no All tab, first bound station is home), one station locks like a predefined chef, none (floor)
+  keeps every station with the claim chip + End shift shown.
+- **Manager surface**: two new cards under Shift readiness — "Job requests" (approve/decline, with the
+  binding spelled out, e.g. "Covers Curry, Biryani") and "Team jobs" (a usual-job select per person;
+  people with a waiting ask point at the requests card instead). Both fail soft off older servers.
+
+### The two fixes
+
+- **Onboarding dead end**: `/onboard` now carries the staff surface's "← Start" home pill on EVERY state —
+  start form, review screen, success state (the review screen keeps its separate "Start over").
+- **Staff boot failure**: a rejected session `start()` (e.g. the tunnel's 403 bad_origin) left the store
+  status at 'none', so `/staff` spun on "Getting the kitchen ready…" forever. `start()` — and only
+  `start()`; the shared `track()` is untouched, so a failed reset still can't kill a live session's
+  status — now also sets `status: 'error'`, and the boot screen renders its existing "The kitchen could
+  not be reached. Reload to try again." Regression assertion added to the failed-start session test.
+
+### Limits, plainly
+
+- If nobody holds the Manager slot and nobody has an approved Manager default (say the one manager's
+  default was cleared from Team jobs before they ended their shift), the slot cannot be claimed and
+  approvals cannot be decided — setting defaults requires holding it. Recovery is a seed/data fix, not
+  a UI path; noted, not built.
+- A custom job's name uniqueness is enforced per tenant among live roles; two simultaneous same-name
+  signups race to one 409 and one orphan person row with no default (they can still sign in and pick).
+- Nonce-free as before: approvals are decided by whoever HOLDS the Manager slot this shift, which is the
+  product's trust model for a single restaurant's tablet.
+
+### Tests
+
+- Python: `tests/api/test_staff_routes.py` is now 19 tests (seed defaults, signup with predefined/custom
+  jobs, the full approval circle — approve activates, decline clears — claim gates, first-pick-sticks,
+  manager set/clear, per-tenant isolation). Onboarding/GM/contracts/registry suites re-run green (182),
+  and a full `tests/` run under the clean-env recipe (NO_PROXY pinned to localhost — the sandbox's IPv6
+  NO_PROXY entries crash httpx in unrelated suites) finished with exactly one failure:
+  `tests/test_conftest_network.py::test_localhost_tcp_needs_opt_in`, the documented pre-existing
+  environmental one. Ruff clean.
+- Web: 35 files / **250 tests green** (242 at pass 4 + 8 new: auto-claim login, taken-default picker,
+  custom-job signup waiting state, switch-for-today, manager requests + team jobs, KDS bound tabs,
+  onboard Start links), `npm run build` clean.

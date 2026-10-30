@@ -506,16 +506,30 @@ export interface CallDisconnectRequest {
   call_id: string
 }
 
+export interface StaffDefaultRole {
+  slot_id: string
+  label: string
+  pending: boolean
+}
+
 export interface StaffPerson {
   id: string
   name: string
   language: SpeakLang
+  default_role: StaffDefaultRole | null
+}
+
+export interface CustomRoleSpec {
+  name: string
+  station_ids: string[]
 }
 
 export interface StaffSignupRequest {
   name: string
   language: SpeakLang
   pin: string
+  default_slot_id: string | null
+  custom_role: CustomRoleSpec | null
 }
 
 export interface StaffLoginRequest {
@@ -539,8 +553,10 @@ export interface RoleSlot {
   label: string
   kind: StaffRoleKind
   station_id: string | null
+  station_ids: string[] | null
   holder: StaffHolder | null
   mine: boolean
+  pending_approval: boolean
 }
 
 export interface RoleClaimRequest {
@@ -549,6 +565,24 @@ export interface RoleClaimRequest {
 
 export interface RoleReleaseRequest {
   slot_id: string
+}
+
+export interface RoleRequest {
+  request_id: string
+  staff_id: string
+  staff_name: string
+  label: string
+  detail: string
+}
+
+export interface RoleRequestDecision {
+  request_id: string
+  approve: boolean
+}
+
+export interface SetDefaultRequest {
+  staff_id: string
+  slot_id: string | null
 }
 
 export interface OnboardingDraftItem {

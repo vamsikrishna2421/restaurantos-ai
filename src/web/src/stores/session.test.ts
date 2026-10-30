@@ -65,6 +65,9 @@ test('start exchanges the captured passcode once, and keeps it when the exchange
   await expect(useSession.getState().start()).rejects.toMatchObject({ code: 'rate_limited', status: 429 })
   expect(pendingPasscode()).toBe('judge-pass')
   expect(useSession.getState().error?.code).toBe('rate_limited')
+  // a refused start puts the store in its error state, so boot screens show their failure message
+  // instead of spinning forever (pass 5 regression: the staff page hung on a 403'd session start)
+  expect(useSession.getState().status).toBe('error')
 
   await expect(useSession.getState().start()).resolves.toEqual(INFO)
   const [path, init] = fetch.mock.calls[1]

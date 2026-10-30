@@ -61,12 +61,21 @@ function KdsScreen({ data }: { data: TenantData }) {
   // A chef who arrived through staff sign-in (P41) is locked to the station they claimed: the tabs go away and
   // the URL's ?station= is ignored. No claim on this device (a shared expo screen, the founders' laptop) = the
   // display behaves exactly as before.
+  // Pass 5: a custom job's claim carries its station binding — several stations narrow the tabs to exactly
+  // those (no All tab), one station locks like a predefined chef, none (a floor job) keeps every station.
   const [staffSession] = useState(loadStaffSession)
-  const claim = staffSession?.claim?.kind === 'chef' ? staffSession.claim : null
-  const lockedStation = claim?.station_id !== null && claim?.station_id !== undefined
-    && menu.stations.some((s) => s.id === claim.station_id) ? claim.station_id : null
+  const claim = staffSession?.claim ?? null
+  const bound = claim !== null && Array.isArray(claim.station_ids)
+    ? claim.station_ids.filter((id) => menu.stations.some((s) => s.id === id))
+    : null
+  const lockedStation = bound !== null
+    ? (bound.length === 1 ? bound[0] : null)
+    : (claim?.kind === 'chef' && claim.station_id !== null && claim.station_id !== undefined
+      && menu.stations.some((s) => s.id === claim.station_id) ? claim.station_id : null)
   const asked = useLocation().query.get('station')
-  const station = lockedStation ?? (asked !== null && menu.stations.some((s) => s.id === asked) ? asked : ALL)
+  const station = lockedStation ?? (bound !== null && bound.length > 1
+    ? (asked !== null && bound.includes(asked) ? asked : bound[0])
+    : (asked !== null && menu.stations.some((s) => s.id === asked) ? asked : ALL))
   const endShift = useCallback(async () => {
     if (!staffSession) return
     try {
@@ -148,6 +157,8 @@ function KdsScreen({ data }: { data: TenantData }) {
       id: s.id, label: <StationTab menu={menu} id={s.id} />, badge: counts.get(s.id) ?? 0,
     })),
   ]
+  // a multi-station custom job sees only its own stations' tabs — never All, never anyone else's
+  const visibleTabs = bound !== null && bound.length > 1 ? tabs.filter((t) => bound.includes(t.id)) : tabs
   return (
     <div className="flex min-h-full flex-col">
       <header className="sticky top-0 z-20 border-b border-line bg-ink/95 backdrop-blur">
@@ -160,9 +171,9 @@ function KdsScreen({ data }: { data: TenantData }) {
           <SimClock />
           <FeedDot />
           <div className="ml-auto flex flex-wrap items-center gap-2">
-            {lockedStation !== null && staffSession && (
+            {(lockedStation !== null || bound !== null) && staffSession && claim && (
               <>
-                <Chip>{`${staffSession.staff.name} · ${claim!.label}`}</Chip>
+                <Chip>{`${staffSession.staff.name} · ${claim.label}`}</Chip>
                 <Button data-chrome="" variant="ghost" onClick={() => void endShift()}>End shift</Button>
               </>
             )}
@@ -175,7 +186,7 @@ function KdsScreen({ data }: { data: TenantData }) {
           </div>
         </div>
         {lockedStation === null && (
-          <Tabs items={tabs} value={station} onChange={setStation} label="Stations" idPrefix="kds" size="lg"
+          <Tabs items={visibleTabs} value={station} onChange={setStation} label="Stations" idPrefix="kds" size="lg"
             className="border-b-0 px-2" />
         )}
       </header>
@@ -186,7 +197,7 @@ function KdsScreen({ data }: { data: TenantData }) {
       <div className={cx('grid flex-1 items-start gap-4 p-4',
         'lg:grid-cols-[minmax(0,1fr)_calc(22rem*var(--ros-type-scale,1))]')}>
         <div className="min-w-0">
-          {tabs.map((tab) => (
+          {visibleTabs.map((tab) => (
             <TabPanel key={tab.id} idPrefix="kds" id={tab.id} value={station}>
               {tab.id === station && (
                 <>

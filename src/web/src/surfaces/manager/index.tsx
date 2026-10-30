@@ -4,6 +4,10 @@
  * - **Shift readiness** — every role slot for the shift, who holds it or that it is still open; open slots are
  *   listed first, because a missing cook is the day's first problem. The manager on shift can release a slot
  *   (a sick call-out, a handover) straight from the row.
+ * - **Job requests** (pass 5) — the usual-job asks waiting on the manager: someone picked the Manager job at
+ *   signup, or defined a job of their own. Approve and it becomes their usual job; decline and it goes away.
+ * - **Team jobs** (pass 5) — everyone's usual job, changeable by the manager from a plain select; a change
+ *   the manager makes is active at once (making it is the approval).
  * - **Waiting for your approval** — GM plans in `proposed` state, counted from the live tenant feed, with a
  *   link through to the GM console where they are decided.
  * - **Running low** — the inventory items closest to running out (forecast order from `GET /api/state`'s
@@ -23,7 +27,7 @@ import { ArrowRight, Check, RefreshCw } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { SampleBadge } from '../../components/badges'
 import { Avatar, Button, Card, Chip, cx } from '../../components/ui'
-import type { InventoryItemView, RoleSlot } from '../../contracts/generated'
+import type { InventoryItemView, RoleRequest, RoleSlot, StaffPerson } from '../../contracts/generated'
 import { formatCents } from '../../lib/format'
 import { clearStaffSession, loadStaffSession, staffApi } from '../../lib/staff'
 import { Link, navigate, type SurfaceProps } from '../../router'
@@ -87,6 +91,52 @@ export default function ManagerSurface(_props: SurfaceProps) {
     try {
       await staffApi.releaseOther(me.token, slot.slot_id)
       await refreshSlots()
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  // pass 5: job requests + team jobs. Both fail soft — an older server (or a non-manager token) just
+  // leaves the cards off this screen instead of breaking the attention view.
+  const [requests, setRequests] = useState<RoleRequest[] | null>(null)
+  const [people, setPeople] = useState<StaffPerson[]>([])
+
+  const refreshTeam = useCallback(async () => {
+    if (!me || !isManager) return
+    try {
+      setRequests(await staffApi.roleRequests(me.token))
+    } catch {
+      setRequests(null)
+    }
+    try {
+      setPeople(await staffApi.list())
+    } catch {
+      setPeople([])
+    }
+  }, [me, isManager])
+
+  useEffect(() => {
+    void refreshTeam()
+  }, [refreshTeam])
+
+  const decide = async (request: RoleRequest, approve: boolean) => {
+    if (!me) return
+    setBusy(request.request_id)
+    try {
+      await staffApi.decideRoleRequest(me.token, request.request_id, approve)
+      await refreshTeam()
+      await refreshSlots()
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  const changeDefault = async (person: StaffPerson, slotId: string) => {
+    if (!me) return
+    setBusy(`default:${person.id}`)
+    try {
+      await staffApi.setDefault(me.token, person.id, slotId === '' ? null : slotId)
+      await refreshTeam()
     } finally {
       setBusy(null)
     }
@@ -183,6 +233,75 @@ export default function ManagerSurface(_props: SurfaceProps) {
           </div>
         )}
       </Card>
+
+      {isManager && requests !== null && (
+        <Card title="Job requests" tone={requests.length > 0 ? 'warn' : undefined}
+          className="motion-safe:animate-rise"
+          actions={requests.length > 0 ? <Chip tone="warn">{requests.length}</Chip> : undefined}>
+          {requests.length === 0 ? (
+            <p className="text-muted">No job requests are waiting.</p>
+          ) : (
+            <ul className="flex flex-col gap-2">
+              {requests.map((request) => (
+                <li key={request.request_id}
+                  className="flex flex-wrap items-center justify-between gap-3 rounded-xl bg-warn/8 px-3.5 py-2.5 ring-1 ring-warn/25">
+                  <span className="flex min-w-0 items-center gap-2.5">
+                    <Avatar name={request.staff_name} className="size-7 text-xs" />
+                    <span className="truncate">
+                      <span className="font-semibold">{request.staff_name}</span>
+                      {' — '}{request.label}
+                      <span className="block text-sm text-muted">{request.detail}</span>
+                    </span>
+                  </span>
+                  <span className="flex gap-2">
+                    <Button size="sm" variant="primary" loading={busy === request.request_id}
+                      onClick={() => void decide(request, true)}>
+                      Approve
+                    </Button>
+                    <Button size="sm" variant="ghost" loading={busy === request.request_id}
+                      onClick={() => void decide(request, false)}>
+                      Decline
+                    </Button>
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </Card>
+      )}
+
+      {isManager && people.length > 0 && slots !== null && (
+        <Card title="Team jobs" className="motion-safe:animate-rise">
+          <ul className="flex flex-col gap-1.5">
+            {people.map((person) => (
+              <li key={person.id}
+                className="flex flex-wrap items-center justify-between gap-3 rounded-xl bg-white/2 px-3 py-2 ring-1 ring-white/5">
+                <span className="flex min-w-0 items-center gap-2.5">
+                  <Avatar name={person.name} className="size-7 text-xs" />
+                  <span className="truncate font-semibold">{person.name}</span>
+                </span>
+                {person.default_role?.pending ? (
+                  <Chip tone="warn">Asked for {person.default_role.label} — see Job requests</Chip>
+                ) : (
+                  <label className="flex items-center gap-2 text-sm text-muted">
+                    Usual job
+                    <select aria-label={`Usual job for ${person.name}`}
+                      value={person.default_role?.slot_id ?? ''}
+                      disabled={busy === `default:${person.id}`}
+                      onChange={(e) => void changeDefault(person, e.target.value)}
+                      className="rounded-lg border border-white/10 bg-panel-2 px-2.5 py-2 font-medium text-text outline-none transition-[border-color,box-shadow] focus:border-accent/60 focus:ring-4 focus:ring-accent/15">
+                      <option value="">No usual job</option>
+                      {slots.filter((s) => !s.pending_approval).map((slot) => (
+                        <option key={slot.slot_id} value={slot.slot_id}>{slot.label}</option>
+                      ))}
+                    </select>
+                  </label>
+                )}
+              </li>
+            ))}
+          </ul>
+        </Card>
+      )}
 
       <Card title="Waiting for your approval" tone="ai" className="motion-safe:animate-rise"
         style={{ animationDelay: '70ms' }}

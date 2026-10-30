@@ -501,18 +501,45 @@ StaffRoleKind = Literal["manager", "front_counter", "chef"]
 Pin = Annotated[str, Field(pattern=r"^\d{4}$")]  # a 4-digit PIN, leading zeros kept (it is a string, not a number)
 
 
+class StaffDefaultRole(Model):
+    """A person's usual job, chosen once (pass 5): sign-in takes them straight to it. ``slot_id`` is the slot
+    it claims — a predefined slot, or ``custom:<role_id>`` for a job the person defined. ``pending`` while the
+    manager's OK is outstanding (the Manager job, and every custom job, need one); a pending default cannot
+    be claimed."""
+
+    slot_id: str
+    label: str
+    pending: bool = False
+
+
 class StaffPerson(Model):
-    """A staff member as other staff may see them: never a PIN, never a hash."""
+    """A staff member as other staff may see them: never a PIN, never a hash. ``default_role`` is their usual
+    job (pass 5), or null when they have not chosen one."""
 
     id: str
     name: str
     language: SpeakLang
+    default_role: StaffDefaultRole | None = None
+
+
+class CustomRoleSpec(Model):
+    """A job the predefined list does not have: its name and the kitchen stations it covers. An empty
+    ``station_ids`` means the floor — the person helps everywhere. Orders route by station, so a custom job
+    simply subscribes its holder to the queues of the stations it covers."""
+
+    name: str = Field(min_length=1, max_length=60)
+    station_ids: list[str] = Field(default_factory=list)
 
 
 class StaffSignupRequest(Model):
     name: str = Field(min_length=1, max_length=60)
     language: SpeakLang
     pin: Pin
+    # The new person's usual job, one of: a predefined slot (or an approved custom job's slot) in
+    # ``default_slot_id``, a brand-new job in ``custom_role`` (goes to the manager for approval), or neither
+    # (no usual job yet). Picking the Manager job also goes to the manager for approval.
+    default_slot_id: str | None = None
+    custom_role: CustomRoleSpec | None = None
 
 
 class StaffLoginRequest(Model):
@@ -534,14 +561,19 @@ class StaffHolder(Model):
 
 
 class RoleSlot(Model):
-    """One claimable job for the shift. ``holder`` is null while the slot is open; ``mine`` marks the caller's."""
+    """One claimable job for the shift. ``holder`` is null while the slot is open; ``mine`` marks the caller's.
+    A custom job (``slot_id`` is ``custom:<role_id>``) carries its whole station binding in ``station_ids``
+    (the predefined slots leave it null and use ``station_id``); ``pending_approval`` marks the caller's own
+    custom job still waiting on the manager — shown to them, claimable by nobody yet."""
 
     slot_id: str
     label: str
     kind: StaffRoleKind
     station_id: str | None = None
+    station_ids: list[str] | None = None
     holder: StaffHolder | None = None
     mine: bool = False
+    pending_approval: bool = False
 
 
 class RoleClaimRequest(Model):
@@ -550,6 +582,30 @@ class RoleClaimRequest(Model):
 
 class RoleReleaseRequest(Model):
     slot_id: str
+
+
+class RoleRequest(Model):
+    """One usual-job ask waiting on the manager (pass 5): a custom job someone defined, or the Manager job
+    itself. ``request_id`` is ``custom:<role_id>`` or ``manager:<staff_id>``; deciding it answers both."""
+
+    request_id: str
+    staff_id: str
+    staff_name: str
+    label: str
+    detail: str
+
+
+class RoleRequestDecision(Model):
+    request_id: str
+    approve: bool
+
+
+class SetDefaultRequest(Model):
+    """The manager on shift sets a person's usual job: a predefined slot, an approved custom job's slot, or
+    null to clear it. A manager-set job is active at once — setting it IS the approval."""
+
+    staff_id: str
+    slot_id: str | None = None
 
 
 # ----- restaurant onboarding (P39): the draft a menu becomes, and going live with it ------------------------------

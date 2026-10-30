@@ -13,6 +13,9 @@
  * Pass 3 presentation: a two-step progress rail (Menu → Review), the step-1 form seated in a lit card with
  * the Toast link as its hero input, station cards with gold prices and proper steppers on the review screen,
  * and a success state with a glowing green mark over soft light. Flow, fields and strings unchanged.
+ *
+ * Pass 5: every state carries the same "← Start" home link the staff surface has — onboarding used to be a
+ * dead end with no way back to the front door.
  */
 
 import { ArrowLeft, Bell, Check, ChefHat, Crown, Link2, Minus, Plus, Store, Trash2 } from 'lucide-react'
@@ -26,7 +29,7 @@ import type {
 } from '../../contracts/generated'
 import { isApiError } from '../../lib/api'
 import { onboardApi, rolesForStations } from '../../lib/onboard'
-import { navigate, type SurfaceProps } from '../../router'
+import { Link, navigate, type SurfaceProps } from '../../router'
 import { useSession } from '../../stores'
 
 type Phase = 'start' | 'review' | 'done'
@@ -39,6 +42,20 @@ const INPUT_CLS =
 const LABEL_CLS = 'text-xs font-bold uppercase tracking-[0.08em] text-muted'
 
 const ALERT_CLS = 'rounded-xl border border-bad/35 bg-bad/10 px-4 py-3 font-medium text-bad'
+
+/** The way home, identical to the staff surface's pill (pass 5: onboarding is no longer a dead end). */
+const START_LINK_CLS =
+  'inline-flex items-center gap-1.5 rounded-full px-3.5 py-1.5 text-sm font-medium text-muted ' +
+  'ring-1 ring-white/10 transition-colors hover:text-text hover:ring-accent/40 ' +
+  'focus-visible:outline-2 focus-visible:outline-accent'
+
+function StartLink({ className }: { className?: string }) {
+  return (
+    <Link to="/" className={cx(START_LINK_CLS, className)}>
+      <ArrowLeft className="size-4" /> Start
+    </Link>
+  )
+}
 
 /** The two steps of setup, as a progress rail: where you are lit in the brand gradient, what is done in green. */
 const STEP_NAMES = ['Menu', 'Review'] as const
@@ -177,6 +194,7 @@ export default function OnboardSurface(_props: SurfaceProps) {
           <div className="absolute left-1/2 top-[16%] h-72 w-72 max-w-none -translate-x-1/2 rounded-full bg-[radial-gradient(closest-side,rgb(46_204_113/0.14),transparent)]" />
           <div className="absolute -right-24 bottom-0 h-64 w-64 rounded-full bg-[radial-gradient(closest-side,rgb(255_138_61/0.1),transparent)]" />
         </div>
+        <StartLink className="relative self-start" />
         <span className="relative flex size-20 items-center justify-center rounded-full bg-linear-to-br from-ok to-ok/60 text-ink shadow-glow-ok ring-1 ring-white/25 motion-safe:animate-pop">
           <Check className="size-10" />
         </span>
@@ -222,10 +240,13 @@ export default function OnboardSurface(_props: SurfaceProps) {
     return (
       <main className="mx-auto flex min-h-full w-full max-w-3xl flex-col gap-6 p-6">
         <header className="flex flex-col gap-3">
-          <button type="button" onClick={() => { setPhase('start'); setError(null) }}
-            className="inline-flex items-center gap-1.5 self-start rounded-full px-3.5 py-1.5 text-sm font-medium text-muted ring-1 ring-white/10 transition-colors hover:text-text hover:ring-accent/40 focus-visible:outline-2 focus-visible:outline-accent">
-            <ArrowLeft className="size-4" /> Start over
-          </button>
+          <div className="flex flex-wrap items-center gap-2">
+            <StartLink />
+            <button type="button" onClick={() => { setPhase('start'); setError(null) }}
+              className="inline-flex items-center gap-1.5 rounded-full px-3.5 py-1.5 text-sm font-medium text-muted ring-1 ring-white/10 transition-colors hover:text-text hover:ring-accent/40 focus-visible:outline-2 focus-visible:outline-accent">
+              <ArrowLeft className="size-4" /> Start over
+            </button>
+          </div>
           <StepIndicator current={2} />
           <h1 className="text-3xl font-black tracking-tight">Here&apos;s your restaurant — give it a once-over</h1>
           <p className="text-muted">
@@ -335,6 +356,7 @@ export default function OnboardSurface(_props: SurfaceProps) {
   const canBuild = name.trim().length > 0 && (toastUrl.trim().length > 0 || menuText.trim().length > 0)
   return (
     <main className="mx-auto flex min-h-full w-full max-w-xl flex-col justify-center gap-6 p-6">
+      <StartLink className="self-start" />
       <div className="flex flex-col items-center gap-4 text-center motion-safe:animate-rise">
         <StepIndicator current={1} />
         <div className="rounded-[1.75rem] bg-linear-to-b from-panel-2 to-panel p-3.5 shadow-glow ring-1 ring-white/10">

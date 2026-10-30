@@ -125,6 +125,12 @@ export const useSession = create<SessionStore>()((set, get) => {
       starting = track(api<SessionInfo>('POST', '/api/session', body)).then((info) => {
         clearPasscode() // exchanged once
         return info
+      }, (err: unknown) => {
+        // a failed start must surface (pass 5): track() keeps the error but leaves the status alone, and
+        // the boot screens key their "could not be reached" message off status 'error' — without this the
+        // staff page sat on "Getting the kitchen ready…" forever when the session POST was refused
+        set({ status: 'error' })
+        throw err
       }).finally(() => {
         starting = null
       })
