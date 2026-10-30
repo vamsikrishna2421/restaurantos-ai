@@ -79,7 +79,15 @@ def test_staff_list_seeds_the_tenant_personas(app):
     assert r.status_code == 200
     people = r.json()
     assert [(p["id"], p["name"], p["language"]) for p in people] == [(i, n, lang) for i, n, lang, _ in PERSONAS]
-    assert all(set(p) == {"id", "name", "language"} for p in people)  # no PIN material ever leaves
+    assert all(set(p) == {"id", "name", "language", "default_role"} for p in people)  # no PIN material ever
+    # pass 5: seed personas start with the usual job their seed role implies, already approved
+    assert {p["name"]: p["default_role"] for p in people} == {
+        "Lakshmi": {"slot_id": "manager", "label": "Manager", "pending": False},
+        "Carlos": {"slot_id": "STN_CURRY#1", "label": "Curry Chef 1", "pending": False},
+        "Meena": {"slot_id": "STN_TIFFIN#1", "label": "Tiffin (dosa/idli) Chef 1", "pending": False},
+        "Arjun": {"slot_id": "STN_TANDOOR#1", "label": "Tandoor Chef 1", "pending": False},
+        "Maria": {"slot_id": "front_counter", "label": "Front Counter", "pending": False},
+    }
 
 
 def test_login_checks_the_pin(app):
@@ -88,7 +96,8 @@ def test_login_checks_the_pin(app):
     r = client.post("/api/staff/login", json={"staff_id": "STF_LAKSHMI", "pin": "1111"})
     assert r.status_code == 200
     body = r.json()
-    assert body["staff"] == {"id": "STF_LAKSHMI", "name": "Lakshmi", "language": "te"}
+    assert body["staff"] == {"id": "STF_LAKSHMI", "name": "Lakshmi", "language": "te",
+                             "default_role": {"slot_id": "manager", "label": "Manager", "pending": False}}
     assert body["token"] and body["expires_at"]
     assert error(client.post("/api/staff/login", json={"staff_id": "STF_LAKSHMI", "pin": "9999"})) == \
         (403, "bad_pin")
@@ -198,6 +207,212 @@ def test_a_token_only_works_in_its_own_tenant(app):
     sign_in(client, c, OTHER)  # the same browser, another kitchen: the token must not cross
     assert error(client.post("/api/staff/roles/claim", json={"slot_id": "STN_FRY#1"},
                              headers=bearer(carlos))) == (403, "bad_staff_token")
+
+
+# ----- usual jobs (pass 5) ----------------------------------------------------------------------------------------
+
+
+def signup(client, name: str, pin: str = "4321", **extra) -> dict:
+    r = client.post("/api/staff/signup", json={"name": name, "language": "en", "pin": pin, **extra})
+    assert r.status_code == 200, r.text
+    return r.json()
+
+
+def manager_token(client) -> str:
+    """Lakshmi signs in and takes the Manager slot (her seed usual job) — approvals need her on shift."""
+    token = login(client, "STF_LAKSHMI", "1111")
+    r = client.post("/api/staff/roles/claim", json={"slot_id": "manager"}, headers=bearer(token))
+    assert r.status_code == 200, r.text
+    return token
+
+
+def test_signup_with_a_predefined_job_makes_it_the_usual_job(app):
+    client, c = app
+    sign_in(client, c)
+    body = signup(client, "Priya", default_slot_id="STN_FRY#1")
+    assert body["staff"]["default_role"] == {"slot_id": "STN_FRY#1", "label": "Fry Chef 1", "pending": False}
+    # and she can take it at once — no approval stands in a station job's way
+    r = client.post("/api/staff/roles/claim", json={"slot_id": "STN_FRY#1"}, headers=bearer(body["token"]))
+    assert r.status_code == 200
+    # an unknown slot is refused before anyone is created around it
+    assert error(client.post("/api/staff/signup",
+                             json={"name": "Zed", "language": "en", "pin": "0000",
+                                   "default_slot_id": "STN_NOPE#1"})) == (404, "not_found")
+
+
+def test_the_manager_job_waits_for_the_manager(app):
+    client, c = app
+    sign_in(client, c)
+    body = signup(client, "Nadia", default_slot_id="manager")
+    assert body["staff"]["default_role"] == {"slot_id": "manager", "label": "Manager", "pending": True}
+    # she cannot take the Manager slot while her ask waits
+    assert error(client.post("/api/staff/roles/claim", json={"slot_id": "manager"},
+                             headers=bearer(body["token"]))) == (403, "role_not_approved")
+
+    lakshmi = manager_token(client)
+    requests = client.get("/api/staff/role-requests", headers=bearer(lakshmi)).json()
+    assert [(r["request_id"], r["staff_name"], r["label"]) for r in requests] == [
+        (f"manager:{body['staff']['id']}", "Nadia", "Manager")]
+    r = client.post("/api/staff/role-requests/decide",
+                    json={"request_id": requests[0]["request_id"], "approve": True}, headers=bearer(lakshmi))
+    assert r.status_code == 200
+    assert client.get("/api/staff/role-requests", headers=bearer(lakshmi)).json() == []
+    people = {p["name"]: p for p in client.get("/api/staff").json()}
+    assert people["Nadia"]["default_role"] == {"slot_id": "manager", "label": "Manager", "pending": False}
+
+
+def test_a_declined_manager_ask_clears_the_usual_job(app):
+    client, c = app
+    sign_in(client, c)
+    body = signup(client, "Omar", default_slot_id="manager")
+    lakshmi = manager_token(client)
+    r = client.post("/api/staff/role-requests/decide",
+                    json={"request_id": f"manager:{body['staff']['id']}", "approve": False},
+                    headers=bearer(lakshmi))
+    assert r.status_code == 200
+    people = {p["name"]: p for p in client.get("/api/staff").json()}
+    assert people["Omar"]["default_role"] is None
+
+
+def test_only_the_manager_on_shift_sees_and_decides_requests(app):
+    client, c = app
+    sign_in(client, c)
+    signup(client, "Nadia", default_slot_id="manager")
+    carlos = login(client, "STF_CARLOS", "2222")
+    assert error(client.get("/api/staff/role-requests", headers=bearer(carlos))) == (403, "manager_required")
+    assert error(client.post("/api/staff/role-requests/decide",
+                             json={"request_id": "manager:STF_X", "approve": True},
+                             headers=bearer(carlos))) == (403, "manager_required")
+    # deciding something that is not waiting is a plain 404
+    lakshmi = manager_token(client)
+    assert error(client.post("/api/staff/role-requests/decide",
+                             json={"request_id": "manager:STF_X", "approve": True},
+                             headers=bearer(lakshmi))) == (404, "not_found")
+
+
+def test_a_custom_job_full_circle(app):
+    client, c = app
+    sign_in(client, c)
+    # Ravi defines a job the slot list does not have: running food between Curry and Biryani
+    body = signup(client, "Ravi", custom_role={"name": "Runner", "station_ids": ["STN_CURRY", "STN_BIRYANI"]})
+    default = body["staff"]["default_role"]
+    assert default["label"] == "Runner" and default["pending"] is True
+    slot_id = default["slot_id"]
+    assert slot_id.startswith("custom:")
+
+    # while it waits, his own roles view shows it as pending — and claiming it is refused as pending
+    mine = {s["slot_id"]: s for s in client.get("/api/staff/roles", headers=bearer(body["token"])).json()}
+    assert mine[slot_id]["pending_approval"] is True and mine[slot_id]["holder"] is None
+    assert mine[slot_id]["station_ids"] == ["STN_CURRY", "STN_BIRYANI"] and mine[slot_id]["kind"] == "chef"
+    assert error(client.post("/api/staff/roles/claim", json={"slot_id": slot_id},
+                             headers=bearer(body["token"]))) == (403, "role_pending")
+    # nobody else even sees the waiting job
+    carlos = login(client, "STF_CARLOS", "2222")
+    theirs = {s["slot_id"] for s in client.get("/api/staff/roles", headers=bearer(carlos)).json()}
+    assert slot_id not in theirs
+
+    lakshmi = manager_token(client)
+    requests = client.get("/api/staff/role-requests", headers=bearer(lakshmi)).json()
+    assert [(r["request_id"], r["staff_name"], r["label"], r["detail"]) for r in requests] == [
+        (slot_id, "Ravi", "Runner", "Covers Curry, Biryani")]
+    # a second live job with the same name is refused
+    assert error(client.post("/api/staff/signup",
+                             json={"name": "Kim", "language": "en", "pin": "0000",
+                                   "custom_role": {"name": "runner", "station_ids": []}})) == \
+        (409, "role_name_taken")
+    assert client.post("/api/staff/role-requests/decide",
+                       json={"request_id": slot_id, "approve": True},
+                       headers=bearer(lakshmi)).status_code == 200
+
+    # approved: the slot joins the shift's list for everyone, but only Ravi — whose job it is — may take it
+    slots = {s["slot_id"]: s for s in client.get("/api/staff/roles").json()}
+    assert slots[slot_id]["pending_approval"] is False and slots[slot_id]["label"] == "Runner"
+    assert error(client.post("/api/staff/roles/claim", json={"slot_id": slot_id},
+                             headers=bearer(carlos))) == (403, "role_not_approved")
+    r = client.post("/api/staff/roles/claim", json={"slot_id": slot_id}, headers=bearer(body["token"]))
+    assert r.status_code == 200 and r.json()["holder"]["name"] == "Ravi"
+
+
+def test_a_declined_custom_job_retires_and_frees_the_name(app):
+    client, c = app
+    sign_in(client, c)
+    body = signup(client, "Ravi", custom_role={"name": "Runner", "station_ids": []})
+    slot_id = body["staff"]["default_role"]["slot_id"]
+    lakshmi = manager_token(client)
+    assert client.post("/api/staff/role-requests/decide",
+                       json={"request_id": slot_id, "approve": False},
+                       headers=bearer(lakshmi)).status_code == 200
+    people = {p["name"]: p for p in client.get("/api/staff").json()}
+    assert people["Ravi"]["default_role"] is None  # the pointer went with the job
+    assert slot_id not in {s["slot_id"] for s in client.get("/api/staff/roles").json()}
+    # the name is free to be asked for again (a floor job this time: no stations, front-of-house kind)
+    again = signup(client, "Kim", custom_role={"name": "Runner", "station_ids": []})
+    assert again["staff"]["default_role"]["pending"] is True
+
+
+def test_a_custom_job_on_an_unknown_station_is_a_400(app):
+    client, c = app
+    sign_in(client, c)
+    r = client.post("/api/staff/signup", json={"name": "Ravi", "language": "en", "pin": "4321",
+                                               "custom_role": {"name": "Runner",
+                                                               "station_ids": ["STN_NOPE"]}})
+    assert error(r) == (400, "unknown_station")
+    # and the refused signup left nobody behind
+    assert "Ravi" not in [p["name"] for p in client.get("/api/staff").json()]
+
+
+def test_the_first_pick_sticks_as_the_usual_job(app):
+    client, c = app
+    sign_in(client, c)
+    body = signup(client, "Priya")  # no job chosen at signup
+    assert body["staff"]["default_role"] is None
+    token = body["token"]
+    assert client.post("/api/staff/roles/claim", json={"slot_id": "STN_FRY#2"},
+                       headers=bearer(token)).status_code == 200
+    people = {p["name"]: p for p in client.get("/api/staff").json()}
+    assert people["Priya"]["default_role"] == {"slot_id": "STN_FRY#2", "label": "Fry Chef 2", "pending": False}
+    # claiming something else another day (a switch) does not move the usual job
+    assert client.post("/api/staff/roles/release", headers=bearer(token)).status_code == 200
+    assert client.post("/api/staff/roles/claim", json={"slot_id": "STN_BAR#1"},
+                       headers=bearer(token)).status_code == 200
+    people = {p["name"]: p for p in client.get("/api/staff").json()}
+    assert people["Priya"]["default_role"]["slot_id"] == "STN_FRY#2"
+
+
+def test_the_manager_sets_and_clears_usual_jobs(app):
+    client, c = app
+    sign_in(client, c)
+    carlos = login(client, "STF_CARLOS", "2222")
+    lakshmi = manager_token(client)
+    # a non-manager cannot move anyone's usual job
+    assert error(client.post("/api/staff/default", json={"staff_id": "STF_CARLOS",
+                                                         "slot_id": "front_counter"},
+                             headers=bearer(carlos))) == (403, "manager_required")
+    r = client.post("/api/staff/default", json={"staff_id": "STF_CARLOS", "slot_id": "front_counter"},
+                    headers=bearer(lakshmi))
+    assert r.status_code == 200
+    assert r.json()["default_role"] == {"slot_id": "front_counter", "label": "Front Counter", "pending": False}
+    r = client.post("/api/staff/default", json={"staff_id": "STF_CARLOS", "slot_id": None},
+                    headers=bearer(lakshmi))
+    assert r.json()["default_role"] is None
+    assert error(client.post("/api/staff/default", json={"staff_id": "STF_NOBODY", "slot_id": None},
+                             headers=bearer(lakshmi))) == (404, "not_found")
+    assert error(client.post("/api/staff/default", json={"staff_id": "STF_CARLOS",
+                                                         "slot_id": "STN_NOPE#1"},
+                             headers=bearer(lakshmi))) == (404, "not_found")
+
+
+def test_usual_jobs_are_per_tenant(app):
+    client, c = app
+    sign_in(client, c, TID)
+    signup(client, "Priya", default_slot_id="STN_FRY#1")
+    body = signup(client, "Ravi", custom_role={"name": "Runner", "station_ids": ["STN_CURRY"]})
+    slot_id = body["staff"]["default_role"]["slot_id"]
+    sign_in(client, c, OTHER)  # the other kitchen has neither the people nor the job
+    assert client.get("/api/staff").json() == client.get("/api/staff").json()  # roster reads fine there too
+    names = [p["name"] for p in client.get("/api/staff").json()]
+    assert "Priya" not in names and "Ravi" not in names  # seeded personas only, in both kitchens
+    assert slot_id not in {s["slot_id"] for s in client.get("/api/staff/roles").json()}
 
 
 # ----- pure pieces --------------------------------------------------------------------------------------------------

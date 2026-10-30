@@ -23,10 +23,10 @@ const DRAFT: OnboardingDraft = {
     { id: 'STN_BAR', label: 'Drinks & desserts', parallel_slots: 1 },
   ],
   roles: [
-    { slot_id: 'manager', label: 'Manager', kind: 'manager', station_id: null, holder: null, mine: false },
-    { slot_id: 'front_counter', label: 'Front Counter', kind: 'front_counter', station_id: null, holder: null, mine: false },
-    { slot_id: 'STN_BIRYANI#1', label: 'Biryani Chef', kind: 'chef', station_id: 'STN_BIRYANI', holder: null, mine: false },
-    { slot_id: 'STN_BAR#1', label: 'Drinks & desserts Chef', kind: 'chef', station_id: 'STN_BAR', holder: null, mine: false },
+    { slot_id: 'manager', label: 'Manager', kind: 'manager', station_id: null, station_ids: null, holder: null, mine: false, pending_approval: false },
+    { slot_id: 'front_counter', label: 'Front Counter', kind: 'front_counter', station_id: null, station_ids: null, holder: null, mine: false, pending_approval: false },
+    { slot_id: 'STN_BIRYANI#1', label: 'Biryani Chef', kind: 'chef', station_id: 'STN_BIRYANI', station_ids: null, holder: null, mine: false, pending_approval: false },
+    { slot_id: 'STN_BAR#1', label: 'Drinks & desserts Chef', kind: 'chef', station_id: 'STN_BAR', station_ids: null, holder: null, mine: false, pending_approval: false },
   ],
 }
 
@@ -108,6 +108,19 @@ test('edits_on_review_are_what_goes_live', async () => {
   expect(body.draft.items[1].station_id).toBe('STN_BAR')
   expect(body.draft.stations.find((s) => s.id === 'STN_BIRYANI')?.parallel_slots).toBe(2)
   expect(body.draft.roles.map((r) => r.label)).toContain('Biryani Chef 2')
+})
+
+test('every_onboarding_state_has_a_way_back_to_the_front_door', async () => {
+  // pass 5: onboarding used to be a dead end — the "← Start" link rides on the start form, the review
+  // screen and the success state alike
+  render(<OnboardSurface params={{}} query={new URLSearchParams()} />)
+  expect(screen.getByRole('link', { name: 'Start' })).toHaveAttribute('href', '/')
+  cleanup()
+  await buildFromPaste()
+  expect(screen.getByRole('link', { name: 'Start' })).toHaveAttribute('href', '/')
+  fireEvent.click(screen.getByRole('button', { name: 'Go live' }))
+  expect(await screen.findByText('Spice Route 2 is live')).toBeInTheDocument()
+  expect(screen.getByRole('link', { name: 'Start' })).toHaveAttribute('href', '/')
 })
 
 test('a_page_with_no_menu_is_an_honest_error', async () => {

@@ -11,9 +11,16 @@
  * Pass 3 presentation: people are identity cards with initial avatars (a stable tint per person) and a
  * language chip; the PIN pad is raised keys with gradient dots; job slots carry a tinted icon tile per kind,
  * a lit "Open" state, and a dimmed, locked taken state with the holder's avatar. Logic untouched.
+ *
+ * Pass 5: the job is chosen ONCE. Signup continues past the PIN to "What's your job?" — a predefined job from
+ * the restaurant's own list, or "Something else" (name it, pick the stations it covers). That pick is the
+ * person's usual job: signing in claims it automatically when it is free and lands straight on its screen.
+ * The slot picker now appears only when the usual job is taken this shift (or none is set yet), and the
+ * signed-in panel's "Switch job for today" reaches it without touching the usual job. The Manager job and
+ * custom jobs wait for the manager's OK first — a waiting usual job shows as such on the signed-in panel.
  */
 
-import { ArrowLeft, Bell, Check, ChevronRight, Crown, ChefHat, KeyRound, Languages, Lock } from 'lucide-react'
+import { ArrowLeft, Bell, Check, ChevronRight, Clock, Crown, ChefHat, KeyRound, Languages, Lock, Plus } from 'lucide-react'
 import { useCallback, useEffect, useState, type ComponentType } from 'react'
 import { Avatar, Button, Card, Chip, cx } from '../../components/ui'
 import type { RoleSlot, SpeakLang, StaffPerson } from '../../contracts/generated'
@@ -26,6 +33,7 @@ import {
   saveStaffSession,
   staffApi,
   staffHome,
+  type SignupJob,
   type StaffSession,
 } from '../../lib/staff'
 import { Link, navigate, type SurfaceProps } from '../../router'
@@ -37,10 +45,18 @@ function errorText(err: unknown): string {
     if (err.code === 'slot_taken') return 'Someone just took that job. Pick another one.'
     if (err.code === 'already_claimed') return 'You already hold a job this shift.'
     if (err.code === 'name_taken') return 'That name is already on the staff list.'
+    if (err.code === 'role_name_taken') return 'A job with that name already exists here. Pick another name.'
+    if (err.code === 'role_pending') return "That job is still waiting for the manager's OK."
+    if (err.code === 'role_not_approved') return "That job needs the manager's OK first."
     if (err.code === 'network_error') return 'The server could not be reached. Check the connection and try again.'
     return err.message || 'Something went wrong. Try again.'
   }
   return 'Something went wrong. Try again.'
+}
+
+/** A station's plain name, from any of its chef slots ("Curry Chef 2" → "Curry"). */
+function stationNameOf(slot: RoleSlot): string {
+  return slot.label.replace(/ Chef( \d+)?$/, '')
 }
 
 const ALERT_CLS = 'rounded-xl border border-bad/35 bg-bad/10 px-4 py-3 font-medium text-bad'
@@ -135,7 +151,7 @@ function PinPad({ mode, onSubmit, busy }: { mode: 'once' | 'set'; onSubmit: (pin
 
 // ----- the surface -------------------------------------------------------------------------------------------------
 
-type Step = 'boot' | 'signed-in' | 'pick' | 'pin' | 'signup' | 'setpin' | 'roles'
+type Step = 'boot' | 'signed-in' | 'pick' | 'pin' | 'signup' | 'setpin' | 'jobpick' | 'customjob' | 'roles'
 
 /** A job slot's icon and tile tint, by the kind of job it is. */
 const SLOT_ICONS: Readonly<Record<RoleSlot['kind'], ComponentType<{ className?: string }>>> = {
@@ -161,6 +177,11 @@ export default function StaffSurface(_props: SurfaceProps) {
   const [language, setLanguage] = useState<SpeakLang>('en')
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
+  // signup, pass 5: the PIN is held while the new person picks their usual job, then one signup call lands
+  const [pin, setPin] = useState('')
+  const [jobSlots, setJobSlots] = useState<RoleSlot[]>([])
+  const [customName, setCustomName] = useState('')
+  const [customStations, setCustomStations] = useState<string[]>([])
 
   // the tenant session: read it, and start one when this device has none (see the module docstring)
   useEffect(() => {
@@ -206,35 +227,113 @@ export default function StaffSurface(_props: SurfaceProps) {
     }
   }
 
-  const onLogin = (pin: string) => {
-    if (!picked) return
-    void run(async () => {
-      const result = await staffApi.login(picked.id, pin)
-      const next = { token: result.token, staff: result.staff, claim: null }
-      saveStaffSession(next)
-      setSession(next)
-      setStep('roles')
-    })
+  /**
+   * After sign-in (pass 5): claim the person's usual job when it is set, approved and free, and go straight
+   * to its screen. Anything else — no usual job yet, still waiting on the manager, or the job is taken this
+   * shift — lands on the slot picker, with a plain note when the usual job is the reason.
+   */
+  const enterShift = async (next: StaffSession) => {
+    const usual = next.staff.default_role
+    if (usual && !usual.pending) {
+      try {
+        const claimed = await staffApi.claim(next.token, usual.slot_id)
+        const withClaim = { ...next, claim: claimOf(claimed) }
+        saveStaffSession(withClaim)
+        setSession(withClaim)
+        navigate(staffHome(withClaim.claim!))
+        return
+      } catch (err) {
+        if (isApiError(err) && err.code === 'slot_taken') {
+          setError(`Your usual job — ${usual.label} — is taken this shift. Pick another one for today.`)
+        } else if (!(isApiError(err) && (err.code === 'role_pending' || err.code === 'role_not_approved'))) {
+          setError(errorText(err))
+        }
+      }
+    }
+    setSession(next)
+    setStep('roles')
   }
 
-  const onSignupPin = (pin: string) => {
-    void run(async () => {
-      const result = await staffApi.signup(name.trim(), language, pin)
-      const next = { token: result.token, staff: result.staff, claim: null }
-      saveStaffSession(next)
-      setSession(next)
-      setStep('roles')
-    })
+  const onLogin = (pinValue: string) => {
+    if (!picked) return
+    void (async () => {
+      setBusy(true)
+      setError(null)
+      try {
+        const result = await staffApi.login(picked.id, pinValue)
+        const next = { token: result.token, staff: result.staff, claim: null }
+        saveStaffSession(next)
+        await enterShift(next)
+      } catch (err) {
+        setError(errorText(err))
+      } finally {
+        setBusy(false)
+      }
+    })()
+  }
+
+  /** The PIN is set: hold it, fetch the restaurant's jobs, and ask the one remaining question. */
+  const onSignupPin = (pinValue: string) => {
+    setPin(pinValue)
+    setError(null)
+    void (async () => {
+      try {
+        setJobSlots(await staffApi.roles())
+      } catch (err) {
+        setError(errorText(err))
+      }
+      setStep('jobpick')
+    })()
+  }
+
+  /** One signup call carrying the chosen usual job; a waiting job lands on the signed-in panel instead. */
+  const doSignup = (job: SignupJob) => {
+    void (async () => {
+      setBusy(true)
+      setError(null)
+      try {
+        const result = await staffApi.signup(name.trim(), language, pin, job)
+        const next = { token: result.token, staff: result.staff, claim: null }
+        saveStaffSession(next)
+        if (result.staff.default_role?.pending) {
+          setSession(next)
+          setStep('signed-in')
+        } else {
+          await enterShift(next)
+        }
+      } catch (err) {
+        setError(errorText(err))
+      } finally {
+        setBusy(false)
+      }
+    })()
   }
 
   const onClaim = (slot: RoleSlot) => {
     if (!session) return
     void run(async () => {
       const claimed = await staffApi.claim(session.token, slot.slot_id)
-      const next = { ...session, claim: claimOf(claimed) }
+      // the server makes a first predefined pick the usual job; mirror that here so this device knows it too
+      const staff = session.staff.default_role === null && !slot.slot_id.startsWith('custom:')
+        && slot.slot_id !== 'manager'
+        ? { ...session.staff, default_role: { slot_id: slot.slot_id, label: slot.label, pending: false } }
+        : session.staff
+      const next = { ...session, staff, claim: claimOf(claimed) }
       saveStaffSession(next)
       setSession(next)
       navigate(staffHome(next.claim!))
+    })
+  }
+
+  /** "Switch job for today": drop the held slot and pick another — the usual job is untouched. */
+  const onSwitch = () => {
+    if (!session) return
+    void run(async () => {
+      await staffApi.release(session.token)
+      const next = { ...session, claim: null }
+      saveStaffSession(next)
+      setSession(next)
+      setStep('roles')
     })
   }
 
@@ -273,11 +372,25 @@ export default function StaffSurface(_props: SurfaceProps) {
                 {session.claim && <> — <span className="font-bold text-accent-2">{session.claim.label}</span></>}
               </p>
             </div>
+            {session.staff.default_role && (
+              <p className="flex flex-wrap items-center gap-2 text-muted">
+                Your usual job: <span className="font-semibold text-text">{session.staff.default_role.label}</span>
+                {session.staff.default_role.pending && <Chip tone="warn">Waiting for the manager&apos;s OK</Chip>}
+              </p>
+            )}
+            {session.staff.default_role?.pending && (
+              <p className="text-muted">
+                The manager on shift approves it. Until then, you can still pick another open job for today.
+              </p>
+            )}
             <div className="flex flex-wrap gap-3">
               {session.claim ? (
-                <Button variant="primary" size="lg" onClick={() => navigate(staffHome(session.claim!))}>
-                  Go to my screen
-                </Button>
+                <>
+                  <Button variant="primary" size="lg" onClick={() => navigate(staffHome(session.claim!))}>
+                    Go to my screen
+                  </Button>
+                  <Button size="lg" loading={busy} onClick={onSwitch}>Switch job for today</Button>
+                </>
               ) : (
                 <Button variant="primary" size="lg" onClick={() => setStep('roles')}>Pick your job for this shift</Button>
               )}
@@ -371,6 +484,93 @@ export default function StaffSurface(_props: SurfaceProps) {
         </section>
       )}
 
+      {step === 'jobpick' && (
+        <section aria-label="What is your job?" className="flex flex-col gap-4">
+          <h2 className="text-xl font-bold tracking-tight">Hi {name.trim()} — what&apos;s your job?</h2>
+          <p className="text-muted">
+            This becomes your usual job: signing in starts it right away, no picking every shift.
+            You can still cover a different job on any day.
+          </p>
+          <div className="grid gap-3 sm:grid-cols-2">
+            {jobSlots.filter((slot) => !slot.slot_id.startsWith('custom:')).map((slot) => {
+              const Icon = SLOT_ICONS[slot.kind]
+              return (
+                <button key={slot.slot_id} type="button" disabled={busy}
+                  onClick={() => doSignup({ default_slot_id: slot.slot_id })}
+                  className="flex items-start gap-3.5 rounded-2xl border border-white/8 bg-panel bg-linear-to-b from-panel-2/80 to-panel p-4 text-left shadow-glow transition-[transform,box-shadow,border-color] duration-200 hover:-translate-y-0.5 hover:border-accent/40 hover:shadow-lift focus-visible:outline-2 focus-visible:outline-accent disabled:opacity-50">
+                  <span className={cx('flex size-11 shrink-0 items-center justify-center rounded-xl ring-1', SLOT_TILES[slot.kind])}>
+                    <Icon className="size-5" />
+                  </span>
+                  <span className="flex min-w-0 flex-1 flex-col gap-1">
+                    <span className="text-lg font-bold">{slot.label}</span>
+                    {slot.kind === 'manager' && (
+                      <span className="text-sm text-muted">The manager on shift approves this one first</span>
+                    )}
+                  </span>
+                </button>
+              )
+            })}
+          </div>
+          <button type="button" disabled={busy} onClick={() => { setError(null); setStep('customjob') }}
+            className="flex items-center gap-3.5 rounded-2xl border border-dashed border-white/15 p-4 text-left transition-colors hover:border-accent/40 focus-visible:outline-2 focus-visible:outline-accent disabled:opacity-50">
+            <span className="flex size-11 shrink-0 items-center justify-center rounded-xl bg-white/5 text-muted ring-1 ring-white/10">
+              <Plus className="size-5" />
+            </span>
+            <span className="flex flex-col gap-1">
+              <span className="text-lg font-bold">Something else</span>
+              <span className="text-sm text-muted">My job is not on this list — I will describe it</span>
+            </span>
+          </button>
+          <Button variant="ghost" onClick={() => setStep('setpin')}>Back</Button>
+        </section>
+      )}
+
+      {step === 'customjob' && (
+        <section aria-label="Describe your job" className="flex flex-col gap-5">
+          <h2 className="text-xl font-bold tracking-tight">Describe your job</h2>
+          <label className="flex flex-col gap-2">
+            <span className={LABEL_CLS}>Job name</span>
+            <input value={customName} onChange={(e) => setCustomName(e.target.value)} maxLength={60}
+              className={INPUT_CLS} placeholder="e.g. Runner" />
+          </label>
+          <div className="flex flex-col gap-2">
+            <span className={LABEL_CLS}>Which kitchen stations does it cover?</span>
+            <div className="flex flex-wrap gap-2">
+              {[...new Map(jobSlots
+                .filter((slot) => slot.kind === 'chef' && slot.station_id !== null)
+                .map((slot) => [slot.station_id as string, stationNameOf(slot)] as const)).entries()]
+                .map(([stationId, label]) => (
+                  <button key={stationId} type="button" aria-pressed={customStations.includes(stationId)}
+                    onClick={() => setCustomStations((current) => (current.includes(stationId)
+                      ? current.filter((s) => s !== stationId)
+                      : [...current, stationId]))}
+                    className={cx('rounded-full px-4 py-2 font-semibold ring-1 transition-[color,background-color,box-shadow] focus-visible:outline-2 focus-visible:outline-accent',
+                      customStations.includes(stationId)
+                        ? 'bg-linear-to-r from-accent to-accent-2 text-ink shadow-glow-accent-sm ring-accent/60'
+                        : 'bg-panel-2 text-muted ring-white/10 hover:text-text hover:ring-accent/40')}>
+                    {label}
+                  </button>
+                ))}
+            </div>
+            <span className="text-sm text-muted">
+              Orders go to stations, never to people — your screen shows the stations you cover.
+              None picked means you help everywhere on the floor.
+            </span>
+          </div>
+          <p className="text-muted">
+            New jobs need the manager&apos;s OK before you can start them. You can still work another
+            open job today.
+          </p>
+          <Button variant="primary" size="lg" loading={busy} disabled={customName.trim() === ''}
+            onClick={() => doSignup({
+              custom_role: { name: customName.trim(), station_ids: customStations },
+            })}>
+            Join and ask the manager
+          </Button>
+          <Button variant="ghost" onClick={() => setStep('jobpick')}>Back to the job list</Button>
+        </section>
+      )}
+
       {step === 'roles' && session && (
         <section aria-label="Pick your job for this shift" className="flex flex-col gap-4">
           <h2 className="text-xl font-bold tracking-tight">
@@ -380,11 +580,12 @@ export default function StaffSurface(_props: SurfaceProps) {
             {slots.map((slot) => {
               const Icon = SLOT_ICONS[slot.kind]
               const taken = slot.holder !== null
+              const waiting = slot.pending_approval
               return (
-                <button key={slot.slot_id} type="button" disabled={taken || busy}
+                <button key={slot.slot_id} type="button" disabled={taken || waiting || busy}
                   onClick={() => onClaim(slot)}
                   className={cx('flex items-start gap-3.5 rounded-2xl border p-4 text-left',
-                    taken
+                    taken || waiting
                       ? 'border-white/5 bg-panel/60 opacity-60'
                       : 'border-white/8 bg-panel bg-linear-to-b from-panel-2/80 to-panel shadow-glow transition-[transform,box-shadow,border-color] duration-200 hover:-translate-y-0.5 hover:border-accent/40 hover:shadow-lift focus-visible:outline-2 focus-visible:outline-accent')}>
                   <span className={cx('flex size-11 shrink-0 items-center justify-center rounded-xl ring-1', SLOT_TILES[slot.kind])}>
@@ -395,7 +596,12 @@ export default function StaffSurface(_props: SurfaceProps) {
                       {slot.label}
                       {slot.mine && <Check className="size-5 text-ok" />}
                     </span>
-                    {taken ? (
+                    {waiting ? (
+                      <span className="flex items-center gap-1.5 text-sm font-semibold text-warn">
+                        <Clock className="size-4 shrink-0" />
+                        Waiting for the manager&apos;s OK
+                      </span>
+                    ) : taken ? (
                       <span className="flex items-center gap-2 text-sm text-muted">
                         <Avatar name={slot.holder!.name} className="size-5 text-[10px]" />
                         Taken by {slot.holder!.name}

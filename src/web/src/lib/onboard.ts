@@ -32,15 +32,22 @@ export const onboardApi = {
 /** The shift's job slots for a station set: Manager, Front Counter, then one chef slot per station cook. */
 export function rolesForStations(stations: readonly OnboardingDraftStation[]): RoleSlot[] {
   const roles: RoleSlot[] = [
-    { slot_id: 'manager', label: 'Manager', kind: 'manager', station_id: null, holder: null, mine: false },
-    { slot_id: 'front_counter', label: 'Front Counter', kind: 'front_counter', station_id: null, holder: null, mine: false },
+    {
+      slot_id: 'manager', label: 'Manager', kind: 'manager', station_id: null, station_ids: null,
+      holder: null, mine: false, pending_approval: false,
+    },
+    {
+      slot_id: 'front_counter', label: 'Front Counter', kind: 'front_counter', station_id: null,
+      station_ids: null, holder: null, mine: false, pending_approval: false,
+    },
   ]
   for (const station of stations) {
     for (let i = 1; i <= station.parallel_slots; i += 1) {
       roles.push({
         slot_id: `${station.id}#${i}`,
         label: station.parallel_slots > 1 ? `${station.label} Chef ${i}` : `${station.label} Chef`,
-        kind: 'chef', station_id: station.id, holder: null, mine: false,
+        kind: 'chef', station_id: station.id, station_ids: null, holder: null, mine: false,
+        pending_approval: false,
       })
     }
   }
