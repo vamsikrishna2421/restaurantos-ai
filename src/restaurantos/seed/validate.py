@@ -100,6 +100,9 @@ class MenuItemSpec(Model):
     modifier_set: str
     names: LocalizedName
     aliases: list[str] = Field(default_factory=list)
+    # Optional photo path (pass 8): a same-origin asset path the kiosk shows on the dish's card.
+    # Written by hand for tenants that have photography; onboarding never invents one.
+    photo: str | None = None
 
 
 class MenuFile(_Reviewed):
@@ -201,6 +204,9 @@ def check_seed(*, tenant: TenantFile, stations: StationsFile, staff: StaffFile, 
             problems.append(f"item {item.code}: unknown modifier set {item.modifier_set}")
         if not recipes.recipes.get(item.code):
             problems.append(f"item {item.code}: no recipe line")
+        if item.photo is not None and (not item.photo.startswith("/") or ".." in item.photo
+                                       or "://" in item.photo):
+            problems.append(f"item {item.code}: photo must be a same-origin path, got {item.photo!r}")
     for code, lines in recipes.recipes.items():
         if code not in item_codes:
             problems.append(f"recipe for unknown item {code}")

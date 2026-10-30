@@ -34,14 +34,26 @@ export interface CustomerCaptureProps {
   onAdd: (code: string) => void
   /** The name to call at the counter, reported up for the placed card. */
   onName: (name: string | null) => void
+  /**
+   * The recognized guest, reported up so the menu can show the usual as a strip above the dish
+   * grid (pass 8). When wired, the strip replaces this card's own usual block; when absent (the
+   * capture standing alone), the block renders here as before.
+   */
+  onRecognized?: (info: { name: string | null; usual: IdentifyResult['usual'] } | null) => void
 }
 
-export function CustomerCapture({ menu, lang, sessionId, locked, onAdd, onName }: CustomerCaptureProps) {
+export function CustomerCapture({ menu, lang, sessionId, locked, onAdd, onName, onRecognized }: CustomerCaptureProps) {
   const [name, setName] = useState('')
   const [phone, setPhone] = useState('')
   const [result, setResult] = useState<IdentifyResult | null>(null)
   const [failed, setFailed] = useState(false)
   const sentFor = useRef('')
+
+  // the strip above the menu belongs to this guest's cart: when the capture goes away
+  // (order placed, cart cleared), the recognition goes with it
+  const recognizedRef = useRef(onRecognized)
+  recognizedRef.current = onRecognized
+  useEffect(() => () => { recognizedRef.current?.(null) }, [])
 
   const key = phoneKey(phone)
   const combo = key ? `${key}|${name.trim()}` : ''
@@ -54,6 +66,8 @@ export function CustomerCapture({ menu, lang, sessionId, locked, onAdd, onName }
           setResult(answer)
           setFailed(false)
           onName(answer.name ?? (name.trim() || null))
+          onRecognized?.(answer.known && answer.usual.length > 0
+            ? { name: answer.name ?? null, usual: answer.usual } : null)
         })
         .catch(() => setFailed(true))
     }, 600)
@@ -90,7 +104,7 @@ export function CustomerCapture({ menu, lang, sessionId, locked, onAdd, onName }
           place this order.
         </p>
       )}
-      {result?.known && result.usual.length > 0 && (
+      {onRecognized === undefined && result?.known && result.usual.length > 0 && (
         <div className="mt-2">
           <p role="status" className="text-sm text-muted">
             Welcome back{result.name ? `, ${result.name}` : ''} — your usual:

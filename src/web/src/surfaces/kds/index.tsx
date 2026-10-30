@@ -7,6 +7,15 @@
  *
  * Everything renders from the tenant store (the single reducer); REST answers show at once through `useOverlay`
  * until their own events land. Ticket text is rendered by code from the menu (lib/i18n.ts), never by a model.
+ *
+ * Pass 8 (E2, the founder's KDS frame) moves this surface into the warm light system (`.theme-light`):
+ * a white top bar (brand, SAMPLE, the SIM clock, the Live dot, the signed-in session chip with an
+ * explicit End shift for ANY claim holder — before, only a station-locked chef saw it — the station
+ * language pills, and the chime toggle, which drives the board's existing arrival chime and its
+ * per-device persisted preference), the station name in a display serif with its accent as a dot,
+ * and white ticket cards keeping their station-accent top edge and age-coloured timers. Every
+ * behavior — station lock, tabs, bump/recall/undo, the ready rail, notices, tasks — is unchanged.
+ * The manager and GM consoles are now the only dark surfaces.
  */
 
 import { Bell, BellOff, ChefHat, CircleCheck } from 'lucide-react'
@@ -78,7 +87,7 @@ function KdsScreen({ data }: { data: TenantData }) {
     ? (asked !== null && bound.includes(asked) ? asked : bound[0])
     : (asked !== null && menu.stations.some((s) => s.id === asked) ? asked : ALL))
   const endShift = useCallback(async () => {
-    if (!staffSession) return
+    if (!staffSession?.claim) return
     try {
       await staffApi.release(staffSession.token)
     } catch {
@@ -176,9 +185,9 @@ function KdsScreen({ data }: { data: TenantData }) {
   // a multi-station custom job sees only its own stations' tabs — never All, never anyone else's
   const visibleTabs = bound !== null && bound.length > 1 ? tabs.filter((t) => bound.includes(t.id)) : tabs
   return (
-    <div className="flex min-h-full flex-col">
-      <header className="sticky top-0 z-20 border-b border-line bg-ink/95 backdrop-blur">
-        <div className="flex flex-wrap items-center gap-x-4 gap-y-2 px-4 pt-3 pb-2">
+    <div className="theme-light flex min-h-full flex-col text-text">
+      <header className="sticky top-0 z-20 px-4 pt-3">
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-2 rounded-[1.25rem] bg-panel px-4 py-2.5 shadow-lift ring-1 ring-line">
           <h1 className="inline-flex items-center gap-2 text-2xl font-bold tracking-tight">
             <BrandHat />
             Kitchen
@@ -187,7 +196,7 @@ function KdsScreen({ data }: { data: TenantData }) {
           <SimClock />
           <FeedDot />
           <div className="ml-auto flex flex-wrap items-center gap-2">
-            {(lockedStation !== null || bound !== null) && staffSession && claim && (
+            {staffSession && claim && (
               <>
                 <Chip>{`${staffSession.staff.name} · ${claim.label}`}</Chip>
                 <Button data-chrome="" variant="ghost" onClick={() => void endShift()}>End shift</Button>
@@ -267,14 +276,16 @@ function StationHeader({ menu, station, lang, load }: { menu: MenuSnapshot; stat
   const english = stationName(menu, station, 'en')
   return (
     <div className="mb-4 flex flex-wrap items-baseline gap-x-4 gap-y-1">
-      <h2 lang={lang} className="text-3xl font-black tracking-tight" style={{ color: stationAccent(menu, station) }}>
+      {/* the frame's display serif for the station name; the station's accent survives as its dot */}
+      <h2 lang={lang} className="inline-flex items-center gap-2.5 font-serif text-4xl font-bold tracking-tight">
+        <span aria-hidden className="size-3.5 rounded-full" style={{ background: stationAccent(menu, station) }} />
         {own}
       </h2>
       {own !== english && <span className="text-xl font-semibold text-muted">{english}</span>}
       {load && (
         <span className="text-lg font-semibold text-muted">
           {`Queue ${load.queue_min} min · ${load.open_tickets} open`}
-          {load.offset_min > 0 && <span className="text-accent">{` · quotes +${load.offset_min} min`}</span>}
+          {load.offset_min > 0 && <span className="text-accent-2">{` · quotes +${load.offset_min} min`}</span>}
         </span>
       )}
     </div>
@@ -325,7 +336,7 @@ function AllClear() {
 
 function Waiting({ session }: { session: string }) {
   return (
-    <main className="flex min-h-full flex-col items-center justify-center gap-4 p-6 text-center">
+    <main className="theme-light flex min-h-full flex-col items-center justify-center gap-4 p-6 text-center text-text">
       <ChefHat aria-hidden className="size-14 text-accent" />
       <h1 className="text-3xl font-bold tracking-tight">Kitchen display</h1>
       {session === 'none' ? (

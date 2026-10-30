@@ -35,6 +35,9 @@ class MenuItem(Model):
     aliases: list[str] = Field(default_factory=list)
     allowed_modifiers: list[str] = Field(default_factory=list)
     prep_min: int = Field(ge=0)
+    # A same-origin path to the dish's photo (pass 8), or None: most tenants have no photos, and the
+    # kiosk falls back to a text card. Presentation only — never in menu_hash, never prompt-visible.
+    photo: str | None = None
     available: bool
     unavailable_reason: str | None = None
     alternatives: list[str] = Field(default_factory=list)  # set by the GM (suggest_alternative)

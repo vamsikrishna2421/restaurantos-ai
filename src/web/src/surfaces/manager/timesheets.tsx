@@ -62,11 +62,12 @@ export default function TimesheetsSection() {
                         Week total: <span className="font-semibold text-text">{shiftLength(person.week_minutes)}</span>
                       </span>
                     </p>
-                    <ul className="flex flex-col gap-1">
+                    {/* pass 8 (Scope C): the week's shifts as a grid of per-day cards */}
+                    <ul className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
                       {person.days.map((day) => (
                         <li key={day.date}
-                          className="rounded-xl bg-white/2 px-3 py-2 ring-1 ring-white/5">
-                          <span className="text-sm font-medium">{dayLabel(day.date)}</span>
+                          className="rounded-xl bg-white/2 px-3 py-2.5 ring-1 ring-white/5">
+                          <span className="text-sm font-semibold">{dayLabel(day.date)}</span>
                           <ul className="mt-1 flex flex-col gap-0.5 text-sm text-muted">
                             {day.shifts.map((shift, i) => (
                               <li key={`${shift.slot_id}-${i}`} className="flex flex-wrap items-center gap-2">

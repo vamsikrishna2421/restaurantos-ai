@@ -11,24 +11,25 @@ import { formatBizTime, formatCents } from '../../lib/format'
 import { managerApi } from '../../lib/manager'
 import { dayLabel, SectionState } from './shared'
 
+/** One order as a card (pass 8, Scope C): the sections render their objects as a grid of cards. */
 function OrderRow({ order, live }: { order: ConsoleOrder; live?: boolean }) {
   return (
-    <li className="rounded-xl bg-white/2 px-3.5 py-2.5 ring-1 ring-white/5">
+    <li className="flex flex-col rounded-xl bg-white/2 px-3.5 py-3 ring-1 ring-white/5">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <span className="font-semibold">
           #{order.order_no}
           <span className="ml-2 font-normal text-muted">{formatBizTime(order.placed_biz)}</span>
         </span>
-        <span className="flex items-center gap-2">
-          {order.stations.map((station) => <Chip key={station}>{station}</Chip>)}
-          {live && order.age_min !== null && <Chip tone="warn">{order.age_min} min</Chip>}
-          <Chip tone={order.status === 'cancelled' ? 'bad' : order.status === 'ready' ? 'ok' : undefined}>
-            {order.status.replace('_', ' ')}
-          </Chip>
-          <span className="font-semibold tabular-nums">{formatCents(order.total_cents)}</span>
-        </span>
+        <span className="font-semibold tabular-nums">{formatCents(order.total_cents)}</span>
       </div>
-      <ul className="mt-1.5 flex flex-col gap-0.5 text-sm text-muted">
+      <div className="mt-2 flex flex-wrap items-center gap-1.5">
+        {order.stations.map((station) => <Chip key={station}>{station}</Chip>)}
+        {live && order.age_min !== null && <Chip tone="warn">{order.age_min} min</Chip>}
+        <Chip tone={order.status === 'cancelled' ? 'bad' : order.status === 'ready' ? 'ok' : undefined}>
+          {order.status.replace('_', ' ')}
+        </Chip>
+      </div>
+      <ul className="mt-2 flex flex-col gap-0.5 text-sm text-muted">
         {order.lines.filter((line) => line.status === 'active').map((line) => (
           <li key={line.line_no} className="flex justify-between gap-3">
             <span className="truncate">
@@ -42,6 +43,8 @@ function OrderRow({ order, live }: { order: ConsoleOrder; live?: boolean }) {
     </li>
   )
 }
+
+const ORDER_GRID = 'grid gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4'
 
 export default function OrdersSection() {
   const [data, setData] = useState<ConsoleOrders | null>(null)
@@ -73,7 +76,7 @@ export default function OrdersSection() {
             {data.open.length === 0 ? (
               <p className="text-muted">No open orders right now.</p>
             ) : (
-              <ul className="flex flex-col gap-2">
+              <ul className={ORDER_GRID}>
                 {data.open.map((order) => <OrderRow key={order.id} order={order} live />)}
               </ul>
             )}
@@ -92,7 +95,7 @@ export default function OrdersSection() {
               <p className="text-muted">No orders were placed on this day.</p>
             ) : (
               <>
-                <ul className="flex flex-col gap-2">
+                <ul className={ORDER_GRID}>
                   {data.history.map((order) => <OrderRow key={order.id} order={order} />)}
                 </ul>
                 <p className="mt-3 text-sm text-muted">

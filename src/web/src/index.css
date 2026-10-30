@@ -65,6 +65,47 @@
   }
 }
 
+/* The light front-of-house theme (pass 8): the customer kiosk and the front door (splash, mode choice,
+   staff sign-in, PIN, signup) wear the founder's warm light design — cream room, white cards, deep warm
+   brown-black type, the same orange accent. It is a SCOPE, not a second system: `.theme-light` re-points
+   the same token names the kit already uses, so Button/Card/Chip/Avatar re-skin inside the scope and the
+   working surfaces (manager, KDS, GM, onboarding) keep the dark "kitchen at night" tokens untouched.
+   Glows become soft warm shadows — light, not neon, is what depth means on cream. */
+.theme-light {
+  --color-ink: #faf5ec;
+  --color-panel: #ffffff;
+  --color-panel-2: #fdf7ec;
+  --color-line: #ead9bd;
+  --color-text: #2e1f13;
+  --color-muted: #947c60;
+  --color-accent: #ff8a3d;
+  --color-accent-2: #d9930d;
+  --color-ok: #2e9e5b;
+  --color-warn: #b97e0e;
+  --color-bad: #d64545;
+  --color-ai: #7a5cff;
+  --color-ai-2: #6346e8;
+  --shadow-glow: 0 22px 44px -22px rgb(122 72 20 / 0.3), 0 3px 10px -3px rgb(122 72 20 / 0.12);
+  --shadow-glow-accent: 0 16px 32px -14px rgb(255 138 61 / 0.6);
+  --shadow-glow-ai: 0 16px 32px -14px rgb(122 92 255 / 0.45);
+  --shadow-glow-ok: 0 16px 32px -14px rgb(46 158 91 / 0.45);
+  --shadow-glow-warn: 0 16px 32px -14px rgb(185 126 14 / 0.45);
+  --shadow-glow-bad: 0 16px 32px -14px rgb(214 69 69 / 0.5);
+  --shadow-glow-accent-sm: 0 4px 14px -4px rgb(255 138 61 / 0.55);
+  --shadow-glow-ai-sm: 0 4px 14px -4px rgb(122 92 255 / 0.4);
+  --shadow-glow-ok-sm: 0 4px 14px -4px rgb(46 158 91 / 0.4);
+  --shadow-glow-warn-sm: 0 4px 14px -4px rgb(185 126 14 / 0.4);
+  --shadow-glow-bad-sm: 0 4px 14px -4px rgb(214 69 69 / 0.45);
+  --shadow-pop: 0 10px 22px -10px rgb(122 72 20 / 0.28), 0 2px 6px -2px rgb(122 72 20 / 0.14);
+  --shadow-lift: 0 28px 46px -20px rgb(122 72 20 / 0.38), 0 10px 20px -10px rgb(122 72 20 / 0.2);
+  background:
+    radial-gradient(52rem 30rem at 108% -6%, rgb(255 176 32 / 0.14), transparent 62%),
+    radial-gradient(46rem 30rem at -10% 104%, rgb(255 138 61 / 0.12), transparent 62%),
+    radial-gradient(30rem 18rem at 88% 108%, rgb(255 214 150 / 0.2), transparent 65%),
+    var(--color-ink);
+  color: var(--color-text);
+}
+
 html,
 body,
 #root {

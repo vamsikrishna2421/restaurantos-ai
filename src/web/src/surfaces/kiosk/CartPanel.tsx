@@ -6,10 +6,10 @@
  * placement it shows the order number and pickup quote from the placed order.
  */
 
-import { CircleCheck, Minus, Plus, ShoppingBag, Trash2 } from 'lucide-react'
-import { memo, useState } from 'react'
+import { ChevronDown, ChevronUp, CircleCheck, Minus, Plus, ShoppingBag, Trash2 } from 'lucide-react'
+import { memo, useEffect, useState } from 'react'
 import { Button, Card, Chip } from '../../components/ui'
-import type { Cart, MenuSnapshot, Order, RejectedOp, RejectReason } from '../../contracts/generated'
+import type { Cart, IdentifyResult, MenuSnapshot, Order, RejectedOp, RejectReason } from '../../contracts/generated'
 import { formatCents, formatOrderNo } from '../../lib/format'
 import { pickLabel } from '../../lib/i18n'
 import type { VoiceLang } from '../../lib/audio/voiceSocket'
@@ -41,6 +41,8 @@ export interface CartPanelProps {
   onAdd: (code: string) => void
   onConfirm: (yes: boolean) => void
   onNewOrder: () => void
+  /** A recognized guest from the capture, lifted to the menu's usual strip (pass 8). */
+  onRecognized?: (info: { name: string | null; usual: IdentifyResult['usual'] } | null) => void
 }
 
 function Rejections({ rejected, menu, lang, enabled, onAdd }: Pick<CartPanelProps, 'rejected' | 'menu' | 'lang' |
@@ -126,12 +128,35 @@ function CartPanelView(props: CartPanelProps) {
   // the name this guest gave at checkout (P43), kept with its cart id so the next guest at this
   // kiosk never inherits it: the placed card speaks it, the counter calls it
   const [guest, setGuest] = useState<{ cartId: string; name: string | null } | null>(null)
+  // pass 8: the cart lives as a slim order bar docked under the menu and expands in place; the
+  // read-back opens it by itself, since the confirm buttons are the point of that step
+  const [expanded, setExpanded] = useState(false)
+  useEffect(() => { if (readback || placing) setExpanded(true) }, [readback, placing])
   if (placed && (cart?.lines.length ?? 0) === 0) {
     const guestName = placed.order && guest?.cartId === placed.order.cart_id ? guest.name : null
     return <Placed placed={placed} onNewOrder={props.onNewOrder} menu={menu} lang={lang} guestName={guestName} />
   }
   const lines = cart?.lines ?? []
   const count = lines.reduce((n, l) => n + l.qty, 0)
+  if (lines.length === 0) {
+    // the founder's frame: an empty order shows no cart at all — the menu owns the screen
+    return null
+  }
+  if (!expanded) {
+    return (
+      <button type="button" onClick={() => setExpanded(true)} aria-expanded={false}
+        className="flex w-full shrink-0 items-center gap-3 rounded-full bg-panel py-3 pl-5 pr-3 text-left shadow-lift ring-1 ring-line transition hover:ring-accent/50">
+        <ShoppingBag aria-hidden className="size-5 shrink-0 text-accent-2" />
+        <span className="font-bold">{count} {count === 1 ? 'item' : 'items'}</span>
+        <span className="ml-auto text-lg font-black tabular-nums" data-testid="cart-total">
+          {cart ? formatCents(cart.total_cents) : ''}
+        </span>
+        <span className="inline-flex items-center gap-1 rounded-full bg-linear-to-br from-accent to-accent-2 px-4 py-2 font-bold text-ink">
+          View order <ChevronUp aria-hidden className="size-4" />
+        </span>
+      </button>
+    )
+  }
   const handoff = cart?.flags.includes('large_order_handoff') ?? false
   const flagged = cart?.flags.includes('qty_flagged') ?? false
   // a dish 86'd while it sits in the cart (the server's guard decides what happens at placement)
@@ -168,10 +193,20 @@ function CartPanelView(props: CartPanelProps) {
   return (
     <Card
       panel="cart"
-      className="lg:min-h-80 lg:flex-1"
+      className="max-h-[62dvh] min-h-0 flex-1 lg:max-h-[54dvh]"
       bodyClassName="min-h-0 overflow-y-auto py-1"
       title={<span className="flex items-center gap-2"><ShoppingBag aria-hidden className="size-5" />Your order</span>}
-      actions={count > 0 ? <span className="text-sm text-muted">{count} {count === 1 ? 'item' : 'items'}</span> : null}
+      actions={(
+        <span className="flex items-center gap-2">
+          <span className="text-sm text-muted">{count} {count === 1 ? 'item' : 'items'}</span>
+          {!readback && (
+            <Button size="sm" variant="ghost" aria-expanded={true} onClick={() => setExpanded(false)}
+              icon={<ChevronDown aria-hidden className="size-4" />}>
+              Hide
+            </Button>
+          )}
+        </span>
+      )}
       footer={footer}
     >
       <Rejections {...props} />
@@ -216,7 +251,7 @@ function CartPanelView(props: CartPanelProps) {
       )}
       {cart && lines.length > 0 && (
         <CustomerCapture key={cart.cart_id} menu={menu} lang={lang} sessionId={cart.session_id}
-          locked={busy || readback} onAdd={props.onAdd}
+          locked={busy || readback} onAdd={props.onAdd} onRecognized={props.onRecognized}
           onName={(name) => setGuest({ cartId: cart.cart_id, name })} />
       )}
     </Card>

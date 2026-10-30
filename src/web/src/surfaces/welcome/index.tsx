@@ -7,6 +7,10 @@
  * Pass 3 gives the cover its ceremony: the hat sits in a lit app-icon tile over ambient orange/blue/violet
  * light, the wordmark is display-sized with the gradient on "AI", and each way in is a raised card with its
  * own tinted icon tile that lifts on hover. Same doors, same words — presentation only.
+ *
+ * Pass 8 moves the cover into the founder's warm light system (the `.theme-light` token scope: cream
+ * room, white cards, soft warm shadows) — the ceremony survives as the white hat tile and the display
+ * wordmark; the dark room's colored light pools do not.
  */
 
 import { ArrowLeft, ArrowRight, ChefHat, Store, UtensilsCrossed } from 'lucide-react'
@@ -41,16 +45,9 @@ const MODES: readonly Mode[] = [
 export default function WelcomeSurface(_props: SurfaceProps) {
   const [entered, setEntered] = useState(false)
   return (
-    <main className="relative flex min-h-full flex-col items-center justify-center gap-12 overflow-hidden p-6 text-center">
-      {/* the room's light: three soft pools behind the brand, painted as gradients (never blur filters) */}
-      <div aria-hidden className="pointer-events-none absolute inset-0">
-        <div className="absolute left-1/2 top-[6%] h-80 w-80 max-w-none -translate-x-1/2 rounded-full bg-[radial-gradient(closest-side,rgb(255_138_61/0.15),transparent)]" />
-        <div className="absolute -left-28 top-1/3 h-72 w-72 rounded-full bg-[radial-gradient(closest-side,rgb(30_120_255/0.11),transparent)]" />
-        <div className="absolute -right-28 top-1/2 h-72 w-72 rounded-full bg-[radial-gradient(closest-side,rgb(139_123_255/0.09),transparent)]" />
-      </div>
-
+    <main className="theme-light relative flex min-h-full flex-col items-center justify-center gap-12 overflow-hidden p-6 text-center text-text">
       <div className="relative flex flex-col items-center gap-6 motion-safe:animate-rise">
-        <div className="rounded-[2rem] bg-linear-to-b from-panel-2 to-panel p-4 shadow-glow ring-1 ring-white/10">
+        <div className="rounded-[2rem] bg-panel p-4 shadow-lift ring-1 ring-line">
           <BrandHat size={76} />
         </div>
         <div className="flex flex-col items-center gap-3">
@@ -71,7 +68,7 @@ export default function WelcomeSurface(_props: SurfaceProps) {
             {MODES.map((mode, i) => (
               <button key={mode.to} type="button" onClick={() => navigate(mode.to)}
                 style={{ animationDelay: `${i * 90}ms` }}
-                className="flex flex-col items-center gap-4 rounded-3xl border border-white/8 bg-panel bg-linear-to-b from-panel-2/80 to-panel p-7 text-center shadow-glow transition-[transform,box-shadow,border-color] duration-300 hover:-translate-y-1 hover:border-accent/40 hover:shadow-lift focus-visible:outline-2 focus-visible:outline-accent motion-safe:animate-rise">
+                className="flex flex-col items-center gap-4 rounded-3xl bg-panel p-7 text-center shadow-lift ring-1 ring-line transition-[transform,box-shadow] duration-300 hover:-translate-y-1 hover:shadow-glow focus-visible:outline-2 focus-visible:outline-accent motion-safe:animate-rise">
                 <span className={cx('flex size-14 items-center justify-center rounded-2xl ring-1', mode.tile)}>
                   <mode.icon className="size-7" />
                 </span>
@@ -81,7 +78,7 @@ export default function WelcomeSurface(_props: SurfaceProps) {
             ))}
           </div>
           <button type="button" onClick={() => setEntered(false)}
-            className="mx-auto inline-flex items-center gap-1.5 rounded-full px-4 py-2 text-sm font-medium text-muted ring-1 ring-white/10 transition-colors hover:text-text hover:ring-accent/40 focus-visible:outline-2 focus-visible:outline-accent">
+            className="mx-auto inline-flex items-center gap-1.5 rounded-full bg-panel px-4 py-2 text-sm font-medium text-muted shadow-lift ring-1 ring-line transition-colors hover:text-text hover:ring-accent/40 focus-visible:outline-2 focus-visible:outline-accent">
             <ArrowLeft className="size-4" /> Back
           </button>
         </section>

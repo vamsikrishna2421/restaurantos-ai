@@ -17,6 +17,18 @@ let clock = 0
 let keys = 0
 const feed = (env: ReturnType<typeof event>) => act(() => useTenant.getState().apply(env))
 const recv = (sock: FakeVoiceSocket, msg: object) => act(() => sock.recv(msg))
+
+/** Pass 8's menu shows one category at a time: pick it in the sidebar nav before reaching for its dishes. */
+function showCategory(name: string) {
+  fireEvent.click(within(screen.getByRole('navigation', { name: 'Menu categories' }))
+    .getByRole('button', { name }))
+}
+
+/** Pass 8's cart docks as an order bar: open it before reading lines (the read-back opens it by itself). */
+function expandCart() {
+  const bar = screen.queryByRole('button', { name: /View order/ })
+  if (bar) fireEvent.click(bar)
+}
 const BIRYANIS = cart([['CHK_BIRY', 2]])
 const WITH_SAMOSA = cart([['CHK_BIRY', 2], ['SAMOSA', 1]])
 
@@ -92,6 +104,7 @@ test('a blip between stop and turn_result: the turn that landed shows from the f
   // the turn's persisted events reach the tenant feed (the cart, then the turn's completion)
   feed(cartUpdated(600, WITH_SAMOSA))
   feed(turnCompleted(601, 2))
+  expandCart()
   const order = screen.getByRole('list', { name: 'Order lines' })
   expect(within(order).getByText('1× Samosa')).toBeInTheDocument()
   expect(screen.getByText('Reconnected. Your order is up to date.')).toBeInTheDocument()
@@ -113,6 +126,7 @@ test('a feed that was faster than the answer: the completed turn shows as soon a
   feed(turnCompleted(601, 2))
   expect(screen.queryByText('1× Samosa')).toBeNull() // a turn in flight waits for its own turn_result
   act(() => sock.drop(1006))
+  expandCart()
   expect(screen.getByText('1× Samosa')).toBeInTheDocument()
   expect(screen.getByText('Reconnected. Your order is up to date.')).toBeInTheDocument()
 })
@@ -127,6 +141,7 @@ test('a request that never left is asked for again, and late feed events never u
   expect(screen.getByText('The connection dropped. Your order is safe; please say that again.')).toBeInTheDocument()
 
   const again = await reconnect()
+  showCategory('Starters')
   fireEvent.click(screen.getByRole('button', { name: 'Add Samosa, $6.99' }))
   recv(again, result({ turn_no: 3, path: 'buttons', cart: WITH_SAMOSA }))
   // the feed lags behind the voice socket: turn 2's and 3's events arrive after turn 3's answer
@@ -134,6 +149,7 @@ test('a request that never left is asked for again, and late feed events never u
   feed(turnCompleted(601, 2))
   feed(cartUpdated(602, WITH_SAMOSA))
   feed(turnCompleted(603, 3))
+  expandCart()
   expect(screen.getByText('2× Chicken Dum Biryani')).toBeInTheDocument()
   expect(screen.getByText('1× Samosa')).toBeInTheDocument()
 })
@@ -157,6 +173,7 @@ test('a "Yes, place order" whose answer was lost: the placed order shows from th
 test('a lost "Review order" that landed shows the read-back; a lost turn of an expired session is asked again',
   async () => {
   const { sock } = await openKiosk()
+  expandCart()
   fireEvent.click(screen.getByRole('button', { name: 'Review order' }))
   act(() => sock.drop(1006))
   feed(turnCompleted(600, 2, { intent: 'confirm_yes' })) // the server is in the read-back now
@@ -165,6 +182,7 @@ test('a lost "Review order" that landed shows the read-back; a lost turn of an e
   cleanup()
   FakeVoiceSocket.all = []
   const second = await openKiosk()
+  showCategory('Starters')
   fireEvent.click(screen.getByRole('button', { name: 'Add Samosa, $6.99' }))
   act(() => second.sock.drop(1006))
   // the server's LRU expired: a new Dialogue under a new id, and the old cart went with the old one

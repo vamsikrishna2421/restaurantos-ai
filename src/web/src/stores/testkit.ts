@@ -33,8 +33,8 @@ export function menuItem(code: string, station_id = 'STN_CURRY'): MenuItem {
   return {
     code, category: 'mains', station_id, price_cents: 1499, is_veg: true, spice_level: 2,
     names: { en: code, te: code, te_roman: code, ta: code, ta_roman: code, es: code },
-    aliases: [], allowed_modifiers: [], prep_min: 10, available: true, unavailable_reason: null, alternatives: [],
-    allergens: ['dairy'],
+    aliases: [], allowed_modifiers: [], prep_min: 10, photo: null, available: true, unavailable_reason: null,
+    alternatives: [], allergens: ['dairy'],
   }
 }
 

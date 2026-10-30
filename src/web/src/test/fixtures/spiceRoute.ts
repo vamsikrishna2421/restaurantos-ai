@@ -236,7 +236,8 @@ export function spiceRouteItems(): MenuItem[] {
     allergens]) => ({
     code, category, station_id, price_cents, is_veg, spice_level,
     names: { en: n[0], te: n[1], te_roman: n[2], ta: n[3], ta_roman: n[4], es: n[5] },
-    aliases: [...aliases], allowed_modifiers: [...SETS[set]], prep_min, available: true, unavailable_reason: null,
+    aliases: [...aliases], allowed_modifiers: [...SETS[set]], prep_min,
+    photo: `/menu-photos/spice_route/${code}.jpg`, available: true, unavailable_reason: null,
     alternatives: [], allergens: [...allergens],
   }))
 }

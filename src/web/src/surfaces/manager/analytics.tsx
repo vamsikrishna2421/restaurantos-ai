@@ -4,6 +4,8 @@
  * trips themselves live on the Attention home as cards; here are the tables behind them: every capacity
  * check (shortfalls marked), the stock watch, and the forecast's basis sentence, so the manager can see
  * exactly what a card stands on.
+ *
+ * Pass 8 (Scope C) aligns the tables into the console's grid-of-cards rhythm; no number or word changed.
  */
 
 import { Card, Chip } from '../../components/ui'
@@ -30,10 +32,10 @@ export default function AnalyticsSection({ analytics, error }: {
             className="motion-safe:animate-rise"
             actions={<Chip tone="ai">{CONFIDENCE_LABEL[analytics.confidence]}</Chip>}>
             <p className="mb-3 text-muted">{analytics.basis}</p>
-            <ul className="flex flex-col gap-1.5">
+            <ul className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
               {analytics.forecast.map((daypart) => (
                 <li key={daypart.daypart}
-                  className="flex items-center justify-between gap-3 rounded-xl bg-white/2 px-3 py-2 ring-1 ring-white/5">
+                  className="flex items-center justify-between gap-3 rounded-xl bg-white/2 px-3.5 py-3 ring-1 ring-white/5">
                   <span className="font-medium">{daypart.label}</span>
                   <span className="tabular-nums">
                     <span className="font-semibold">{daypart.expected_orders}</span>
@@ -56,7 +58,7 @@ export default function AnalyticsSection({ analytics, error }: {
               {analytics.best_sellers.length === 0 ? (
                 <p className="text-muted">No sales in the window yet.</p>
               ) : (
-                <ul className="flex flex-col gap-1.5">
+                <ul className="grid gap-2 sm:grid-cols-2">
                   {analytics.best_sellers.map((item) => (
                     <li key={item.item_code}
                       className="flex items-center justify-between gap-3 rounded-xl bg-white/2 px-3 py-2 ring-1 ring-white/5">
@@ -74,7 +76,7 @@ export default function AnalyticsSection({ analytics, error }: {
               {analytics.worst_sellers.length === 0 ? (
                 <p className="text-muted">Not enough sellers to rank a bottom yet.</p>
               ) : (
-                <ul className="flex flex-col gap-1.5">
+                <ul className="grid gap-2 sm:grid-cols-2">
                   {analytics.worst_sellers.map((item) => (
                     <li key={item.item_code}
                       className="flex items-center justify-between gap-3 rounded-xl bg-white/2 px-3 py-2 ring-1 ring-white/5">
@@ -94,7 +96,7 @@ export default function AnalyticsSection({ analytics, error }: {
             {analytics.station_load.length === 0 ? (
               <p className="text-muted">No tickets in the window yet.</p>
             ) : (
-              <ul className="flex flex-col gap-1.5">
+              <ul className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
                 {analytics.station_load.map((row) => (
                   <li key={`${row.station_id}-${row.daypart}`}
                     className="flex items-center justify-between gap-3 rounded-xl bg-white/2 px-3 py-2 ring-1 ring-white/5">
@@ -112,7 +114,7 @@ export default function AnalyticsSection({ analytics, error }: {
             {analytics.capacity.length === 0 ? (
               <p className="text-muted">No station load is forecast for the coming dayparts.</p>
             ) : (
-              <ul className="flex flex-col gap-1.5">
+              <ul className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
                 {analytics.capacity.map((check) => (
                   <li key={`${check.station_id}-${check.date}-${check.daypart}`}
                     className="flex flex-wrap items-center justify-between gap-3 rounded-xl bg-white/2 px-3 py-2 ring-1 ring-white/5">
@@ -137,7 +139,7 @@ export default function AnalyticsSection({ analytics, error }: {
             {analytics.stock_watch.length === 0 ? (
               <p className="text-muted">Nothing is forecast to run out through tomorrow.</p>
             ) : (
-              <ul className="flex flex-col gap-1.5">
+              <ul className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
                 {analytics.stock_watch.map((check) => (
                   <li key={check.ingredient_id}
                     className="flex flex-wrap items-center justify-between gap-3 rounded-xl bg-white/2 px-3 py-2 ring-1 ring-white/5">

@@ -67,9 +67,9 @@ export function TicketCard({ ticket, menu, lang, bizNow, showStation, isNew, bus
       data-status={ticket.status}
       style={{ borderTop: `6px solid ${accent}` }}
       className={cx(
-        '@container flex min-w-0 flex-col overflow-hidden rounded-2xl border border-white/8 bg-panel',
-        // urgent rings glow in their colour; only a calm ticket keeps the black drop shadow (its colour tints a glow)
-        !isNew && ticket.status !== 'recalled' && 'shadow-xl shadow-black/30',
+        '@container flex min-w-0 flex-col overflow-hidden rounded-2xl border border-line bg-panel',
+        // urgent rings glow in their colour; a calm ticket keeps the soft warm lift (pass 8's light board)
+        !isNew && ticket.status !== 'recalled' && 'shadow-lift',
         isNew && 'shadow-glow-accent ring-2 ring-accent',
         ticket.status === 'recalled' && 'shadow-glow-warn ring-2 ring-warn',
       )}

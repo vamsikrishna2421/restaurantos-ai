@@ -1,14 +1,19 @@
 /**
- * The kiosk's conversation card: live captions of the guest (each partial replaces the last; partials never act),
- * the reply text before any audio (with its English gloss), how the reply is being voiced, the turn path and the
- * measured latency, the big tap-to-talk button (one tap starts listening, a second tap stops and sends) and the
- * typed fallback.
+ * The kiosk's conversation panel (pass 8: the founder's "Welcome!" rail): the brand mark as the
+ * mascot, live captions of the guest (each partial replaces the last; partials never act), the reply
+ * text before any audio (with its English gloss), how the reply is being voiced, the turn path and
+ * the measured latency, the big tap-to-talk button (one tap starts listening, a second tap stops and
+ * sends) and the typed fallback.
+ *
+ * The mic icon tells the truth about the microphone only: a normal mic whenever the mic can run —
+ * MicOff renders solely when the mic is denied or unsupported (a founder complaint about the old
+ * build, which showed MicOff whenever the mic was merely idle).
  */
 
 import { Keyboard, LoaderCircle, Mic, MicOff, SendHorizontal, Volume2, VolumeX } from 'lucide-react'
 import { useEffect, useState, type FormEvent } from 'react'
 import { LATENCY_TARGETS_MS, LatencyBadge } from '../../components/badges'
-import { Button, Card, Chip, cx } from '../../components/ui'
+import { BrandHat, Button, Card, Chip, cx } from '../../components/ui'
 import type { TurnPath } from '../../contracts/generated'
 import { captureProblem } from '../../lib/audio/capture'
 import { TEXT_MAX, type KioskState } from './state'
@@ -60,7 +65,7 @@ const clockTime = (s: number) => `${Math.floor(s / 60)}:${String(s % 60).padStar
 function Conversation({ view }: { view: TalkView }) {
   const { caption, reply, replyVoice, path, latencyMs } = view
   return (
-    <div className="flex min-h-24 flex-col gap-3" aria-live="polite">
+    <div className="flex min-h-24 w-full flex-col items-center gap-3" aria-live="polite">
       {caption ? (
         <p data-testid="caption" data-final={caption.final ? 'true' : 'false'}
           className={cx('text-xl leading-snug', caption.final ? 'text-text' : 'italic text-muted')}>
@@ -70,7 +75,7 @@ function Conversation({ view }: { view: TalkView }) {
         !reply && <p className="text-lg leading-snug text-muted">{GREETING}</p>
       )}
       {reply && (
-        <div data-testid="reply" className="rounded-2xl rounded-tl-sm bg-panel-2 px-4 py-3 ring-1 ring-line">
+        <div data-testid="reply" className="w-full rounded-2xl rounded-tl-sm bg-panel-2 px-4 py-3 text-left ring-1 ring-line">
           <p className="text-lg font-medium leading-snug" lang={reply.lang}>{reply.text}</p>
           {reply.lang !== 'en' && reply.text_en && reply.text_en !== reply.text && (
             <p className="mt-1 text-sm text-muted" lang="en">{reply.text_en}</p>
@@ -78,7 +83,7 @@ function Conversation({ view }: { view: TalkView }) {
         </div>
       )}
       {(path || replyVoice === 'browser' || replyVoice === 'captions') && (
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="flex flex-wrap items-center justify-center gap-2">
           {path && <Chip tone={path === 'llm' || path === 'llm_failover' ? 'ai' : 'neutral'}>{PATH_LABELS[path]}</Chip>}
           {latencyMs != null && (
             <LatencyBadge ms={latencyMs} targetMs={LATENCY_TARGETS_MS.kioskCart} label="→ cart" />
@@ -106,7 +111,7 @@ function TypedInput({ disabled, onText }: { disabled: boolean; onText: (text: st
     if (onText(text)) setText('')
   }
   return (
-    <form onSubmit={submit} className="flex gap-2" aria-label="Type your order">
+    <form onSubmit={submit} className="flex w-full gap-2" aria-label="Type your order">
       <label htmlFor="kiosk-typed" className="sr-only">Type your order</label>
       <input
         id="kiosk-typed"
@@ -134,11 +139,17 @@ export function TalkPanel({ view, onToggle, onText, onToggleTyped }: TalkPanelPr
   const problem = captureProblem(view.mic)
   const elapsed = useElapsedSeconds(listening)
   const ring = listening ? 1 + Math.min(1, view.level * 4) * 0.35 : 1
+  const micOff = view.mic === 'denied' || view.mic === 'unsupported'
   return (
-    <Card panel="talk" className="shrink-0 overflow-hidden">
-      <Conversation view={view} />
-      {/* the button beside its label keeps this card short, so the order card below stays in view */}
-      <div className="mt-4 flex items-center gap-4">
+    <Card panel="talk" className="shrink-0 overflow-hidden" bodyClassName="flex flex-col items-center text-center">
+      <span aria-hidden className="grid size-14 place-items-center rounded-full bg-panel-2 ring-1 ring-line lg:size-16">
+        <BrandHat className="size-8 lg:size-10" />
+      </span>
+      <h2 className="mt-2 text-3xl font-black tracking-tight">Welcome!</h2>
+      <div className="mt-2 w-full">
+        <Conversation view={view} />
+      </div>
+      <div className="mt-4 flex flex-col items-center gap-2.5">
         <button
           type="button"
           aria-label={label}
@@ -148,39 +159,39 @@ export function TalkPanel({ view, onToggle, onText, onToggleTyped }: TalkPanelPr
           data-state={view.talk}
           onClick={onToggle}
           className={cx(
-            'relative grid size-28 shrink-0 select-none place-items-center rounded-full shadow-2xl transition',
+            'relative grid size-24 shrink-0 select-none place-items-center rounded-full shadow-glow transition lg:size-28',
             'focus-visible:outline-4 focus-visible:outline-offset-4 focus-visible:outline-accent',
-            listening ? 'bg-bad text-ink ring-8 ring-bad/25' : 'bg-accent text-ink ring-8 ring-accent/15 hover:bg-accent/90',
-            'disabled:cursor-not-allowed disabled:bg-panel-2 disabled:text-muted disabled:ring-0',
+            listening ? 'bg-bad text-ink ring-8 ring-bad/25' : 'bg-linear-to-br from-accent to-accent-2 text-ink ring-8 ring-accent/15 hover:brightness-105',
+            'disabled:cursor-not-allowed disabled:bg-panel-2 disabled:text-muted disabled:ring-0 disabled:shadow-none',
           )}
         >
+          <span aria-hidden className="absolute -inset-3 rounded-full ring-2 ring-accent/25" />
+          <span aria-hidden className="absolute -inset-6 rounded-full ring-1 ring-accent/15" />
           <span aria-hidden className={cx('absolute inset-0 rounded-full transition-transform duration-75',
             listening ? 'bg-bad/40' : 'bg-transparent')} style={{ transform: `scale(${ring})` }} />
           <span aria-hidden className="relative">
-            {view.talk === 'thinking' ? <LoaderCircle className="size-12 motion-safe:animate-spin" />
-              : view.mic === 'running' || view.mic === 'starting' ? <Mic className="size-12" /> : <MicOff className="size-12" />}
+            {view.talk === 'thinking' ? <LoaderCircle className="size-11 motion-safe:animate-spin" />
+              : micOff ? <MicOff className="size-11" /> : <Mic className="size-11" />}
           </span>
         </button>
-        <div className="flex min-w-0 flex-col items-start gap-1">
-          <p className="text-lg font-semibold leading-snug" aria-hidden>{label}</p>
-          {listening && (
-            <p className="flex items-center gap-2 text-sm font-medium text-bad" role="status">
-              <span aria-hidden className="size-2 motion-safe:animate-pulse rounded-full bg-bad" />
-              Listening · <span data-testid="talk-elapsed">{clockTime(elapsed)}</span>
-            </p>
-          )}
-          {problem && <p role="status" className="text-sm text-warn">{problem}</p>}
-          {!view.typed && (
-            <Button variant="ghost" size="sm" className="-ml-2.5" icon={<Keyboard className="size-4" />}
-              onClick={onToggleTyped}>
-              Type instead
-            </Button>
-          )}
-        </div>
+        <p className="text-lg font-semibold leading-snug" aria-hidden>{label}</p>
+        {listening && (
+          <p className="flex items-center gap-2 text-sm font-medium text-bad" role="status">
+            <span aria-hidden className="size-2 motion-safe:animate-pulse rounded-full bg-bad" />
+            Listening · <span data-testid="talk-elapsed">{clockTime(elapsed)}</span>
+          </p>
+        )}
+        {problem && <p role="status" className="text-sm text-warn">{problem}</p>}
+        {!view.typed && (
+          <Button variant="ghost" size="sm" icon={<Keyboard className="size-4" />}
+            onClick={onToggleTyped}>
+            Type instead
+          </Button>
+        )}
       </div>
       <p className="mt-3 text-sm text-muted">Nothing is sent until you tap stop.</p>
       {view.typed && (
-        <div className="mt-4">
+        <div className="mt-4 w-full">
           <TypedInput disabled={view.busy || view.voice !== 'ready'} onText={onText} />
         </div>
       )}

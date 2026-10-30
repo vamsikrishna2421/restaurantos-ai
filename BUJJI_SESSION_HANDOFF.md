@@ -811,3 +811,227 @@ fix commit and its revert are both on this branch; the shipped tree is exactly t
 above. For Pass 8: `CustomerCapture` and the placement-time goodwill line are deliberately
 self-contained (capture = one component + one endpoint; redemption = one zero-priced line in
 `OrderService.place`) so both re-home into the redesigned cart/checkout without surgery.
+
+---
+
+## Pass 8 — the founder's light redesign: kiosk, front door, role picker, KDS (Scopes A–E)
+
+The founder took the kiosk and staff sign-in to ChatGPT and brought back design frames, then
+extended the pass live four times. Reference frames (kept with the goal files):
+`kiosk-redesign-reference.jpg`, `staff-signin-redesign-reference.jpg`,
+`role-picker-redesign-reference.jpg`, `kds-redesign-reference.jpg`. The design language: warm
+light theme — cream `#faf5ec`, white cards, soft warm shadows, large radii, deep warm
+brown-black text, the pass-3 orange surviving as the action color — applied ONLY to the
+customer/staff/kitchen surfaces below. The manager console and GM console stay dark (the
+founder explicitly declined a manager redesign); onboarding was not in scope.
+
+### The token approach (one line, because there is nothing else to know)
+
+`.theme-light` in `src/web/src/index.css` re-points the EXISTING design-token names
+(`--color-panel`, `--color-text`, `--color-accent`, the shadows, the fonts) inside a scope, so
+every kit component (Card, Button, Chip, Notice, the kiosk panels) re-skins with zero forks and
+zero new component variants. Light surfaces add `theme-light` to their root; dark surfaces are
+untouched. Cream goes a step deeper than the panel tokens (a soft `#fdf8ef → #f7ecda` vertical
+wash) so white cards read as cards. Two honest limits: the kit's `Card`/`Button`/`Tabs` carry a
+few hardcoded `border-white/8`-style classes from the dark system — inside the light scope their
+separation is carried by the warm `shadow-lift` instead, and nobody should "fix" that by editing
+the kit (the dark manager depends on those classes as they are).
+
+### Scope A — the customer kiosk, rebuilt to the frame (commit 27774d0)
+
+- **Layout**: brand header (chef-hat logo tile, "RestaurantOS **AI**", tenant name + SAMPLE
+  pill, connection state) and ONE language `<select>` (globe + current language) replacing the
+  chip row — all five voice languages incl. Auto-detect, same `setLang` behavior. Below `lg`
+  the page stacks (Welcome rail, chip-row categories, menu, cart); at `lg` it is the frame's
+  3-column grid: sidebar nav / menu + docked cart / Welcome rail.
+- **Sidebar categories** with a small lucide line icon per category, the active one a soft
+  peach pill. **Category-at-a-time** (a deliberate call, documented in `MenuGrid.tsx`): the
+  frame shows one category with its hero; the previous stacked-sections-with-scroll-spy would
+  have made the hero meaningless. Category state lifts to the kiosk root so the voice
+  controller's jump-to-category (`data-active-category`) drives the same state the taps do.
+- **Category heroes**: wide photo, display-size name, one-line tagline per category in warm
+  product voice — Biryani "Aromatic. Authentic. Always Special." (the frame's own line); the
+  other seven written in the same register (Curries "Slow-simmered, made to comfort.", etc.).
+- **Dish cards**: photo-forward (photo, veg/non-veg mark, spice flames, name, price, orange
+  circular +), and EVERY behavior carried over — add-to-cart, the 86'd treatment with named
+  staff alternatives, dietary marks, in-cart quantity chips. The card root stays a `<div>`: the
+  one-click add lives on the + button (full name + price as its accessible name, as the tests
+  have always addressed it).
+- **Welcome rail** (pass-4's TalkPanel, reskinned): brand chef-hat mascot in a white tile,
+  "Welcome!", the greeting copy, the big orange talk button with concentric sound rings and a
+  NORMAL mic glyph in the ready state — `MicOff` now renders ONLY when the mic is
+  denied/unsupported (the founder's complaint about the old build, fixed). All voice states,
+  readback, captions, "Type instead" and the honesty caption are the same controller, untouched.
+- **Cart**: the frame shows no cart (empty state), so per the founder-approved call the cart is
+  a slim order bar docked at the bottom of the CENTER column (count + total + View order)
+  expanding IN PLACE to the full cart — lines, quantities, the pass-7 CustomerCapture, tax,
+  Review order. An empty cart renders nothing (no bar). Placing/readback force it open so the
+  confirmation is never hidden behind a collapsed bar. The menu keeps the dominant space at
+  every cart state; on phone the bar docks to the viewport bottom (fixed) so checkout is never
+  below the fold.
+- **"Your usual"**: when the capture recognizes a returning guest, the usual becomes a strip
+  above the dish grid ("Welcome back, Asha — your usual:" + one-tap chips). The recognition
+  state moved up: `CustomerCapture` gained an optional `onRecognized` callback; when the kiosk
+  wires it, the in-cart usual block yields to the strip (the capture's standalone use — and its
+  pass-7 tests — keep the block). Recognition is forgotten when the cart empties or a new order
+  starts, exactly like the cart itself.
+- **Banners**: the degraded-TTS banner and the drift/offline notices restyled as slim warm
+  notices in the light chrome; behavior unchanged.
+
+### Food photography (commit e616a6e) — 38 generated images, and the no-photo contract
+
+The design lives on photography and the menu had none. 38 images were generated for the Spice
+Route sample tenant (30 dishes + 8 category heroes), style-locked: the named dish in a ceramic
+bowl/plate, 45° shot, warm natural light, cream background, no text, no people. They live in
+the SPA's public tree at `src/web/public/menu-photos/spice_route/` (`<ITEM_CODE>.jpg`,
+`hero-<category>.jpg`) and are served by the existing static SPA hosting — no backend asset
+route exists or was needed.
+
+The plumbing (commit 74eae36): `MenuItem.photo` is an OPTIONAL field end-to-end (contract,
+seed validator, snapshot, generated TS types). It is presentation-only: `menu_hash` whitelists
+its fields, so adding photos never moves the prompt cache key. The seed validator rejects any
+photo path that is not a same-origin absolute path; onboarding has no writer for the field and
+must never fabricate photography for a real restaurant. Heroes resolve BY CONVENTION as
+`hero-<category>.jpg` in the same directory as the tenant's dish photos — NOT from the tenant
+id (a sandbox's tenant id is not the seed slug; building the path from it 404'd every sandbox
+hero in the first screenshot round — fixed in e79ceda). **Fallbacks**: a dish with no photo (or
+a photo that fails to load) renders the clean text card; a category with no hero gets the cream
+gradient + text treatment. A tenant with zero photography gets the same menu, never a broken
+image.
+
+### Scope B — the front door in the light language (commit 6e5d77c, with E1)
+
+Splash, the Customer/Staff/Set-up choice, staff sign-in, the PIN pad and the signup form are
+reskinned in the same scope. Staff sign-in follows its frame: top bar with the brand mark and
+wordmark, "← Start" pill, display heading, "Who is signing in?", 2-column white identity cards
+(colored initial avatar, name, language pill with Telugu/Tamil in their own scripts, chevron),
+the "I am new here" hairline divider entry at the bottom, a light PIN pad. All behavior,
+routing, role-claim and approval logic from passes 1/5 is byte-identical — reskin and relayout
+only; the staff suite passed with zero test changes. (Fix f074479: the surface column is
+centered on an inner wrapper so the cream paints the whole viewport — the first screenshots
+showed the dark app root as bars down both sides.)
+
+**One frame element deliberately NOT reproduced**: the staff frames show a language selector
+in the top bar. There is no app-level language before sign-in — language is per-person
+(`session.staff.language`) and drives that person's screens AFTER they sign in (the KDS shot
+shows Carlos's board fully in Spanish, unprompted). A selector on the sign-in screen would
+control nothing, so the frame's selector was not faked; the kiosk (customer-facing, where
+language IS a live choice) has its selector, and the KDS carries the language pills.
+
+### Scope C — manager sections as object grids (commit 1c3a4b0) — FOUNDER-DIRECTED
+
+Added mid-pass by the founder: he opened Orders, saw a single-column list, and rejected it —
+"each section's objects as cards in a responsive grid", like the home tiles. **Layout only**;
+the dark system, endpoints, data and copy are untouched. Orders (live + history order cards),
+People (Job requests stay a decision card ABOVE the grids; Team → person cards — now also
+showing each person's language, which the rows never surfaced; Team jobs → control cards),
+Timesheets (per-person day cards), Customers (guest cards; copy preserved verbatim, including
+the lowercase "last in"), Revenue (week → day cards), Analytics (forecast / top sellers /
+station load / capacity / stock watch as grid cards). **Attention was deliberately LEFT as the
+ranked single-column feed** — decision cards need the width, and the founder's grid ask was
+about object sections; Settings untouched. All 13 manager tests passed with zero changes
+(they assert content, not list structure — the behavior freeze held by construction).
+
+### Scope D — the staff exit (commit 433d172) — FOUNDER-REPORTED
+
+The founder signed in as Maria (usual job Front Counter), PIN login auto-claimed it and routed
+him to /kiosk — a customer surface holding a staff session with no end-shift, no back, no way
+out. Fix: `kiosk/StaffBar.tsx` — when (and only when) an active staff session exists on the
+device, the kiosk shows a slim deep-brown staff bar (it reads as staff chrome, not customer
+UI): name + this shift's job (or "Signed in" for a session without a claim), and End shift /
+Sign out, which does exactly what the manager surface's end-shift does (`staffApi.release`,
+fail-soft; `clearStaffSession()`; route to /staff). No session → nothing renders; customers
+never see it. The other landings were audited, not assumed: /kds already had End shift for
+claim holders (and Scope E2 generalized it — below); /manager already has "End my shift"
+(verified in the screenshot, not duplicated); the GM console is a PIN-gated viewer with its own
+lock/exit pattern and holds no claim. New tests: `staffbar.test.tsx` (bar shows for a session
+and end-shift releases + clears + routes; no session → no bar).
+
+### Scope E — the picker frame + the KDS goes light (commits 6e5d77c, a0c1710)
+
+**E1, the role picker**, joins the front door per its frame: personalized heading ("Hi
+<name> — pick your job for this shift"), the jobs as a 2-column grid of white cards — role
+icon in a saturated circle (Crown for Manager, Bell for Front Counter, ChefHat for the
+kitchens), status line (green dot + "Open"; a filled slot shows its holder's name; waiting /
+pending / taken states in the same visual language), chevron on open cards. The person's
+USUAL job (their `default_role` slot) gets the frame's highlighted treatment — peach fill,
+orange ring, a small "Your usual" pill. The left rail carries the brand chef-hat mark large
+over "Great Food Starts with a Great Team" (the brand mark, NOT a copy of the frame's cartoon
+characters). Claim behavior, Manager approval gates and routing are exactly passes 1/5.
+
+**E2, the KDS goes light** — this SUPERSEDES the original "KDS keeps dark" line: the founder
+supplied a light frame for it, so /kds (root + the waiting screen) joins the cream system via
+the same `.theme-light` scope. Header as a white bar: brand mark + "Kitchen", SAMPLE pill,
+the sim clock, the Live dot, the session chip ("<Name> · <Job>"), an explicit **End shift**,
+the language pills (EN + the tenant's languages — the existing device-language switcher), and
+a **Chime toggle**. **Chime decision**: the frame's toggle wires to the EXISTING arrival chime
+— the KDS has chimed new tickets since pass 4 behind a persisted per-device preference
+(`kds/chime.ts`); the toggle now lives in the header (bell / bell-off) driving that same
+preference. No new chime was added. Station title in the display serif with the station accent
+demoted to a dot (the big orange identity line fought the light design; the accent survives as
+each ticket's top edge + the title dot), "Queue <n> min · <n> open", slim warm degraded
+banner, tickets as white cards (shadow carried by `shadow-lift` now that the scope's `panel-2`
+is a light warm gray) with every frozen behavior: station lock, bump flow, ready rail, timers,
+age chips. **One behavior-adjacent broadening, deliberate**: the session chip + End shift now
+show for ANY claim holder, not only locked/bound claims — Scope D's KDS exit, delivered here;
+the release path is the same fail-soft release the locked chip always called. The 86'd banner
+stays a full red band — that one is an alarm, not chrome. After E2, the only dark surfaces are
+the manager console and the GM console, per the founder's explicit call.
+
+### Where the frames fought real behavior (named, not silently deviated)
+
+1. **Staff language selector** — not reproduced (see Scope B): no such state exists pre-sign-in.
+2. **Sidebar vs stacked menu** — the kiosk went category-at-a-time (Scope A) rather than the
+   old stacked scroll; the frame's hero demanded it, and voice category jumps still land right.
+3. **KDS station color** — the frame's calm board can't carry the old full-saturation station
+   identity bars; the accent moved to the title dot + ticket top edge (Scope E2).
+4. **Session photographs** — the frames' cartoon mascots were not copied anywhere; the brand
+   chef-hat mark stands in on the Welcome rail, the picker rail, and the KDS (Scope E).
+
+### Deliberate limits
+
+- Photography exists only for the Spice Route sample tenant. A real onboarded restaurant has
+  none until it supplies its own — by design (the fallback IS the design for them).
+- The light scope re-points tokens but does not chase the kit's hardcoded dark border classes
+  (see token approach) — shadows carry the separation in light surfaces.
+- Phone is supported, not designed-first: the kiosk stacks, the cart docks to the viewport
+  bottom, the category chips scroll horizontally. Kiosk hardware is the tablet.
+- Voice/TTS/ASR behavior is untouched this pass; TTS remains in its degraded no-key state.
+
+### Tests
+
+- Web: 266 tests / 39 files — 265 passed, 1 failed: `staff.test.tsx >
+  switch_job_for_today_releases_without_ending_the_shift`, the documented intermittent.
+  **Base evidence**: on the UNMODIFIED pass-7 base (fd6c9cc, isolated worktree), the staff
+  suite fails the identical test intermittently (2 of 4 runs, then 4 FAIL lines across 6 more
+  runs — always that same test); on this branch the same suite passes and fails across runs
+  with the same shape (7/7 twice, 6/7 otherwise). No staff behavior was changed by this pass
+  beyond classes and the full-viewport wrapper. New tests this pass: `staffbar.test.tsx` (2).
+  Kiosk suites were updated only where the STRUCTURE changed (category-at-a-time navigation
+  helper, expand-the-cart helper) — no behavior assertion weakened; the confirm test's
+  post-order assertion now checks the placed heading is gone AND no order bar remains, because
+  an empty cart renders nothing in the new design.
+- Python: one full run landed 1552 passed, 3 skipped, 0 failed (1555 collected; clean env);
+  a second full run of the same tree showed ONE failure — `test_localhost_tcp_needs_opt_in`
+  (Permission error), which is one of the three environmental failures recorded against
+  pass 7 (localhost-TCP opt-in, the 200 ms perf test, the KDS fanout p95). It is
+  intermittent and environmental, not a pass-8 regression: the only Python change is the
+  optional `photo` field + its validator rules + the metadata-only column migration.
+- `npx tsc --noEmit` clean; production build rebuilt after every scope.
+
+### Screenshots (goal files, pass8-shots/)
+
+Tablet 1180×820: kiosk (empty cart, cart expanded with capture, your-usual strip, staff bar
+as Maria), splash, mode choice, staff sign-in, PIN pad, role picker (Maria), KDS (Carlos,
+Curry station, Spanish board), manager Orders grid, manager People grid. Phone 390×844:
+splash, kiosk, kiosk cart. Two screenshot-driven fixes came out of reviewing them: the kiosk
+grid row-start (e79ceda) and the hero path (same commit), plus the staff full-viewport cream
+(f074479) — the tests could not have caught any of the three; look at the pictures.
+
+### Commits (bujji/pass8, local — for the parent to merge)
+
+74eae36 optional menu photo field end-to-end · 0610977 .theme-light scoped tokens ·
+e616a6e 38 Spice Route photos · 27774d0 Scope A kiosk · 433d172 Scope D staff bar ·
+6e5d77c Scope B front door + E1 picker · 1c3a4b0 Scope C manager grids · a0c1710 Scope E2
+KDS light · e79ceda screenshot fixes (grid + hero path) · f074479 staff full-viewport cream ·
+this handoff.

@@ -80,16 +80,17 @@ export default function RevenueSection() {
           </Card>
 
           <Card title="This week, day by day" className="motion-safe:animate-rise">
-            <ul className="flex flex-col gap-1.5">
+            {/* pass 8 (Scope C): the days as a grid of cards, like every other object section */}
+            <ul className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
               {data.week.map((day) => (
                 <li key={day.date}
-                  className="flex items-center justify-between gap-3 rounded-xl bg-white/2 px-3 py-2 ring-1 ring-white/5">
+                  className="flex flex-col gap-1.5 rounded-xl bg-white/2 px-3.5 py-3 ring-1 ring-white/5">
                   <span className="font-medium">{dayLabel(day.date)}</span>
-                  <span className="flex items-center gap-2 text-sm tabular-nums">
+                  <span className="flex flex-wrap items-center gap-2 text-sm tabular-nums">
                     <span className="text-muted">{day.orders} orders</span>
                     {day.cancelled > 0 && <Chip tone="bad">{day.cancelled} cancelled</Chip>}
-                    <span className="font-semibold">{formatCents(day.gross_cents)}</span>
                   </span>
+                  <span className="text-lg font-semibold tabular-nums">{formatCents(day.gross_cents)}</span>
                 </li>
               ))}
             </ul>

@@ -41,7 +41,11 @@ function panel(over: Partial<CartPanelProps> = {}) {
     onQty: vi.fn(), onAdd: vi.fn(), onConfirm: vi.fn(), onNewOrder: vi.fn(),
     ...over,
   }
-  return { props, view: render(<CartPanel {...props} />) }
+  const view = render(<CartPanel {...props} />)
+  // pass 8: the cart opens as a docked order bar — expand it to reach the capture
+  const bar = screen.queryByRole('button', { name: /View order/ })
+  if (bar) fireEvent.click(bar)
+  return { props, view }
 }
 
 const phoneInput = () => screen.getByLabelText('Your phone number')

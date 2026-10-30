@@ -109,7 +109,8 @@ async def menu_snapshot(conn: AsyncConnection, tid: str) -> MenuSnapshot:
     allergens = derive_allergens(await recipes(conn, tid), await ingredients(conn, tid))
     items = [MenuItem(code=r.code, category=r.category, station_id=r.station_id, price_cents=r.price_cents,
                       is_veg=bool(r.is_veg), spice_level=r.spice_level, names=r.names, aliases=r.aliases,
-                      allowed_modifiers=r.allowed_modifiers, prep_min=r.prep_min, available=bool(r.available),
+                      allowed_modifiers=r.allowed_modifiers, prep_min=r.prep_min, photo=r.photo,
+                      available=bool(r.available),
                       unavailable_reason=r.unavailable_reason, alternatives=r.alternatives,
                       allergens=allergens.get(r.code, [])) for r in item_rows]
     modifier_list = [Modifier(code=r.code, labels=r.labels, aliases=r.aliases) for r in modifier_rows]
