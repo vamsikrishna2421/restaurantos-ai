@@ -604,9 +604,12 @@ class OnboardingGoLiveRequest(Model):
 
 
 class OnboardingGoLiveResult(Model):
-    """The tenant config is written and validated. ``files`` are the file names created under the tenant's
-    config directory, in seed order."""
+    """The tenant config is written and validated, and the restaurant is live: go-live activates the tenant
+    in the running app (its seed is materialized and recorded as the deployment's active tenant) before it
+    answers, so ``status`` is ``"live"`` — new sessions open on this restaurant. ``files`` are the file names
+    created under the tenant's config directory, in seed order."""
 
     tenant_id: str
     name: str
     files: list[str]
+    status: Literal["live"] = "live"

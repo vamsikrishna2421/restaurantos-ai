@@ -282,3 +282,25 @@ def test_start_clock() -> None:
                                                                             anchor_real_ms=now, speed=0)
     assert start_clock(PAUSED_AT_ANCHOR, "sandbox", now) == PAUSED_AT_ANCHOR
     assert start_clock(running, "live", now) == running and start_clock(TenantClockSpec(), "demo", now).mode == "real"
+
+
+async def test_clone_from_an_onboarded_template(c: Container, tmp_path: Any, monkeypatch: Any) -> None:
+    """Pass 4: a sandbox cloned from an onboarded restaurant's template serves that restaurant — its own
+    menu and staff — and starts ``quiet``: the scripted scenarios are written against the sample menu, so
+    asking for ``dinner_rush`` still lands on a fresh restaurant at opening, never another one's rush."""
+    from restaurantos.services import onboarding as ob
+
+    tenants = tmp_path / "tenants"
+    monkeypatch.setenv(ob.TENANTS_ENV, str(tenants))
+    slug, _files = ob.publish_tenant(ob.draft_from_text(
+        "Spice Route 2", "BIRYANI\nChicken Dum Biryani — $16.99\nVeg Biryani — $14.99\n"), "Priya")
+    async with c.store.write() as tx:
+        await materialize.materialize_template(tx, now_real_ms=FAKE_NOW_MS, tenant_id=slug, tenants_dir=tenants)
+    sid = await c.store.sandbox.create(template=slug, pool="public", caps_level="default", scenario="dinner_rush")
+    async with c.store.read() as conn:
+        assert await repo.template_id(conn, sid) == slug
+        snapshot = await repo.menu_snapshot(conn, sid)
+        assert {"Chicken Dum Biryani", "Veg Biryani"} <= {item.names.en for item in snapshot.items}
+        assert [(person.id, person.name) for person in await repo.staff(conn, sid)] == [("STF_MANAGER", "Priya")]
+    events = await c.store.events_since(sid, 0)
+    assert events[0].type == "scenario.loaded" and events[0].payload["scenario"] == "quiet"

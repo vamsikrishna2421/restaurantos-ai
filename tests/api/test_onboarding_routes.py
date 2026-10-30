@@ -138,3 +138,53 @@ def test_go_live_writes_the_tenant_then_refuses_a_repeat(app, monkeypatch, tmp_p
 
     again = client.post("/api/onboarding/go-live", json={"draft": draft, "manager_name": "Priya"})
     assert error(again) == (409, "tenant_exists")
+
+
+@pytest.fixture
+def app_with_staff(monkeypatch):
+    """The app with P39 and P41 together, on a fresh fake container."""
+    isolated_registry(monkeypatch,
+                      OPTIONAL_ROUTERS=(Entry("api.routes_onboarding", "P39", "CP4"),),
+                      REQUIRED_ROUTERS=(Entry("api.routes_staff", "P41", "CP4"),))
+    previous = ids.current()
+    c = make_test_container()
+    with TestClient(create_app(container=c)) as client:
+        yield client, c
+    ids.install(previous)
+
+
+def sign_in_as(client, c, tenant_id: str) -> None:
+    claims = SessionClaims(sid="vs_0123456789ABCDEF", tid=tenant_id, role="guest", lvl="default",
+                           pool="public", exp=c.clock.now_real_ms() + SESSION_TTL_MS)
+    client.headers["cookie"] = f"{auth.SESSION_COOKIE}={auth.encode_session(claims, c.settings)}"
+
+
+def test_go_live_then_the_manager_signs_in_on_the_new_tenant(app_with_staff, monkeypatch, tmp_path):
+    """Pass 4 end to end: after go-live the app serves the new restaurant — its manager is the staff
+    roster, she signs in with the seed PIN, and the shift's job slots derive from the NEW restaurant's
+    stations, not the sample tenant's."""
+    from restaurantos.seed import loader
+
+    client, c = app_with_staff
+    monkeypatch.setenv(ob.TENANTS_ENV, str(tmp_path))
+    sign_in_as(client, c, "live")  # the session a device opens on the served restaurant
+    draft = client.post("/api/onboarding/draft",
+                        json={"restaurant_name": "Spice Route 2", "menu_text": PASTE}).json()
+    r = client.post("/api/onboarding/go-live", json={"draft": draft, "manager_name": "Priya"})
+    assert r.status_code == 200, r.text
+    assert r.json()["status"] == "live"
+    assert loader.read_active_tenant(c.settings.data_dir) == "spice_route_2"
+
+    people = client.get("/api/staff")
+    assert people.status_code == 200, people.text
+    assert [(p["id"], p["name"]) for p in people.json()] == [("STF_MANAGER", "Priya")]
+
+    login = client.post("/api/staff/login", json={"staff_id": "STF_MANAGER", "pin": "1111"})
+    assert login.status_code == 200, login.text
+    assert login.json()["staff"]["id"] == "STF_MANAGER"
+
+    roles = client.get("/api/staff/roles")
+    assert roles.status_code == 200, roles.text
+    slot_ids = {slot["slot_id"] for slot in roles.json()}
+    assert {"manager", "front_counter", "STN_BIRYANI#1", "STN_BAR#1"} <= slot_ids
+    assert not any(slot.startswith("STN_TANDOOR") for slot in slot_ids)  # the sample tenant's station

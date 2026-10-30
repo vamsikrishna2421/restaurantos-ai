@@ -212,6 +212,9 @@ class RepoPort(Protocol):
 
     async def tenant(self, conn: AsyncConnection, tid: str) -> TenantInfo: ...
 
+    async def template_id(self, conn: AsyncConnection, tid: str) -> str:
+        """The template tenant ``tid`` was cloned (or materialized) from."""
+
     async def tenant_by_dtmf(self, conn: AsyncConnection, code: str, now_real_ms: int) -> TenantInfo | None:
         """Only while that sandbox's code is armed."""
 

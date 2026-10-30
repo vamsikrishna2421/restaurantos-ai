@@ -58,7 +58,7 @@ from restaurantos.domain import detectors, forecast, load
 from restaurantos.gm import candidates as cands
 from restaurantos.gm import incoming as on_order
 from restaurantos.gm import observe as obs
-from restaurantos.seed.loader import load_seed
+from restaurantos.seed.loader import load_seed, resolve_template_tenant
 
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncConnection
@@ -303,9 +303,12 @@ def _one_line(value: object, **kwargs: object) -> str:
 
 @functools.cache
 def _seed_defaults() -> tuple[DemandCurve, str, str]:
-    """The seed's demand curve, closing time and zone, read once: the seed is configuration, fixed at boot, and
-    ``load_seed`` deep-copies all of it on every call (most of a report's assembly time)."""
-    seed = load_seed()
+    """The served seed's demand curve, closing time and zone, read once: the seed is configuration, fixed at
+    boot, and ``load_seed`` deep-copies all of it on every call (most of a report's assembly time). The seed is
+    the deployment's selected tenant (``RESTOS_TEMPLATE_TENANT`` / the default template tenant; the data-dir
+    selection go-live records applies at the serving paths — materialize and session minting — which have the
+    settings this pure module does not)."""
+    seed = load_seed(tenant_id=resolve_template_tenant())
     return seed.demand, seed.tenant.hours.close_local, seed.tenant.timezone
 
 

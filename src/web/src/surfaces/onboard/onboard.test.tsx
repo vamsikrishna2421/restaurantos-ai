@@ -46,7 +46,7 @@ function respond(call: Call): Response {
     return json(200, DRAFT)
   }
   if (method === 'POST' && path === '/api/onboarding/go-live') {
-    return json(200, { tenant_id: 'spice_route_2', name: 'Spice Route 2', files: ['tenant.yaml'] })
+    return json(200, { tenant_id: 'spice_route_2', name: 'Spice Route 2', files: ['tenant.yaml'], status: 'live' })
   }
   return json(404, { error: { code: 'not_found', message: 'not_found', details: {} } })
 }
@@ -99,7 +99,7 @@ test('edits_on_review_are_what_goes_live', async () => {
   fireEvent.change(screen.getByLabelText('Your name'), { target: { value: 'Priya' } })
   fireEvent.click(screen.getByRole('button', { name: 'Go live' }))
 
-  expect(await screen.findByText('Spice Route 2 is ready')).toBeInTheDocument()
+  expect(await screen.findByText('Spice Route 2 is live')).toBeInTheDocument()
   expect(screen.getByText('spice_route_2')).toBeInTheDocument()
   const live = calls.find((c) => c.path === '/api/onboarding/go-live')
   const body = live?.body as { draft: OnboardingDraft; manager_name: string }

@@ -8,7 +8,8 @@
  *   `stop{turn_key}`. A hold shorter than `minHoldMs` sends `cancel` instead, so a stray tap is not a billed turn.
  * - A turn stops by itself before the server's 30 s limit; `abort()` sends `cancel` at once (barge-in, teardown).
  *
- * The capture runs continuously after the audio gate; frames outside a turn are only kept for the pre-roll.
+ * The capture runs continuously once started (the kiosk starts it on the first talk tap); frames outside a
+ * turn are only kept for the pre-roll.
  */
 
 import { FRAME_MS, MAX_TURN_MS, rmsLevel } from './pcm'

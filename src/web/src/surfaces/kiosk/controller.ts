@@ -1,11 +1,12 @@
 /**
  * KioskController: one kiosk screen's conversation (CONTRACTS_API §5; ARCHITECTURE §5.5–5.7; VOICE_MEDIA §7.1, §7.5).
  *
- * It owns the microphone, the `/ws/voice` socket, push-to-talk, TTS playback and the browser-speech fallback, and
+ * It owns the microphone, the `/ws/voice` socket, tap-to-talk, TTS playback and the browser-speech fallback, and
  * keeps what the screen shows in a small zustand store (state.ts):
- * - **Gate.** `enable()` runs on the tap-to-enable-audio tap: it unlocks audio and starts the microphone worklet (so
- *   the first push never waits), makes sure a session exists (created on this first click, never on page load),
- *   then connects the voice socket; `warm` goes out once the server says `ready`.
+ * - **Open.** The kiosk opens straight on the ordering interface: `start()` runs when the surface mounts — it
+ *   makes sure a session exists, then connects the voice socket; `warm` goes out once the server says `ready`.
+ *   The microphone is the one thing that waits: the first talk tap starts the capture (that tap is the user
+ *   gesture the browser's permission prompt needs) and listening begins the moment the mic runs.
  * - **One turn at a time.** The server allows one active turn per connection and `turn_result` carries no turn key,
  *   so at most one turn is in flight. Menu taps made meanwhile are merged into the next `cart_ops`; edits by line
  *   number are refused while busy (the numbering may change). A turn with no answer in 20 s is given up.
@@ -17,8 +18,8 @@
  * - **A lost answer.** If the socket drops (or the watchdog gives up) after the request left, the turn most likely
  *   landed anyway: the screen catches up from the tenant feed (sync.ts) instead of asking for a repeat, and asks only
  *   if nothing shows up in time. A request that never left (still held, or in its tail) is asked for again at once.
- * - **A gone session.** Refused handshakes arrive as 1006: `probeSession` (REST) tells a gone session, which closes
- *   the gate until the next tap creates a new one.
+ * - **A gone session.** Refused handshakes arrive as 1006: `probeSession` (REST) tells a gone session, and the
+ *   kiosk starts a fresh one by itself (once per episode) instead of stranding the guest on an error.
  */
 
 import { createStore, type StoreApi } from 'zustand'
@@ -92,6 +93,14 @@ export class KioskController {
   private ttsDown = false
   private asrFailures = 0
   private changeAsked = false
+  /** A talk tap arrived while the microphone was still starting: listen as soon as it runs. */
+  private wantTalk = false
+  /** The in-flight `start()` (session + socket), shared by concurrent callers; cleared on failure so a
+   * later call retries. */
+  private startPromise: Promise<void> | null = null
+  private startedOk = false
+  /** The gone-session restart already fired for this episode (reset when the server says `ready`). */
+  private autoRestarted = false
 
   constructor(deps: KioskDeps) {
     this.deps = deps
@@ -113,7 +122,7 @@ export class KioskController {
       if (this.inFlight?.key !== key) return
       if (how === 'stop') {
         this.inFlight.left = sent
-        // also the auto-stop before the 30 s limit, while the guest may still be holding
+        // also the auto-stop before the 30 s limit, while the recording is still open
         this.sentAt ??= this.now()
         this.armWatchdog(TURN_TIMEOUT_MS)
         if (this.get().talk === 'listening') this.set({ talk: 'thinking', level: 0 })
@@ -121,7 +130,7 @@ export class KioskController {
       }
       this.endTurn()
       this.set({ talk: 'idle', caption: null, level: 0,
-        notice: heldMs < MIN_HOLD_MS ? { tone: 'neutral', text: 'Hold the button while you talk, then let go.' } : null })
+        notice: heldMs < MIN_HOLD_MS ? { tone: 'neutral', text: 'Tap once to start talking; tap again when you are done.' } : null })
       this.flush()
     }
     this.player = new PcmPlayer(() => this.capture?.ctx ?? null)
@@ -133,6 +142,13 @@ export class KioskController {
       this.capture.onState = (mic) => {
         this.set({ mic })
         if (mic !== 'running' && this.ptt.phase !== 'idle') this.ptt.abort()
+        if (mic === 'running' && this.wantTalk) {
+          this.wantTalk = false
+          this.beginTurn() // the tap that started the microphone becomes the talk tap
+        } else if (mic === 'denied' || mic === 'unsupported' || mic === 'error') {
+          if (this.wantTalk) this.set({ typed: true }) // no voice: offer typing, as the panel explains why
+          this.wantTalk = false
+        }
       }
     } else {
       this.set({ mic: 'unsupported' })
@@ -145,24 +161,34 @@ export class KioskController {
     this.store.setState(patch)
   }
 
-  // ----- gate -------------------------------------------------------------------------------------------------------
+  // ----- open -------------------------------------------------------------------------------------------------------
 
-  /** The tap-to-enable-audio tap. Safe to call again after a failure. */
-  async enable(): Promise<void> {
-    if (this.get().gate !== 'closed') return
-    this.set({ gate: 'opening', gateError: null })
-    const mic = this.capture ? this.capture.start() : Promise.resolve() // first, inside the gesture
+  /** Open the kiosk: make sure a session exists, then connect the voice socket. Runs when the surface
+   * mounts — the ordering interface is live from the first paint and only the microphone waits for a talk
+   * tap. Concurrent calls share one attempt; a failed attempt may be retried by calling again (a talk tap
+   * does). ``force`` re-reads the session (the server refused the old one). A failure is a notice on the
+   * ordering screen, never a blocker in front of it. */
+  async start(force = false): Promise<void> {
+    if (this.startedOk) return
+    if (this.startPromise) return this.startPromise
+    const attempt = (async () => {
+      try {
+        await this.deps.ensureSession(force || this.get().voice === 'unauthorized')
+      } catch (err) {
+        const code = (err as { code?: string }).code
+        this.set({ notice: { tone: 'warn', text: ERROR_TEXT[code ?? '']
+          ?? 'Could not reach the kitchen. Tap the talk button to try again.' } })
+        return
+      }
+      this.startedOk = true
+      this.socket.start()
+    })()
+    this.startPromise = attempt
     try {
-      await this.deps.ensureSession(this.get().voice === 'unauthorized')
-    } catch (err) {
-      const code = (err as { code?: string }).code
-      this.set({ gate: 'closed', gateError: ERROR_TEXT[code ?? ''] ?? 'Could not start ordering. Please try again.' })
-      return
+      await attempt
+    } finally {
+      if (this.startPromise === attempt) this.startPromise = null
     }
-    this.socket.start()
-    await Promise.race([mic, new Promise((done) => setTimeout(done, 6_000))]) // an unanswered prompt never blocks typing
-    const ok = this.capture?.state === 'running'
-    this.set({ gate: 'open', mic: this.capture?.state ?? 'unsupported', typed: this.get().typed || !ok })
   }
 
   dispose(): void {
@@ -175,37 +201,74 @@ export class KioskController {
     this.clearTimer('grace')
     this.recovery.stop()
     this.inFlight = null
-    this.set({ gate: 'closed', busy: false, pending: null, talk: 'idle', voice: 'closed' })
+    this.set({ busy: false, pending: null, talk: 'idle', voice: 'closed' })
   }
 
   // ----- guest actions ----------------------------------------------------------------------------------------------
 
-  /** Pointer-down or Space on the talk button (barges in on a reply that is playing). */
-  press(): void {
+  /** Playback unlock inside a guest gesture: create/resume the AudioContext (no microphone), so a reply
+   * can be heard even when the guest orders by tapping and the mic never started. Every tap below is a
+   * gesture; the context resumes idempotently. */
+  private unlockPlayback(): void {
+    this.capture?.unlock()
+  }
+
+  /** One tap on the talk button: start listening, or stop and send. Also the barge-in on a playing reply.
+   *
+   * The first tap does double duty: it starts the microphone (the tap is the gesture the browser's
+   * permission prompt requires) and listening begins the moment the mic runs (see `wantTalk`). A tap
+   * while the mic is denied or unsupported does nothing — the panel already says why, and typing is
+   * offered. A recording left open stops by itself at the turn cap (the push-to-talk timer), tap or not. */
+  toggleTalk(): void {
+    if (this.ptt.phase !== 'idle') {
+      this.stopTalk() // the second tap: stop and send, exactly what releasing a hold sent
+      return
+    }
+    if (this.inFlight) return
+    if (!this.startedOk && !this.startPromise) void this.start() // a failed open retries on the talk tap
+    const capture = this.capture
+    if (capture && capture.state !== 'running') {
+      if (capture.state === 'unsupported' || capture.state === 'denied') {
+        this.unlockPlayback() // no voice here, but a typed order's reply should still be heard
+        return
+      }
+      if (capture.state !== 'starting') {
+        this.wantTalk = true
+        void capture.start() // start() creates/resumes the context itself, inside this gesture
+      }
+      return
+    }
+    this.unlockPlayback()
+    this.beginTurn()
+  }
+
+  /** Stop the live turn and send it (the second tap; the turn cap's auto-stop lands in the same place). */
+  private stopTalk(): void {
+    const key = this.ptt.turnKey
+    if (this.ptt.release() !== 'stop' || this.inFlight?.key !== key) return
+    this.sentAt = this.now() // stop → result is the kiosk's latency budget, the tail included
+    this.set({ talk: 'thinking', level: 0 })
+  }
+
+  private beginTurn(): void {
     const s = this.get()
-    if (s.gate !== 'open' || this.inFlight || s.mic !== 'running' || !this.socket.open) return
-    this.capture?.resume() // iOS suspends the context on interruptions; a press is a gesture that may wake it
+    if (this.inFlight || s.mic !== 'running' || !this.socket.open) return
+    this.capture?.resume() // iOS suspends the context on interruptions; a tap is a gesture that may wake it
     this.interruptReply()
     const key = this.ptt.press()
     if (key === null) return
     this.inFlight = { kind: 'voice', key, left: false }
     this.recovery.stop() // the guest moved on; this turn's result will show the server's cart
     this.sentAt = null
-    this.armWatchdog(MAX_TURN_MS + TURN_TIMEOUT_MS) // even a forgotten hold ends
+    this.armWatchdog(MAX_TURN_MS + TURN_TIMEOUT_MS) // even a forgotten recording ends
     this.set({ talk: 'listening', level: 0, caption: null, reply: null, replyVoice: null, rejected: [],
       notice: null, busy: true, pending: 'voice' })
-  }
-
-  release(): void {
-    const key = this.ptt.turnKey
-    if (this.ptt.release() !== 'stop' || this.inFlight?.key !== key) return
-    this.sentAt = this.now() // release → result is the kiosk's latency budget, the tail included
-    this.set({ talk: 'thinking', level: 0 })
   }
 
   sendText(text: string): boolean {
     const t = text.trim().slice(0, TEXT_MAX)
     if (t === '') return false
+    this.unlockPlayback()
     const sent = this.sendTurn('text', (turn_key) => ({ type: 'text', turn_key, text: t }))
     if (sent) this.set({ caption: { text: t, final: true } })
     return sent
@@ -213,7 +276,7 @@ export class KioskController {
 
   /** A menu tile: add one, merged with other taps while a turn is in flight. */
   addItem(code: string): void {
-    if (this.get().gate !== 'open') return
+    this.unlockPlayback()
     if (this.queue.length === 0) this.changeAsked = false // a new batch of taps
     this.queue.push({ op: 'add', line_ref: null, item_code: code, qty: 1, modifiers: [] })
     this.set({ queued: this.queue.length })
@@ -222,6 +285,7 @@ export class KioskController {
 
   /** −/+ on a cart line (qty 0 removes it). Refused while a turn is in flight. */
   setQty(lineNo: number, qty: number): boolean {
+    this.unlockPlayback()
     const op: CartOp = qty > 0
       ? { op: 'set_qty', line_ref: lineNo, item_code: null, qty, modifiers: [] }
       : { op: 'remove', line_ref: lineNo, item_code: null, qty: null, modifiers: [] }
@@ -231,6 +295,7 @@ export class KioskController {
   /** The confirm button, handled like DTMF 1 (yes) or 2 (change): outside the read-back a yes asks for the
    * read-back; in it, a yes places the order and a no goes back to ordering. */
   confirm(yes: boolean): boolean {
+    this.unlockPlayback()
     return this.sendTurn(yes ? 'confirm' : 'ops', (turn_key) => ({ type: 'confirm', turn_key, yes }))
   }
 
@@ -263,7 +328,7 @@ export class KioskController {
   // ----- turns ------------------------------------------------------------------------------------------------------
 
   private sendTurn(kind: Exclude<TurnKind, 'voice'>, build: (key: string) => Parameters<VoiceSocket['send']>[0]): boolean {
-    if (this.get().gate !== 'open' || this.inFlight) return false
+    if (this.inFlight) return false
     if (!this.socket.open) {
       this.set({ notice: { tone: 'warn', text: 'Reconnecting to the kitchen… please try again in a moment.' } })
       return false
@@ -340,11 +405,15 @@ export class KioskController {
     if (this.inFlight || this.ptt.phase !== 'idle') this.lose('The connection dropped.')
     this.player.stop()
     if (voice === 'unauthorized') {
-      // the voice session belonged to the refused cookie: the next start is a fresh one (so no "order is safe")
+      // the voice session belonged to the refused cookie: a fresh one starts by itself (so no "order is safe")
       this.socket.forgetSession()
       this.recovery.stop()
-      this.set({ gate: 'closed', gateError: ERROR_TEXT.no_session, cart: null, rejected: [], dialogue: null,
-        notice: null })
+      this.set({ cart: null, rejected: [], dialogue: null, notice: { tone: 'warn', text: ERROR_TEXT.no_session } })
+      if (!this.autoRestarted) {
+        this.autoRestarted = true
+        this.startedOk = false
+        void this.start(true)
+      }
     } else if (code === 4429) {
       this.set({ notice: { tone: 'warn', text: ERROR_TEXT.rate_limited } })
     }
@@ -353,6 +422,7 @@ export class KioskController {
   private onMessage(m: VoiceServerMessage): void {
     switch (m.type) {
       case 'ready': {
+        this.autoRestarted = false // a later gone session earns its own single restart
         const hadCart = (this.get().cart?.lines.length ?? 0) > 0
         this.set({ speakLanguages: m.speak_languages.length > 0 ? m.speak_languages : ['en'] })
         const lost = this.recovery.ready(m.session_id, m.resumed) // a new Dialogue: what the old one did is gone

@@ -176,8 +176,14 @@ def _hhmm(value: str) -> int:
 
 def check_seed(*, tenant: TenantFile, stations: StationsFile, staff: StaffFile, modifiers: ModifiersFile,
                menu: MenuFile, ingredients: IngredientsFile, recipes: RecipesFile, suppliers: SuppliersFile,
-               demand: DemandCurve, labels: KitchenLabelsFile) -> None:
-    """Raise ``SeedError`` listing every cross-file problem; return quietly when the seed is consistent."""
+               demand: DemandCurve, labels: KitchenLabelsFile, scripts: bool = True) -> None:
+    """Raise ``SeedError`` listing every cross-file problem; return quietly when the seed is consistent.
+
+    ``scripts=False`` skips only the native-script fluency family (``_check_scripts``): the check family
+    onboarding's go-live validation also waives, because a generated tenant's dish names are English-only
+    and flagged ``review_status: unreviewed`` in its own files until a speaker reviews them. Every other
+    check — schemas, references, demand, labels — still runs. The template tenant is always checked with
+    ``scripts=True`` (the loader's default); see ``seed.loader.load_tenant_seed``."""
     problems: list[str] = []
     station_ids = _unique("station", (s.id for s in stations.stations), problems)
     _unique("staff", (s.id for s in staff.staff), problems)
@@ -213,7 +219,8 @@ def check_seed(*, tenant: TenantFile, stations: StationsFile, staff: StaffFile, 
 
     _check_demand(demand, item_codes, tenant, problems)
     _check_labels(labels, stations, problems)
-    _check_scripts(stations, modifiers, menu, ingredients, labels, problems)
+    if scripts:
+        _check_scripts(stations, modifiers, menu, ingredients, labels, problems)
     if problems:
         raise SeedError(problems)
 

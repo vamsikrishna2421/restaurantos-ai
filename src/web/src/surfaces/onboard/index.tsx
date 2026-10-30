@@ -181,9 +181,10 @@ export default function OnboardSurface(_props: SurfaceProps) {
           <Check className="size-10" />
         </span>
         <div className="relative flex flex-col gap-2 motion-safe:animate-rise" style={{ animationDelay: '80ms' }}>
-          <h1 className="text-4xl font-black tracking-tight">{result.name} is ready</h1>
+          <h1 className="text-4xl font-black tracking-tight">{result.name} is live</h1>
           <p className="text-muted">
-            Your menu, kitchen stations and shift jobs are saved as this restaurant&apos;s setup.
+            This app now serves your restaurant — your menu, kitchen stations and shift jobs are what
+            customers and staff see from here on.
           </p>
         </div>
         <Card className="relative w-full text-left motion-safe:animate-rise" style={{ animationDelay: '160ms' }}>

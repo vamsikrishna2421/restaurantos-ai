@@ -359,3 +359,121 @@ missing:
 - **Modal and Toast** — self-styled already; untouched.
 - **All copy** — every string is the pass-1/2 wording. The only new words in the product are the step rail's
   "Menu" / "Review" labels.
+
+## Pass 4 — Onboarded restaurants go live, kiosk voice rail, no gate, tap-to-talk (branch `bujji/pass4`)
+
+### The limitation this pass removes
+
+Pass 2's go-live was files-only: it wrote a validated tenant config under `config/tenants/<slug>/`, but the
+runtime seed loader was hardwired to the template tenant (`spice_route`) and materialized only
+template/live/demo — an onboarded restaurant was never served. Pass 4 generalizes the loader and wires
+go-live to activate, plus three kiosk changes from the founder's live review.
+
+### Tenant selection (the mechanism)
+
+- `seed.loader.load_seed(root, tenant_id, tenants_dir=…, validate_scripts=…)` loads ANY tenant: its nine
+  files come from the tenants root (`RESTOS_TENANTS_DIR`, the same root onboarding writes to; default the
+  repo's `config/tenants/`), labels and the quiet scenario from the config root. `spice_route` remains the
+  default everywhere; its seed hash is unchanged (hash inputs are the same logical paths), so Spice Route
+  behavior is bit-for-bit what it was.
+- Which tenant a deployment serves is `seed.loader.resolve_template_tenant`, in order: the data dir's
+  `active_tenant` file (written by go-live via `set_active_tenant`, atomic replace) → `Settings.template_tenant`
+  (`RESTOS_TEMPLATE_TENANT`) → the env var when no settings object exists → `spice_route`. A candidate counts
+  only while its tenant directory exists; a stale one is skipped with a log line, never an error and never
+  served.
+- One check family is a switch now (`check_seed(..., scripts=)`): the native-script checks. They are enforced
+  on the strict path for every tenant, and on the serving path (`load_tenant_seed`) for the template tenant
+  only — an onboarded tenant's dish names are English-only by construction (the generated files flag them
+  `review_status: unreviewed`), the exact waiver go-live's own validation applied in pass 2. Every other check
+  (schemas, references, demand, labels) runs on both paths; a broken reference still fails loudly.
+- `kitchen_labels()` no longer loads a whole tenant to reach the labels: they are one shared config file and
+  are parsed from it directly (cached by content hash). Snapshot rendering never depends on a tenant existing.
+
+### What go-live does now
+
+`POST /api/onboarding/go-live` = publish the validated config (unchanged) → `seed.materialize.activate_tenant`
+materializes the new seed in the RUNNING app (the tenant becomes the deployment's template row; `live`/`demo`
+are rebuilt from its seed, same hash-idempotent write as boot) → the tenant is recorded as the active tenant.
+The result contract gained `status: "live"` and the success screen says **"{name} is live"** with "This app
+now serves your restaurant — your menu, kitchen stations and shift jobs are what customers and staff see from
+here on." No restart is involved. If activation itself fails, the answer is an honest 500 `activation_failed`
+(the config stays on disk; the previous restaurant keeps serving; a restart with
+`RESTOS_TEMPLATE_TENANT=<slug>` activates it then) — go-live never claims live when it is not.
+
+- **Sessions**: minting clones from the resolved tenant, so a Start after go-live opens on the new
+  restaurant. Devices already mid-shift keep the sandbox they cloned — clones are per-device and are never
+  yanked. A sandbox cloned from a non-template tenant starts `quiet`: the scripted scenarios
+  (`dinner_rush`) are written against the sample menu, so the clone starts as a fresh restaurant at opening
+  instead (deterministic, and logged).
+- **Staff follows automatically**: the staff routes read personas and stations from the session tenant's own
+  rows, and staff.db seeds per tenant from them — the onboarded manager (the go-live `STF_MANAGER` person)
+  signs in with the seed PIN for the first persona (**1111**, the usual rule) and the role slots derive from
+  the NEW tenant's stations. Proven end-to-end in `tests/api/test_onboarding_routes.py` (draft → go-live →
+  roster → PIN login → slots with no Spice Route station).
+- **Other consumers**: sandbox clones load their own template's seed; inventory forecasts take the demand
+  curve from the tenant's own template (`repo.template_id` is the new read); the order agent's fallback menu
+  and the GM situation defaults resolve through the selection (see the limit below). Boot materialization
+  uses the same resolution, so a restart serves the recorded tenant too.
+
+Plainly-stated limits:
+
+- GM situation defaults (`gm/situation._seed_defaults`: demand curve, closing time, zone for report math)
+  resolve via `RESTOS_TEMPLATE_TENANT`/default only — that pure module has no settings/data-dir access.
+  After a UI go-live in a process without the env var set, those report defaults still read the sample
+  tenant's until the env is set; the served menu, staff, orders and forecasts are unaffected.
+- Re-onboarding the same restaurant name still 409s (unchanged from pass 2); a failed activation's recovery
+  is the restart named above, not a re-submit.
+
+### Kiosk layout: voice panel docked right
+
+On `lg` the kiosk grid is two rows: left column = scrolling menu over the cart (cart capped at 45% height,
+its own scroll); the TalkPanel spans both rows as a persistent right rail — full height, stretched card, its
+own scroll — staying in view while menu and cart scroll. On phones the stack keeps the previous order (talk,
+cart, menu) via order classes; nothing covers the menu. TalkPanel, CartPanel and `/ws/voice` unchanged.
+
+### Kiosk: the voice-start gate is removed (founder change)
+
+Entering the kiosk (Customer mode, and Front Counter sign-ins routed to `/kiosk`) used to land on a modal
+"Order with your voice / Tap to start" dialog over an inert, blurred menu; the founder hit it himself in
+review and killed it. Now:
+
+- `AudioGate` and the controller's gate state are deleted. The surface opens directly on the ordering
+  interface: `KioskController.start()` runs on mount (session, then voice socket; concurrent calls share
+  one attempt), nothing is `inert`, and the menu's "appears once you start" placeholder is gone.
+- The microphone is the only thing that waits: the first talk tap starts the capture (that tap is the
+  gesture the browser's permission prompt requires) and listening begins the moment the mic runs
+  (`wantTalk`). Denied/unsupported mics show the existing inline explanation, typing is offered, the talk
+  button disables, and tap ordering keeps working — it never depended on the mic.
+- Playback keeps its gesture unlock without a gate: every guest tap (talk, menu, qty, confirm, send)
+  creates/resumes the AudioContext — context only, no microphone — so a tap-ordered reply is heard too.
+- Failures are notices, not blockers: a failed open shows a warning banner and the talk tap retries it; a
+  gone session (1006 + probe) clears the cart, shows "This kiosk session ended. A fresh one is starting…"
+  and restarts fresh by itself, once per episode (the guard resets on `ready`).
+
+### Kiosk: tap-to-talk replaces hold-to-talk (founder change)
+
+- One tap starts listening: the button reads "Tap to stop", gains `aria-pressed`, a pulsing live dot and an
+  elapsed timer (`data-testid="talk-elapsed"`, m:ss). A second tap stops and sends — the same stop + tail
+  frames the hold release sent. A recording left open auto-stops at the existing cap (the push-to-talk
+  timer: 29 s, before the server's 30 s), and a stop tap under 250 ms still cancels instead of billing a
+  turn (with the hint notice, reworded). `PushToTalk` is unchanged — the toggle lives in the kiosk
+  controller (`toggleTalk`) — and the other surfaces that share it keep their hold controls.
+- Copy: the panel caption is now the persistent small line **"Nothing is sent until you tap stop."** The
+  greeting, button labels, the cart's empty-state line and the monitor's kiosk reference all speak tap, not
+  hold; the global Space-hold listener went away with the hold model (the button stays keyboard-operable
+  when focused, as a native toggle button).
+
+### Tests
+
+- New Python: loader selection + waiver (`tests/seed/test_tenant_selection.py`), activation read-backs
+  (`tests/seed/test_activate_tenant.py`), a sandbox clone of an onboarded template starting quiet
+  (`tests/store/test_sandbox.py`), and go-live → staff sign-in end-to-end (`tests/api/test_onboarding_routes.py`).
+- Web: 35 files / **242 tests green**, `npm run build` clean. Kiosk suites were re-pointed, not reduced:
+  gate tests became direct-entry tests (opens on ordering, first tap starts the mic, failed open is a
+  notice the talk tap retries, gone session restarts itself), and the turn tests drive tap/tap.
+- Python: the touched suites pass per-suite under the sandbox's clean-env recipe (seed 46, api 53,
+  store 29, services/gm/judge 210, onboarding + staff within api, integration 71 standalone). A full
+  in-one-process run reported 4231 passed / 2 skipped / 1 xfailed with 3 fixture-setup errors from the
+  sandbox's known combined-run flakiness (every suite passes standalone); the only reproducible failure
+  anywhere, `tests/test_conftest_network.py::test_localhost_tcp_needs_opt_in`, fails identically on the
+  pristine base branch — environmental, not pass 4. Ruff clean on the tree.

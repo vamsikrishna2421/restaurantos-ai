@@ -141,7 +141,7 @@ export interface MenuGridProps {
   menu: MenuSnapshot
   lang: VoiceLang
   cart: Cart | null
-  /** False before the audio gate opens. */
+  /** Whether tiles accept taps (the kiosk passes true: ordering is live from the first paint). */
   enabled: boolean
   onAdd: (code: string) => void
 }

@@ -3,9 +3,9 @@
  * auto gain, feeding the `public/worklets/pcm-capture.js` AudioWorklet, which posts PCM16 16 kHz frames of 80 ms
  * (1,280 samples) to `onFrame`.
  *
- * `start()` belongs in a user gesture (the kiosk's tap-to-enable-audio gate): it creates and resumes the
- * AudioContext first, synchronously, so iOS unlocks audio output even when the microphone is then refused, and the
- * first push-to-talk never waits for a permission prompt or a worklet start-up. The context asks for 16 kHz; when the
+ * `start()` belongs in a user gesture (the kiosk's first talk tap): it creates and resumes the
+ * AudioContext first, synchronously, so iOS unlocks audio output even when the microphone is then refused, and
+ * listening begins the moment it resolves. The context asks for 16 kHz; when the
  * browser refuses to connect the microphone at that rate (Firefox), it is replaced by one at the device rate and the
  * worklet downsamples. Once running, frames flow continuously and callers decide what to keep.
  *

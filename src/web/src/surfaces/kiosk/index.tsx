@@ -1,8 +1,10 @@
 /**
- * `/kiosk` (CONTRACTS_API §8, WORK_PACKAGES P20): the guest's ordering screen. Hold-to-talk with live captions, the
+ * `/kiosk` (CONTRACTS_API §8, WORK_PACKAGES P20): the guest's ordering screen. Tap-to-talk with live captions, the
  * reply as text then audio, menu tiles that add through `cart_ops` (no AI), the order card with totals from code and
- * the confirm button, a typed fallback and a language chip, behind a tap-to-enable-audio gate. Menu availability
- * comes live from the tenant feed the shell keeps open; the conversation runs over `/ws/voice` (see controller.ts).
+ * the confirm button, a typed fallback and a language chip. The screen opens straight on ordering — session and
+ * voice socket start on mount, and only the microphone waits for the first talk tap (the gesture its permission
+ * prompt needs). Menu availability comes live from the tenant feed the shell keeps open; the conversation runs
+ * over `/ws/voice` (see controller.ts).
  */
 
 import { Wifi, WifiOff } from 'lucide-react'
@@ -17,7 +19,6 @@ import type { VoiceLang, VoiceStatus } from '../../lib/audio/voiceSocket'
 import { LANGUAGE_NAMES } from '../../lib/i18n'
 import type { SurfaceProps } from '../../router'
 import { onPersisted, useSession, useTenant, type DegradedMap } from '../../stores'
-import { AudioGate } from './AudioGate'
 import { CartPanel } from './CartPanel'
 import { KioskController, type KioskDeps } from './controller'
 import { MenuGrid } from './MenuGrid'
@@ -26,7 +27,7 @@ import { TalkPanel } from './TalkPanel'
 
 const LANGS: readonly VoiceLang[] = ['auto', 'en', 'te', 'ta', 'es']
 
-/** The session cookie for this kiosk: read it, and create it (with its sandbox) on this first click if needed. */
+/** The session cookie for this kiosk: read it, and create it (with its sandbox) when the surface opens. */
 export async function ensureSession(force: boolean): Promise<void> {
   const session = useSession.getState()
   const info = force ? await session.load(true) : session.info ?? (await session.load())
@@ -93,7 +94,11 @@ export interface KioskProps {
 
 export function Kiosk({ deps }: KioskProps) {
   const [ctl] = useState(() => new KioskController({ ...browserKioskDeps(), ...deps }))
-  useEffect(() => () => ctl.dispose(), [ctl])
+  // the kiosk opens on the ordering interface: session and voice socket start on mount (controller.start)
+  useEffect(() => {
+    void ctl.start()
+    return () => ctl.dispose()
+  }, [ctl])
   // the persisted record of this kiosk's turns, for a turn whose answer was lost with its socket (sync.ts)
   useEffect(() => {
     const offs = [
@@ -105,7 +110,7 @@ export function Kiosk({ deps }: KioskProps) {
   }, [ctl])
   // stable handlers, so the memoized menu and cart skip the 80 ms mic-level renders
   const on = useMemo(() => ({
-    press: () => ctl.press(), release: () => ctl.release(), text: (t: string) => ctl.sendText(t),
+    toggle: () => ctl.toggleTalk(), text: (t: string) => ctl.sendText(t),
     toggleTyped: () => ctl.toggleTyped(), add: (code: string) => ctl.addItem(code),
     qty: (lineNo: number, qty: number) => void ctl.setQty(lineNo, qty), confirm: (yes: boolean) => void ctl.confirm(yes),
     newOrder: () => ctl.newOrder(),
@@ -120,14 +125,12 @@ export function Kiosk({ deps }: KioskProps) {
   const placed = useMemo(() => (s.placedOrderId
     ? { orderId: s.placedOrderId, order: placedOrder, replyText: s.reply?.text ?? null } : null),
   [s.placedOrderId, placedOrder, s.reply])
-  const open = s.gate === 'open'
   const restaurant = tenantName.replace(/\s*\(sample\)\s*$/i, '')
   const speaks = (lang: VoiceLang) => lang === 'auto' || s.speakLanguages.includes(lang)
 
   return (
     <>
-      {/* behind the gate nothing is focusable or clickable (a modal); the gate itself is a sibling */}
-      <div className="flex h-full min-h-0 flex-col bg-ink text-text" inert={!open} data-testid="kiosk-body">
+      <div className="flex h-full min-h-0 flex-col bg-ink text-text" data-testid="kiosk-body">
         <header className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-b border-line px-4 py-3">
           <div className="flex items-center gap-3">
             <span className="text-2xl font-bold tracking-tight">{restaurant}</span>
@@ -155,34 +158,33 @@ export function Kiosk({ deps }: KioskProps) {
             <button type="button" className="text-xs underline" onClick={() => ctl.dismissNotice()}>Dismiss</button>
           </div>
         )}
-        {/* lg: an app layout (the menu scrolls, the order card stays in view); smaller screens scroll as one page */}
+        {/* lg: an app layout — the left column is the scrolling menu over the cart, and the voice panel is
+            docked as a persistent right rail (full height, its own scroll, in view while the menu scrolls).
+            Smaller screens scroll as one page in the order talk, cart, menu (the order-* classes). */}
         <main className={cx('mx-auto grid min-h-0 w-full max-w-[1500px] flex-1 grid-cols-[minmax(0,1fr)] gap-4',
           'overflow-x-hidden overflow-y-auto p-4',
-          'lg:grid-cols-[minmax(0,1fr)_minmax(360px,440px)] lg:grid-rows-[minmax(0,1fr)] lg:overflow-hidden')}>
-          <aside className="order-first flex flex-col gap-4 lg:order-last lg:min-h-0 lg:overflow-y-auto">
-            <TalkPanel view={s} onPress={on.press} onRelease={on.release} onText={on.text}
+          'lg:grid-cols-[minmax(0,1fr)_minmax(360px,440px)] lg:grid-rows-[minmax(0,1fr)_minmax(0,45%)] lg:overflow-hidden')}>
+          <div className="order-1 lg:order-none lg:col-start-2 lg:row-span-2 lg:min-h-0 lg:overflow-y-auto lg:[&>section]:min-h-full">
+            <TalkPanel view={s} onToggle={on.toggle} onText={on.text}
               onToggleTyped={on.toggleTyped} />
-            {menu && (
+          </div>
+          {menu && (
+            <div className="order-2 lg:order-none lg:col-start-1 lg:row-start-2 lg:flex lg:min-h-0 lg:overflow-y-auto">
               <CartPanel menu={menu} lang={s.lang} cart={s.cart} rejected={s.rejected}
                 readback={s.dialogue === 'readback' || s.dialogue === 'confirm'} busy={s.busy}
-                placing={s.pending === 'confirm'} enabled={open} placed={placed} onQty={on.qty} onAdd={on.add}
+                placing={s.pending === 'confirm'} enabled placed={placed} onQty={on.qty} onAdd={on.add}
                 onConfirm={on.confirm} onNewOrder={on.newOrder} />
-            )}
-          </aside>
-          <div className="min-w-0 lg:min-h-0 lg:overflow-y-auto lg:pr-1" data-testid="menu-scroll">
+            </div>
+          )}
+          <div className="order-3 min-w-0 lg:order-none lg:col-start-1 lg:row-start-1 lg:min-h-0 lg:overflow-y-auto lg:pr-1" data-testid="menu-scroll">
             {menu ? (
-              <MenuGrid menu={menu} lang={s.lang} cart={s.cart} enabled={open} onAdd={on.add} />
+              <MenuGrid menu={menu} lang={s.lang} cart={s.cart} enabled onAdd={on.add} />
             ) : (
-              <p className="p-8 text-center text-muted">
-                {open ? 'Loading the menu…' : 'The menu appears once you start.'}
-              </p>
+              <p className="p-8 text-center text-muted">Loading the menu…</p>
             )}
           </div>
         </main>
       </div>
-      {!open && (
-        <AudioGate phase={s.gate} error={s.gateError} restaurant={tenantName} onStart={() => void ctl.enable()} />
-      )}
     </>
   )
 }

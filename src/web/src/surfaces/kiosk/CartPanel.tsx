@@ -151,7 +151,7 @@ function CartPanelView(props: CartPanelProps) {
       <Rejections {...props} />
       {lines.length === 0 ? (
         <p className="py-4 text-center text-muted">
-          Nothing yet. Hold the button and say what you would like, or tap a dish.
+          Nothing yet. Tap the talk button and say what you would like, or tap a dish.
         </p>
       ) : (
         <ul className="flex flex-col divide-y divide-line" aria-label="Order lines">
