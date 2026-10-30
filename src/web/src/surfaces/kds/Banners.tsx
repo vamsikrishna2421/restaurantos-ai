@@ -41,8 +41,8 @@ export function DegradedBanner() {
   const items = Object.entries(degraded) as [DegradedComponent, DegradedInfo][]
   if (items.length === 0) return null
   return (
-    <section aria-label="Degraded" className={cx('flex flex-wrap items-center gap-x-4 gap-y-1 border-b border-warn/40',
-      'bg-warn/15 px-4 py-1.5 text-sm font-semibold text-warn')}>
+    <section aria-label="Degraded" className={cx('mx-4 mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 rounded-full',
+      'bg-warn/15 px-4 py-2 text-sm font-semibold text-warn ring-1 ring-warn/30')}>
       <TriangleAlert aria-hidden className="size-4" />
       {items.map(([component, info]) => (
         <span key={component}>

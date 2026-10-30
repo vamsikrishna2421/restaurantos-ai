@@ -46,6 +46,18 @@ async function tapTalk(talk: HTMLElement) {
 const recv = (sock: FakeVoiceSocket, msg: object) => act(() => sock.recv(msg))
 const sentTypes = (sock: FakeVoiceSocket) => sock.messages().map((m) => m.type)
 
+/** Pass 8's menu shows one category at a time: pick it in the sidebar nav before reaching for its dishes. */
+function showCategory(name: string) {
+  fireEvent.click(within(screen.getByRole('navigation', { name: 'Menu categories' }))
+    .getByRole('button', { name }))
+}
+
+/** Pass 8's cart docks as an order bar: open it before reading lines (the read-back opens it by itself). */
+function expandCart() {
+  const bar = screen.queryByRole('button', { name: /View order/ })
+  if (bar) fireEvent.click(bar)
+}
+
 beforeEach(() => {
   clock = 1_000_000
   keys = 0
@@ -69,6 +81,7 @@ test('kiosk_opens_on_ordering_and_the_first_talk_tap_starts_the_microphone', asy
   // no gate: the ordering interface is live from the first paint, and nothing is inert
   expect(screen.queryByRole('dialog')).toBeNull()
   expect(screen.getByTestId('kiosk-body')).not.toHaveAttribute('inert')
+  showCategory('Starters')
   expect(screen.getByRole('button', { name: 'Add Samosa, $6.99' })).toBeEnabled()
   expect(audio.contexts).toHaveLength(0) // the microphone does not start on page load
 
@@ -201,6 +214,7 @@ test('captions_replace', async () => {
 test('sold_out_greyed', async () => {
   useTenant.getState().load(storyState()) // 6:50 PM: Paneer Tikka and Palak Paneer are 86'd
   const { sock } = await openKiosk()
+  showCategory('Starters')
   const tikka = screen.getByRole('group', { name: /^Paneer Tikka, \$13\.99, sold out$/ })
   expect(tikka).toHaveAttribute('aria-disabled', 'true')
   expect(within(tikka).getByText('Sold out')).toBeInTheDocument()
@@ -222,6 +236,7 @@ test('sold_out_greyed', async () => {
 
 test('button_adds_line_without_llm', async () => {
   const { sock } = await openKiosk()
+  showCategory('Starters')
   fireEvent.click(screen.getByRole('button', { name: 'Add Samosa, $6.99' }))
   expect(sock.messages().at(-1)).toEqual({
     type: 'cart_ops', turn_key: 'tk-1',
@@ -229,12 +244,15 @@ test('button_adds_line_without_llm', async () => {
   })
   // taps while that turn is in flight are merged into the next cart_ops
   fireEvent.click(screen.getByRole('button', { name: 'Add Samosa, $6.99' }))
+  showCategory('Drinks')
   fireEvent.click(screen.getByRole('button', { name: 'Add Masala Chai, $2.99' }))
+  showCategory('Starters')
   fireEvent.click(screen.getByRole('button', { name: 'Add Samosa, $6.99' }))
   expect(sentTypes(sock)).toEqual(['warm', 'cart_ops'])
 
   clock += 120
   recv(sock, result({ path: 'buttons', transcript: '', cart: cart([['SAMOSA', 1]]), reply: reply('1 Samosa. Anything else?') }))
+  expandCart()
   expect(sock.messages().at(-1)).toEqual({
     type: 'cart_ops', turn_key: 'tk-2',
     ops: [{ op: 'add', line_ref: null, item_code: 'SAMOSA', qty: 2, modifiers: [] },
@@ -260,6 +278,7 @@ test('confirm_button_sends_confirm', async () => {
   expect(screen.queryByRole('button', { name: /review order|place order/i })).toBeNull() // nothing to place yet
   const order3 = cart([['CHK_BIRY', 2], ['PNR_BM', 1]])
   recv(sock, result({ transcript: 'two chicken biryanis and a paneer curry', cart: order3 }))
+  expandCart()
   // outside the read-back the button asks for it (like DTMF 1); it never places by itself
   fireEvent.click(screen.getByRole('button', { name: 'Review order' }))
   expect(sock.messages().at(-1)).toEqual({ type: 'confirm', turn_key: 'tk-1', yes: true })
@@ -287,12 +306,15 @@ test('confirm_button_sends_confirm', async () => {
   expect(screen.getByText(/Ready in about 25 minutes/)).toBeInTheDocument()
   expect(screen.queryByRole('button', { name: /place order/i })).toBeNull()
   fireEvent.click(screen.getByRole('button', { name: 'Start a new order' }))
-  expect(screen.getByRole('heading', { name: /your order/i })).toBeInTheDocument()
+  // a fresh order shows no cart at all (pass 8: an empty order has no bar, no card)
+  expect(screen.queryByRole('heading', { name: 'Order placed' })).toBeNull()
+  expect(screen.queryByRole('button', { name: /View order/ })).toBeNull()
   expect(screen.queryByText('2× Chicken Dum Biryani')).toBeNull()
 })
 
 test('a menu tap during the read-back asks to change first, then adds', async () => {
   const { sock } = await openKiosk()
+  showCategory('Starters')
   recv(sock, result({ state: 'readback', cart: cart([['CHK_BIRY', 1]]) }))
   fireEvent.click(screen.getByRole('button', { name: 'Add Samosa, $6.99' }))
   expect(sock.messages().at(-1)).toEqual({ type: 'confirm', turn_key: 'tk-1', yes: false })
@@ -314,6 +336,7 @@ test('typed_fallback', async () => {
   expect(screen.getByTestId('caption')).toHaveTextContent('two samosas and a masala chai')
   recv(sock, result({ path: 'typed', transcript: 'two samosas and a masala chai',
     cart: cart([['SAMOSA', 2], ['MASALA_CHAI', 1]]) }))
+  expandCart()
   expect(screen.getByText('2× Samosa')).toBeInTheDocument()
   expect(screen.getByText('Typed')).toBeInTheDocument()
   cleanup()
@@ -326,6 +349,7 @@ test('typed_fallback', async () => {
   expect(screen.getByText(/microphone access was blocked/i)).toBeInTheDocument()
   expect(screen.getByTestId('talk-button')).toBeDisabled()
   // tap ordering keeps working without a microphone
+  showCategory('Starters')
   expect(screen.getByRole('button', { name: 'Add Samosa, $6.99' })).toBeEnabled()
 })
 
@@ -333,6 +357,7 @@ test('resume_reconnect_keeps_cart', async () => {
   vi.useFakeTimers()
   const { sock } = await openKiosk()
   recv(sock, result({ cart: cart([['CHK_BIRY', 2], ['PNR_BM', 1]]) }))
+  expandCart()
   expect(screen.getByText('2× Chicken Dum Biryani')).toBeInTheDocument()
 
   act(() => sock.drop(1006)) // a Wi-Fi blip
@@ -356,6 +381,7 @@ test('resume_reconnect_keeps_cart', async () => {
   cleanup()
   FakeVoiceSocket.all = []
   render(<Kiosk deps={kioskDeps(fakeAudio())} />)
+  expandCart()
   expect(screen.getByText('2× Chicken Dum Biryani')).toBeInTheDocument()
   await act(async () => { await settle() }) // the reopened kiosk starts its socket on mount
   const reloaded = FakeVoiceSocket.latest()
@@ -372,6 +398,7 @@ test('resume_reconnect_keeps_cart', async () => {
 test('reply audio plays gaplessly, and degraded TTS falls back to the browser voice in the reply language', async () => {
   const speech = fakeSpeech([{ lang: 'en-US', name: 'Samantha' }, { lang: 'es-MX', name: 'Paulina' }])
   const { sock, audio, talk } = await openKiosk({ speech })
+  showCategory('Starters')
   fireEvent.click(screen.getByRole('button', { name: 'Add Samosa, $6.99' })) // a guest tap unlocks playback
   recv(sock, result({ cart: cart([['SAMOSA', 1]]), reply: reply('1 Samosa. Anything else?') }))
   recv(sock, { type: 'tts_start', utterance_id: 'utt_1', format: 'pcm_16000', text: '1 Samosa. Anything else?',
@@ -466,6 +493,7 @@ test('a server error ends the turn and says why; a session gone behind 1006 rest
   const probeSession = vi.fn(async () => false) // GET /api/session: 401
   const { sock } = await openKiosk({ ensureSession, probeSession })
   expect(ensureSession).toHaveBeenCalledWith(false)
+  showCategory('Starters')
   fireEvent.click(screen.getByRole('button', { name: 'Add Samosa, $6.99' }))
   recv(sock, { type: 'error', code: 'rate_limited', message: 'slow down' })
   expect(screen.getByRole('alert')).toHaveTextContent(/going a little fast/)

@@ -18,11 +18,18 @@
  * The slot picker now appears only when the usual job is taken this shift (or none is set yet), and the
  * signed-in panel's "Switch job for today" reaches it without touching the usual job. The Manager job and
  * custom jobs wait for the manager's OK first — a waiting usual job shows as such on the signed-in panel.
+ *
+ * Pass 8 presentation (the founder's frames): the whole surface moves into the warm light system
+ * (`.theme-light`): a top bar with the brand mark and the "← Start" pill, the display "Staff sign-in"
+ * heading, white identity cards with the "I am new here" divider entry, and — for the job picker —
+ * the frame's two-column job cards with saturated icon circles, an "Open" dot (or the holder's name),
+ * the person's usual job highlighted in peach with a "Your usual" marker, and a left rail carrying the
+ * brand mark and "Great Food Starts with a Great Team". All flows, gates and routing are untouched.
  */
 
 import { ArrowLeft, Bell, Check, ChevronRight, Clock, Crown, ChefHat, KeyRound, Languages, Lock, Plus } from 'lucide-react'
 import { useCallback, useEffect, useState, type ComponentType } from 'react'
-import { Avatar, Button, Card, Chip, cx } from '../../components/ui'
+import { Avatar, BrandHat, Button, Card, Chip, cx } from '../../components/ui'
 import type { RoleSlot, SpeakLang, StaffPerson } from '../../contracts/generated'
 import { isApiError } from '../../lib/api'
 import { LANGUAGE_NAMES, SPEAK_LANGS } from '../../lib/i18n'
@@ -62,8 +69,8 @@ function stationNameOf(slot: RoleSlot): string {
 const ALERT_CLS = 'rounded-xl border border-bad/35 bg-bad/10 px-4 py-3 font-medium text-bad'
 
 const INPUT_CLS =
-  'w-full rounded-xl border border-white/10 bg-panel bg-linear-to-b from-panel-2/70 to-panel px-4 py-3.5 ' +
-  'text-lg shadow-pop outline-none transition-[border-color,box-shadow] placeholder:text-muted/60 ' +
+  'w-full rounded-xl border border-line bg-panel px-4 py-3.5 ' +
+  'text-lg shadow-lift outline-none transition-[border-color,box-shadow] placeholder:text-muted/60 ' +
   'focus:border-accent/60 focus:ring-4 focus:ring-accent/15'
 
 const LABEL_CLS = 'text-xs font-bold uppercase tracking-[0.08em] text-muted'
@@ -125,7 +132,7 @@ function PinPad({ mode, onSubmit, busy }: { mode: 'once' | 'set'; onSubmit: (pin
           <span key={i} className={cx('size-4 rounded-full transition-[background-color,box-shadow,border-color] duration-200',
             i < pin.length
               ? 'bg-linear-to-br from-accent to-accent-2 shadow-glow-accent-sm'
-              : 'border border-white/20 bg-white/5')} />
+              : 'border border-line bg-panel-2')} />
         ))}
       </div>
       {note && <p role="alert" className={ALERT_CLS}>{note}</p>}
@@ -136,8 +143,8 @@ function PinPad({ mode, onSubmit, busy }: { mode: 'once' | 'set'; onSubmit: (pin
           <button key={key} type="button" disabled={busy} aria-label={key === '⌫' ? 'Delete last digit' : `Digit ${key}`}
             onClick={() => (key === '⌫' ? setPin((p) => p.slice(0, -1)) : press(key))}
             className={cx(
-              'flex min-h-16 min-w-16 items-center justify-center rounded-full bg-panel bg-linear-to-b from-panel-2 to-panel',
-              'font-bold shadow-pop ring-1 ring-white/8 transition-[transform,box-shadow,border-color] duration-150',
+              'flex min-h-16 min-w-16 items-center justify-center rounded-full bg-panel',
+              'font-bold shadow-lift ring-1 ring-line transition-[transform,box-shadow,border-color] duration-150',
               'hover:ring-accent/50 focus-visible:outline-2 focus-visible:outline-accent disabled:opacity-50 motion-safe:active:scale-95',
               key === '⌫' ? 'text-xl text-muted' : 'text-2xl',
             )}>
@@ -159,10 +166,11 @@ const SLOT_ICONS: Readonly<Record<RoleSlot['kind'], ComponentType<{ className?: 
   chef: ChefHat,
   front_counter: Bell,
 }
+/** The frame's saturated icon circles (pass 8): a solid kind color with the glyph in cream. */
 const SLOT_TILES: Readonly<Record<RoleSlot['kind'], string>> = {
-  manager: 'bg-accent-2/15 text-accent-2 ring-accent-2/30',
-  chef: 'bg-accent/15 text-accent ring-accent/30',
-  front_counter: 'bg-ai/15 text-ai-2 ring-ai/30',
+  manager: 'bg-accent-2 text-ink',
+  chef: 'bg-accent text-ink',
+  front_counter: 'bg-ai text-ink',
 }
 
 export default function StaffSurface(_props: SurfaceProps) {
@@ -348,13 +356,23 @@ export default function StaffSurface(_props: SurfaceProps) {
   }
 
   return (
-    <main className="mx-auto flex min-h-full w-full max-w-2xl flex-col gap-6 p-6">
-      <header className="flex items-center gap-3">
-        <Link to="/"
-          className="inline-flex items-center gap-1.5 rounded-full px-3.5 py-1.5 text-sm font-medium text-muted ring-1 ring-white/10 transition-colors hover:text-text hover:ring-accent/40">
-          <ArrowLeft className="size-4" /> Start
-        </Link>
-        <h1 className="text-3xl font-black tracking-tight">Staff sign-in</h1>
+    <main className="theme-light min-h-full w-full text-text">
+     <div className="mx-auto flex w-full max-w-4xl flex-col gap-6 p-6">
+      <header className="flex flex-col gap-4">
+        <div className="flex items-center gap-3">
+          <span aria-hidden className="grid size-10 place-items-center rounded-2xl bg-panel shadow-lift ring-1 ring-line">
+            <BrandHat className="size-6" />
+          </span>
+          <span className="text-lg font-black tracking-tight">
+            RestaurantOS{' '}
+            <span className="bg-linear-to-r from-accent to-accent-2 bg-clip-text text-transparent">AI</span>
+          </span>
+          <Link to="/"
+            className="ml-4 inline-flex items-center gap-1.5 rounded-full bg-panel px-3.5 py-1.5 text-sm font-semibold text-muted shadow-lift ring-1 ring-line transition-colors hover:text-text hover:ring-accent/40">
+            <ArrowLeft className="size-4" /> Start
+          </Link>
+        </div>
+        <h1 className="text-4xl font-black tracking-tight">Staff sign-in</h1>
       </header>
       {error && step !== 'pin' && <p role="alert" className={ALERT_CLS}>{error}</p>}
 
@@ -363,7 +381,7 @@ export default function StaffSurface(_props: SurfaceProps) {
         : <p className="text-muted">Getting the kitchen ready…</p>)}
 
       {step === 'signed-in' && session && (
-        <Card title={session.claim ? 'You are on shift' : 'You are signed in'}>
+        <Card className="w-full max-w-2xl" title={session.claim ? 'You are on shift' : 'You are signed in'}>
           <div className="flex flex-col gap-5">
             <div className="flex items-center gap-4">
               <Avatar name={session.staff.name} className="size-14 text-xl" />
@@ -404,12 +422,12 @@ export default function StaffSurface(_props: SurfaceProps) {
 
       {step === 'pick' && (
         <section aria-label="Who is signing in?" className="flex flex-col gap-4">
-          <h2 className="text-xl font-bold tracking-tight">Who is signing in?</h2>
+          <h2 className="text-2xl font-black tracking-tight">Who is signing in?</h2>
           <div className="grid gap-3 sm:grid-cols-2">
             {people.map((person) => (
               <button key={person.id} type="button"
                 onClick={() => { setPicked(person); setError(null); setStep('pin') }}
-                className="group flex items-center gap-4 rounded-2xl border border-white/8 bg-panel bg-linear-to-b from-panel-2/80 to-panel p-4 text-left shadow-glow transition-[transform,box-shadow,border-color] duration-200 hover:-translate-y-0.5 hover:border-accent/40 hover:shadow-lift focus-visible:outline-2 focus-visible:outline-accent">
+                className="group flex items-center gap-4 rounded-3xl bg-panel p-4 text-left shadow-lift ring-1 ring-line transition-[transform,box-shadow] duration-200 hover:-translate-y-0.5 hover:shadow-glow focus-visible:outline-2 focus-visible:outline-accent">
                 <Avatar name={person.name} className="size-12 text-lg" />
                 <span className="flex min-w-0 flex-1 flex-col items-start gap-1.5">
                   <span className="max-w-full truncate text-lg font-bold">{person.name}</span>
@@ -419,9 +437,14 @@ export default function StaffSurface(_props: SurfaceProps) {
               </button>
             ))}
           </div>
-          <Button variant="ghost" size="lg" onClick={() => { setError(null); setStep('signup') }}>
-            I am new here
-          </Button>
+          <div className="mt-2 flex items-center gap-4">
+            <span aria-hidden className="h-px flex-1 bg-line" />
+            <button type="button" onClick={() => { setError(null); setStep('signup') }}
+              className="shrink-0 rounded-full px-3 py-1 font-bold text-accent-2 transition-colors hover:text-accent focus-visible:outline-2 focus-visible:outline-accent">
+              I am new here
+            </button>
+            <span aria-hidden className="h-px flex-1 bg-line" />
+          </div>
         </section>
       )}
 
@@ -440,7 +463,7 @@ export default function StaffSurface(_props: SurfaceProps) {
       )}
 
       {step === 'signup' && (
-        <section aria-label="Join the staff list" className="flex flex-col gap-5">
+        <section aria-label="Join the staff list" className="flex w-full max-w-2xl flex-col gap-5">
           <h2 className="text-xl font-bold tracking-tight">Join the staff list</h2>
           <label className="flex flex-col gap-2">
             <span className={LABEL_CLS}>Your name</span>
@@ -456,7 +479,7 @@ export default function StaffSurface(_props: SurfaceProps) {
                   className={cx('rounded-full px-4 py-2 font-semibold ring-1 transition-[color,background-color,box-shadow] focus-visible:outline-2 focus-visible:outline-accent',
                     language === lang
                       ? 'bg-linear-to-r from-accent to-accent-2 text-ink shadow-glow-accent-sm ring-accent/60'
-                      : 'bg-panel-2 text-muted ring-white/10 hover:text-text hover:ring-accent/40')}>
+                      : 'bg-panel-2 text-muted ring-line hover:text-text hover:ring-accent/40')}>
                   {LANGUAGE_NAMES[lang]}
                 </button>
               ))}
@@ -497,8 +520,8 @@ export default function StaffSurface(_props: SurfaceProps) {
               return (
                 <button key={slot.slot_id} type="button" disabled={busy}
                   onClick={() => doSignup({ default_slot_id: slot.slot_id })}
-                  className="flex items-start gap-3.5 rounded-2xl border border-white/8 bg-panel bg-linear-to-b from-panel-2/80 to-panel p-4 text-left shadow-glow transition-[transform,box-shadow,border-color] duration-200 hover:-translate-y-0.5 hover:border-accent/40 hover:shadow-lift focus-visible:outline-2 focus-visible:outline-accent disabled:opacity-50">
-                  <span className={cx('flex size-11 shrink-0 items-center justify-center rounded-xl ring-1', SLOT_TILES[slot.kind])}>
+                  className="flex items-start gap-3.5 rounded-3xl bg-panel p-4 text-left shadow-lift ring-1 ring-line transition-[transform,box-shadow] duration-200 hover:-translate-y-0.5 hover:shadow-glow focus-visible:outline-2 focus-visible:outline-accent disabled:opacity-50">
+                  <span className={cx('flex size-11 shrink-0 items-center justify-center rounded-full', SLOT_TILES[slot.kind])}>
                     <Icon className="size-5" />
                   </span>
                   <span className="flex min-w-0 flex-1 flex-col gap-1">
@@ -512,8 +535,8 @@ export default function StaffSurface(_props: SurfaceProps) {
             })}
           </div>
           <button type="button" disabled={busy} onClick={() => { setError(null); setStep('customjob') }}
-            className="flex items-center gap-3.5 rounded-2xl border border-dashed border-white/15 p-4 text-left transition-colors hover:border-accent/40 focus-visible:outline-2 focus-visible:outline-accent disabled:opacity-50">
-            <span className="flex size-11 shrink-0 items-center justify-center rounded-xl bg-white/5 text-muted ring-1 ring-white/10">
+            className="flex items-center gap-3.5 rounded-3xl border border-dashed border-line p-4 text-left transition-colors hover:border-accent/50 focus-visible:outline-2 focus-visible:outline-accent disabled:opacity-50">
+            <span className="flex size-11 shrink-0 items-center justify-center rounded-full bg-panel-2 text-muted ring-1 ring-line">
               <Plus className="size-5" />
             </span>
             <span className="flex flex-col gap-1">
@@ -526,7 +549,7 @@ export default function StaffSurface(_props: SurfaceProps) {
       )}
 
       {step === 'customjob' && (
-        <section aria-label="Describe your job" className="flex flex-col gap-5">
+        <section aria-label="Describe your job" className="flex w-full max-w-2xl flex-col gap-5">
           <h2 className="text-xl font-bold tracking-tight">Describe your job</h2>
           <label className="flex flex-col gap-2">
             <span className={LABEL_CLS}>Job name</span>
@@ -547,7 +570,7 @@ export default function StaffSurface(_props: SurfaceProps) {
                     className={cx('rounded-full px-4 py-2 font-semibold ring-1 transition-[color,background-color,box-shadow] focus-visible:outline-2 focus-visible:outline-accent',
                       customStations.includes(stationId)
                         ? 'bg-linear-to-r from-accent to-accent-2 text-ink shadow-glow-accent-sm ring-accent/60'
-                        : 'bg-panel-2 text-muted ring-white/10 hover:text-text hover:ring-accent/40')}>
+                        : 'bg-panel-2 text-muted ring-line hover:text-text hover:ring-accent/40')}>
                     {label}
                   </button>
                 ))}
@@ -572,55 +595,79 @@ export default function StaffSurface(_props: SurfaceProps) {
       )}
 
       {step === 'roles' && session && (
-        <section aria-label="Pick your job for this shift" className="flex flex-col gap-4">
-          <h2 className="text-xl font-bold tracking-tight">
-            Hi {session.staff.name} — pick your job for this shift
-          </h2>
-          <div className="grid gap-3 sm:grid-cols-2">
-            {slots.map((slot) => {
-              const Icon = SLOT_ICONS[slot.kind]
-              const taken = slot.holder !== null
-              const waiting = slot.pending_approval
-              return (
-                <button key={slot.slot_id} type="button" disabled={taken || waiting || busy}
-                  onClick={() => onClaim(slot)}
-                  className={cx('flex items-start gap-3.5 rounded-2xl border p-4 text-left',
-                    taken || waiting
-                      ? 'border-white/5 bg-panel/60 opacity-60'
-                      : 'border-white/8 bg-panel bg-linear-to-b from-panel-2/80 to-panel shadow-glow transition-[transform,box-shadow,border-color] duration-200 hover:-translate-y-0.5 hover:border-accent/40 hover:shadow-lift focus-visible:outline-2 focus-visible:outline-accent')}>
-                  <span className={cx('flex size-11 shrink-0 items-center justify-center rounded-xl ring-1', SLOT_TILES[slot.kind])}>
-                    <Icon className="size-5" />
-                  </span>
-                  <span className="flex min-w-0 flex-1 flex-col gap-1">
-                    <span className="inline-flex items-center gap-2 text-lg font-bold">
-                      {slot.label}
-                      {slot.mine && <Check className="size-5 text-ok" />}
+        <div className="flex gap-8">
+          {/* the picker frame's left rail: the brand mark large, and the team's line (pass 8, E1) */}
+          <aside aria-hidden className="hidden w-52 shrink-0 flex-col items-start gap-4 pt-2 lg:flex">
+            <span className="grid size-24 place-items-center rounded-[1.75rem] bg-panel shadow-lift ring-1 ring-line">
+              <BrandHat className="size-14" />
+            </span>
+            <p className="font-serif text-[1.7rem] font-bold italic leading-tight">
+              Great Food Starts with a Great Team
+            </p>
+            <span className="h-1.5 w-24 rounded-full bg-linear-to-r from-accent to-accent-2" />
+          </aside>
+          <section aria-label="Pick your job for this shift" className="flex min-w-0 flex-1 flex-col gap-4">
+            <h2 className="text-2xl font-black tracking-tight">
+              Hi {session.staff.name} — pick your job for this shift
+            </h2>
+            <div className="grid gap-3 sm:grid-cols-2">
+              {slots.map((slot) => {
+                const Icon = SLOT_ICONS[slot.kind]
+                const taken = slot.holder !== null
+                const waiting = slot.pending_approval
+                const usual = session.staff.default_role?.slot_id === slot.slot_id
+                return (
+                  <button key={slot.slot_id} type="button" disabled={taken || waiting || busy}
+                    onClick={() => onClaim(slot)}
+                    className={cx('group flex items-center gap-3.5 rounded-3xl p-4 text-left',
+                      usual
+                        ? 'bg-accent/12 shadow-lift ring-2 ring-accent'
+                        : taken || waiting
+                          ? 'bg-panel/70 opacity-60 ring-1 ring-line'
+                          : 'bg-panel shadow-lift ring-1 ring-line transition-[transform,box-shadow] duration-200 hover:-translate-y-0.5 hover:shadow-glow focus-visible:outline-2 focus-visible:outline-accent')}>
+                    <span className={cx('flex size-12 shrink-0 items-center justify-center rounded-full', SLOT_TILES[slot.kind])}>
+                      <Icon className="size-6" />
                     </span>
-                    {waiting ? (
-                      <span className="flex items-center gap-1.5 text-sm font-semibold text-warn">
-                        <Clock className="size-4 shrink-0" />
-                        Waiting for the manager&apos;s OK
+                    <span className="flex min-w-0 flex-1 flex-col gap-1">
+                      <span className="inline-flex flex-wrap items-center gap-2 text-lg font-bold">
+                        {slot.label}
+                        {slot.mine && <Check className="size-5 text-ok" />}
+                        {usual && (
+                          <span className="rounded-full bg-accent px-2 py-0.5 text-[11px] font-black uppercase tracking-wide text-ink">
+                            Your usual
+                          </span>
+                        )}
                       </span>
-                    ) : taken ? (
-                      <span className="flex items-center gap-2 text-sm text-muted">
-                        <Avatar name={slot.holder!.name} className="size-5 text-[10px]" />
-                        Taken by {slot.holder!.name}
-                        <Lock className="size-3.5 shrink-0" />
-                      </span>
-                    ) : (
-                      <span className="flex items-center gap-1.5 text-sm font-semibold text-ok">
-                        <span className="size-1.5 rounded-full bg-ok shadow-glow-ok-sm" />
-                        Open
-                      </span>
+                      {waiting ? (
+                        <span className="flex items-center gap-1.5 text-sm font-semibold text-warn">
+                          <Clock className="size-4 shrink-0" />
+                          Waiting for the manager&apos;s OK
+                        </span>
+                      ) : taken ? (
+                        <span className="flex items-center gap-2 text-sm text-muted">
+                          <Avatar name={slot.holder!.name} className="size-5 text-[10px]" />
+                          Taken by {slot.holder!.name}
+                          <Lock className="size-3.5 shrink-0" />
+                        </span>
+                      ) : (
+                        <span className="flex items-center gap-1.5 text-sm font-semibold text-ok">
+                          <span className="size-1.5 rounded-full bg-ok shadow-glow-ok-sm" />
+                          Open
+                        </span>
+                      )}
+                    </span>
+                    {!taken && !waiting && (
+                      <ChevronRight className="size-5 shrink-0 text-muted transition-colors group-hover:text-accent" />
                     )}
-                  </span>
-                </button>
-              )
-            })}
-          </div>
-          <Button variant="ghost" loading={busy} onClick={onEndShift}>Sign out instead</Button>
-        </section>
+                  </button>
+                )
+              })}
+            </div>
+            <Button variant="ghost" loading={busy} onClick={onEndShift}>Sign out instead</Button>
+          </section>
+        </div>
       )}
+     </div>
     </main>
   )
 }

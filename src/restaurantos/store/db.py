@@ -110,6 +110,21 @@ async def _settle(step: Awaitable[Any]) -> asyncio.CancelledError | None:
     return cancelled
 
 
+# Columns added to existing tables after a database was first created (pass 8: menu item photos).
+# create_all never alters an existing table, so a new nullable column is added here instead: SQLite
+# adds a nullable column as metadata only, existing rows read NULL, and older code ignores it.
+_ADDED_COLUMNS: tuple[tuple[str, str, str], ...] = (
+    ("menu_items", "photo", "TEXT"),
+)
+
+
+def _ensure_added_columns(keeper: sqlite3.Connection) -> None:
+    for table, column, decl in _ADDED_COLUMNS:
+        present = {row[1] for row in keeper.execute(f"PRAGMA table_info({table})")}
+        if present and column not in present:
+            keeper.execute(f"ALTER TABLE {table} ADD COLUMN {column} {decl}")
+
+
 def _open_file(path: Path) -> sqlite3.Connection:
     """Create the schema if missing, switch the file to WAL, and return the keeper connection."""
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -124,6 +139,7 @@ def _open_file(path: Path) -> sqlite3.Connection:
             t.metadata.create_all(schema)  # checkfirst: an existing database keeps its rows
         finally:
             schema.dispose()
+        _ensure_added_columns(keeper)
     except BaseException:
         keeper.close()
         raise

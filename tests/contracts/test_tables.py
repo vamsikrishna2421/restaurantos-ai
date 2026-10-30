@@ -24,7 +24,7 @@ SPEC: dict[str, dict] = {
         pk=("id",), uq={("dtmf_code",)}, ix={(("kind",), False), (("expires_ms",), False)}),
     "menu_items": dict(
         cols="code category station_id price_cents:i is_veg:b spice_level:i names:j aliases:j allowed_modifiers:j "
-             "prep_min:i sort:i available:b unavailable_reason? unavailable_source? alternatives:j",
+             "prep_min:i sort:i available:b unavailable_reason? unavailable_source? alternatives:j photo?",
         pk=("tenant_id", "code")),
     "modifiers": dict(cols="code labels:j aliases:j", pk=("tenant_id", "code")),
     "ingredients": dict(

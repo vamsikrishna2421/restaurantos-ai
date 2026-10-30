@@ -15,20 +15,22 @@ import { SectionState } from './shared'
 const keyOf = (customer: ConsoleCustomer) =>
   `${customer.phone_masked}|${customer.name ?? ''}|${customer.last_visit_biz}`
 
+/** One guest as a card (pass 8, Scope C): the sections render their objects as a grid of cards. */
 function CustomerRow({ customer, drifted }: { customer: ConsoleCustomer; drifted?: boolean }) {
   return (
-    <li className="flex flex-wrap items-center gap-3 rounded-xl bg-white/2 px-3 py-2 ring-1 ring-white/5">
-      <Avatar name={customer.name ?? '?'} className="size-8 text-xs" />
-      <span className="flex min-w-0 flex-col">
-        <span className="truncate font-medium">
-          {customer.name ?? 'A guest'} <span className="text-sm font-normal text-muted">{customer.phone_masked}</span>
-        </span>
-        <span className="text-sm text-muted">
-          {customer.usual_name ? `Usually: ${customer.usual_name} · ` : ''}
-          last in {formatBizDayTime(customer.last_visit_biz)}
+    <li className="flex flex-col gap-2.5 rounded-xl bg-white/2 px-3.5 py-3 ring-1 ring-white/5">
+      <span className="flex min-w-0 items-center gap-2.5">
+        <Avatar name={customer.name ?? '?'} className="size-9 text-sm" />
+        <span className="truncate font-semibold">
+          {customer.name ?? 'A guest'}{' '}
+          <span className="text-sm font-normal text-muted">{customer.phone_masked}</span>
         </span>
       </span>
-      <span className="ml-auto flex items-center gap-2 text-sm tabular-nums">
+      <span className="text-sm leading-relaxed text-muted">
+        {customer.usual_name ? <span className="block">Usually: {customer.usual_name}</span> : null}
+        <span className="block">last in {formatBizDayTime(customer.last_visit_biz)}</span>
+      </span>
+      <span className="mt-auto flex flex-wrap items-center gap-2 text-sm tabular-nums">
         <span className="text-muted">{customer.visits} visits · {formatCents(customer.spend_cents)}</span>
         {drifted && <Chip tone="warn">{customer.days_since_last} days away</Chip>}
         {customer.pending_credit && (
@@ -38,6 +40,8 @@ function CustomerRow({ customer, drifted }: { customer: ConsoleCustomer; drifted
     </li>
   )
 }
+
+const GUEST_GRID = 'grid gap-3 sm:grid-cols-2 xl:grid-cols-3'
 
 export default function CustomersSection() {
   const [view, setView] = useState<ConsoleCustomers | null>(null)
@@ -76,7 +80,7 @@ export default function CustomersSection() {
                 Nobody has given a name and number at the kiosk yet — the book fills itself as they do.
               </p>
             ) : (
-              <ul className="flex flex-col gap-1.5">
+              <ul className={GUEST_GRID}>
                 {view.regulars.map((customer) => (
                   <CustomerRow key={keyOf(customer)} customer={customer} />
                 ))}
@@ -94,7 +98,7 @@ export default function CustomersSection() {
                   Regulars who have not been in for a while. When the pattern earns it, a dish on the
                   house is already waiting in your Attention feed as a decision.
                 </p>
-                <ul className="flex flex-col gap-1.5">
+                <ul className={GUEST_GRID}>
                   {view.lapsed.map((customer) => (
                     <CustomerRow key={keyOf(customer)} customer={customer} drifted />
                   ))}

@@ -73,6 +73,7 @@ menu_items = Table(
     "menu_items", metadata,
     _tenant(), _s("code"), _s("category"), _s("station_id"), _i("price_cents"), _b("is_veg"), _i("spice_level"),
     _j("names"), _j("aliases"), _j("allowed_modifiers"), _i("prep_min"), _i("sort"), _b("available"),
+    _s("photo", null=True),
     _s("unavailable_reason", null=True), _s("unavailable_source", null=True), _j("alternatives"),
     PrimaryKeyConstraint("tenant_id", "code", name="pk_menu_items"),
 )

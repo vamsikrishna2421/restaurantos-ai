@@ -24,6 +24,7 @@ export interface MenuItem {
   aliases: string[]
   allowed_modifiers: string[]
   prep_min: number
+  photo: string | null
   available: boolean
   unavailable_reason: string | null
   alternatives: string[]

@@ -32,6 +32,7 @@ PBM_NAME = menu.LocalizedName(en="Paneer Butter Masala", te="పనీర్ బ
 MENU_ITEM = menu.MenuItem(
     code="PNR_BM", category="curry", station_id="STN_CURRY", price_cents=1549, is_veg=True, spice_level=1,
     names=PBM_NAME, aliases=["paneer curry", "PBM", "పనీర్ కూర"], allowed_modifiers=["NO_ONION", "MILD"], prep_min=10,
+    photo="/menu-photos/spice_route/PNR_BM.jpg",
     available=False, unavailable_reason="paneer running low", alternatives=["VEG_KORMA", "CHANA_MASALA"],
     allergens=["dairy", "tree_nuts"],
 )
