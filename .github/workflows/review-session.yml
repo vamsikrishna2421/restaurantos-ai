@@ -1,0 +1,61 @@
+# Review session: builds the app image, serves it from the runner, and opens a public Cloudflare
+# quick-tunnel URL so the founder can review the live product from his phone without any hosting
+# account. The URL is posted as a comment on the standing "Live review session" issue. A session
+# lasts until the job's 350-minute cap; start a new one with workflow_dispatch.
+name: review-session
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: review-session
+  cancel-in-progress: true
+
+jobs:
+  serve:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 350
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build the app image
+        run: docker build -t restaurantos .
+
+      - name: Start the app
+        run: |
+          docker run -d --name app -p 8000:8000 restaurantos
+          for i in $(seq 1 60); do
+            if curl -sf http://localhost:8000/api/health > /dev/null; then echo "app is healthy"; break; fi
+            sleep 5
+          done
+          curl -sf http://localhost:8000/api/health
+
+      - name: Open the tunnel and post the URL
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          curl -sL https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64 -o cloudflared
+          chmod +x cloudflared
+          ./cloudflared tunnel --url http://localhost:8000 --no-autoupdate > tunnel.log 2>&1 &
+          URL=""
+          for i in $(seq 1 45); do
+            URL=$(grep -oE 'https://[a-z0-9-]+\.trycloudflare\.com' tunnel.log | head -1 || true)
+            if [ -n "$URL" ]; then break; fi
+            sleep 2
+          done
+          if [ -z "$URL" ]; then echo "tunnel did not come up"; cat tunnel.log; exit 1; fi
+          echo "Tunnel URL: $URL"
+          BODY=$(printf 'RestaurantOS review session is live: %s\n\nStarted %s UTC from commit %s. The session runs until this job ends (about 5.5 hours max). AI runs in mock mode in this environment, so voice transcription is simulated; everything else is the real product.' "$URL" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$GITHUB_SHA")
+          NUM=$(gh issue list --search 'Live review session in:title' --state open --json number --jq '.[0].number // empty')
+          if [ -n "$NUM" ]; then
+            gh issue comment "$NUM" --body "$BODY"
+          else
+            gh issue create --title 'Live review session' --body "$BODY"
+          fi
+
+      - name: Hold the session open
+        run: sleep 19800
