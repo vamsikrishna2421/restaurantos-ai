@@ -30,7 +30,9 @@ from typing import TYPE_CHECKING
 from sqlalchemy import select
 
 from restaurantos.contracts.api import (
+    BurnPoint,
     CapacityCheck,
+    CardDish,
     ConsoleAnalytics,
     ConsoleCard,
     ConsoleOrder,
@@ -52,6 +54,7 @@ from restaurantos.contracts.api import (
     TimesheetShift,
 )
 from restaurantos.contracts.common import biz_from_ms, utc_from_ms
+from restaurantos.contracts.menu import MenuItem
 from restaurantos.contracts.orders import Order
 from restaurantos.domain import console as cx
 from restaurantos.domain import forecast as fc
@@ -111,6 +114,26 @@ def _day_label(day: dt.date, today: dt.date) -> str:
     if day == today + dt.timedelta(days=1):
         return "tomorrow"
     return day.strftime("%A")
+
+
+def _burn_curve(free: int, needs: list[tuple[int, int, int]], stockout_ms: int) -> list[BurnPoint]:
+    """The projected free-stock path behind a stock card: ``projected_stockout``'s own walk drawn out —
+    the level at each daypart's start, dropping evenly across it, ending at zero at the run-out moment
+    the walk found. Presentation of the same numbers, never a second forecast."""
+    points: list[BurnPoint] = []
+    cumulative = 0
+    for start, end, qty in needs:
+        if qty <= 0:
+            continue
+        if not points:
+            points.append(BurnPoint(at_ms=start, free=max(free, 0)))
+        if cumulative + qty >= free:
+            if points[-1].at_ms != stockout_ms or points[-1].free != 0:
+                points.append(BurnPoint(at_ms=stockout_ms, free=0))
+            break
+        cumulative += qty
+        points.append(BurnPoint(at_ms=end, free=free - cumulative))
+    return points
 
 
 class ManagerConsole:
@@ -370,7 +393,7 @@ class ManagerConsole:
                 station_slots=station_slots)
             stock_watch, stock_cards = await self._stock_checks(
                 conn, tenant_id, [(today, forecast_today), (tomorrow, forecast_tomorrow)],
-                now_biz=now_biz, today=today, dayparts=dayparts, item_names=item_names)
+                now_biz=now_biz, today=today, dayparts=dayparts, items=snapshot.items)
 
             def daypart_list(forecast: cx.DayForecast, *, remaining_only: bool = False,
                              day: dt.date = tomorrow) -> list[ForecastDaypart]:
@@ -468,17 +491,20 @@ class ManagerConsole:
         return ConsoleCard(
             id=f"capacity:{check.station_id}:{day.isoformat()}:{check.daypart}",
             kind="capacity", tone="bad" if check.expected_cooks == 0 or check.shortfall_tickets >= 10 else "warn",
-            title=f"{check.station_name} looks short for {check.label} {when}", detail=detail, action=action)
+            title=f"{check.station_name} looks short for {check.label} {when}", detail=detail, action=action,
+            subject=check.station_name, expected_tickets=check.expected_tickets,
+            capacity_tickets=check.capacity_tickets)
 
     async def _stock_checks(self, conn: AsyncConnection, tenant_id: str,
                             plans: list[tuple[dt.date, cx.DayForecast]], *, now_biz: int, today: dt.date,
-                            dayparts: cx.DaypartMap, item_names: dict[str, str],
+                            dayparts: cx.DaypartMap, items: list[MenuItem],
                             ) -> tuple[list[StockCheck], list[ConsoleCard]]:
         """Forecast burn against free stock over the horizon (the rest of today, then tomorrow)."""
         repo = self._repo()
         stock = await repo.ingredients(conn, tenant_id)
         recipes = await repo.recipes(conn, tenant_id)
         suppliers = await repo.suppliers(conn, tenant_id)
+        item_names = {item.code: _name_of(item.names) for item in items}
         need_of: dict[str, dict[str, int]] = defaultdict(lambda: defaultdict(int))  # item -> ingredient -> qty
         for line in recipes:
             need_of[line.item_code][line.ingredient_id] += line.qty
@@ -517,12 +543,17 @@ class ManagerConsole:
                 supplier_name=None if restock is None else restock[1])
             checks.append(check)
             if restock is None or stockout < restock[0]:
-                cards.append(self._stock_card(check, stockout, restock[0] if restock else None, today))
+                # the dishes this run-out blocks: on sale now, and their recipe uses the ingredient
+                dishes = [CardDish(item_code=item.code, name=item_names.get(item.code, item.code))
+                          for item in items
+                          if item.available and ingredient.id in need_of.get(item.code, {})]
+                cards.append(self._stock_card(check, stockout, restock[0] if restock else None, today,
+                                              curve=_burn_curve(free, needs, stockout), dishes=dishes))
         checks.sort(key=lambda check: check.stockout_biz)  # soonest run-out first; all are set here
         return checks, cards
 
     def _stock_card(self, check: StockCheck, stockout_ms: int, restock_ms: int | None,
-                    today: dt.date) -> ConsoleCard:
+                    today: dt.date, *, curve: list[BurnPoint], dishes: list[CardDish]) -> ConsoleCard:
         stockout_day = cx.day_of(stockout_ms, self._tz)
         when = _day_label(stockout_day, today)
         detail = (f"Forecast use through tomorrow is about {check.projected_need} {check.unit};"
@@ -538,7 +569,7 @@ class ManagerConsole:
             id=f"stock:{check.ingredient_id}:{stockout_day.isoformat()}", kind="stock",
             tone="bad" if stockout_day == today else "warn",
             title=f"{check.name} runs out {when} about {_time_label(stockout_ms, self._tz)}",
-            detail=detail, action=action)
+            detail=detail, action=action, subject=check.name, burn_curve=curve, dishes=dishes)
 
     # ----- timesheets ---------------------------------------------------------------------------------------------
 

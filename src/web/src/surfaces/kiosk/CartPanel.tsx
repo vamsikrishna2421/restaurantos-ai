@@ -88,7 +88,9 @@ function Placed({ placed, onNewOrder, menu, lang, guestName }: Pick<CartPanelPro
   const { order } = placed
   const priceOf = (code: string) => menu.items.find((i) => i.code === code)?.price_cents ?? 0
   return (
-    <Card panel="cart" tone="ok" title="Order placed">
+    <Card panel="cart" tone="ok" title="Order placed"
+      className="max-h-[62dvh] min-h-0 flex-1 lg:max-h-[54dvh]"
+      bodyClassName="min-h-0 overflow-y-auto py-1">
       <div role="status" className="flex flex-col items-center gap-3 py-4 text-center">
         <CircleCheck aria-hidden className="size-14 text-ok" />
         {order ? (

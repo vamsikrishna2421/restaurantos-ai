@@ -695,6 +695,16 @@ export interface StockCheck {
   supplier_name: string | null
 }
 
+export interface BurnPoint {
+  at_ms: number
+  free: number
+}
+
+export interface CardDish {
+  item_code: string
+  name: string
+}
+
 export interface ConsoleCard {
   id: string
   kind: ConsoleCardKind
@@ -702,6 +712,11 @@ export interface ConsoleCard {
   title: string
   detail: string
   action: string
+  subject: string | null
+  burn_curve: BurnPoint[]
+  expected_tickets: number | null
+  capacity_tickets: number | null
+  dishes: CardDish[]
 }
 
 export interface ConsoleAnalytics {

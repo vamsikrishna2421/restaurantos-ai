@@ -3,7 +3,7 @@
 // server computed — orders/revenue from the ledger, timesheets from the shift record, the forecast with
 // its basis, and Settings read-only apart from the live stock counts.
 import '@testing-library/jest-dom/vitest'
-import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, expect, test, vi } from 'vitest'
 import { saveStaffSession } from '../../lib/staff'
 import { resetTenantFeedForTests, useTenant } from '../../stores'
@@ -89,8 +89,35 @@ const ANALYTICS = {
   cards: [{ id: 'capacity:STN_CURRY:2026-11-08:dinner_rush', kind: 'capacity', tone: 'warn',
     title: 'Curry may be short-handed for Dinner rush (Sun, Nov 8)',
     detail: 'The forecast expects ≈30 Curry tickets in Dinner rush; the usual team covers ≈24.',
-    action: 'Ask a second cook to cover Dinner rush, or move some prep earlier.' }],
+    action: 'Ask a second cook to cover Dinner rush, or move some prep earlier.',
+    subject: 'Curry', burn_curve: [], expected_tickets: 30, capacity_tickets: 24, dishes: [] }],
 }
+
+/** Pass 9's feed: the same capacity card plus a stock card carrying its burn-down and blocked dishes. */
+const ANALYTICS_WITH_STOCK = {
+  ...ANALYTICS,
+  cards: [
+    ...ANALYTICS.cards,
+    { id: 'stock:ING_PANEER', kind: 'stock', tone: 'bad',
+      title: 'Paneer runs out today, during dinner',
+      detail: 'About 100 g is free and dinner will need about 900 g more; the last of it goes around 8:20 PM.',
+      action: 'Order from Fresh Dairy Co. (sample) now: even the next delivery lands about tomorrow, 9:00 AM.',
+      subject: 'Paneer',
+      burn_curve: [
+        { at_ms: Date.parse('2026-11-07T18:42:00-05:00'), free: 100 },
+        { at_ms: Date.parse('2026-11-07T19:30:00-05:00'), free: 40 },
+        { at_ms: Date.parse('2026-11-07T20:20:00-05:00'), free: 0 },
+      ],
+      expected_tickets: null, capacity_tickets: null,
+      dishes: [
+        { item_code: 'PNR_BM', name: 'Paneer Butter Masala' },
+        { item_code: 'PALAK_PNR', name: 'Palak Paneer' },
+        { item_code: 'PNR_TIKKA', name: 'Paneer Tikka' },
+      ] },
+  ],
+}
+
+let analyticsBody: unknown = ANALYTICS
 
 const TIMESHEETS = {
   week_start: '2026-10-26', week_end: '2026-11-01',
@@ -147,7 +174,10 @@ function respond(call: Call): Response {
   if (call.method === 'GET' && call.path === '/api/staff/role-requests') return json(200, [])
   if (call.method === 'GET' && call.path === '/api/manager/orders') return json(200, ORDERS)
   if (call.method === 'GET' && call.path === '/api/manager/revenue') return json(200, REVENUE)
-  if (call.method === 'GET' && call.path === '/api/manager/analytics') return json(200, ANALYTICS)
+  if (call.method === 'GET' && call.path === '/api/manager/analytics') return json(200, analyticsBody)
+  if (call.method === 'POST' && call.path === '/api/kds/availability') {
+    return json(200, { code: (call.body as { item_code: string }).item_code, available: false })
+  }
   if (call.method === 'GET' && call.path === '/api/manager/timesheets') return json(200, TIMESHEETS)
   if (call.method === 'GET' && call.path === '/api/manager/settings') return json(200, SETTINGS)
   if (call.method === 'GET' && call.path === '/api/manager/goodwill') return json(200, GOODWILL_HOME)
@@ -162,6 +192,7 @@ function respond(call: Call): Response {
 
 beforeEach(() => {
   stockOnHand = 5000
+  analyticsBody = ANALYTICS
   window.localStorage.clear()
   window.history.replaceState(null, '', '/manager')
   resetTenantFeedForTests()
@@ -273,4 +304,112 @@ test('people_section_roster_marks_who_is_on_shift_now', async () => {
   expect(await screen.findByText('Team')).toBeInTheDocument()
   expect(screen.getByText('On shift: Curry Chef 1')).toBeInTheDocument()
   expect(screen.getByText('Not on shift')).toBeInTheDocument()
+})
+
+async function cardSection(title: string): Promise<HTMLElement> {
+  return (await screen.findByRole('heading', { name: title })).closest('section') as HTMLElement
+}
+
+test('attention_cards_carry_severity_pills_and_their_evidence', async () => {
+  analyticsBody = ANALYTICS_WITH_STOCK
+  render(<ManagerSurface params={{}} query={new URLSearchParams()} />)
+  fireEvent.click(screen.getByRole('tab', { name: /^Attention/ }))
+  // the capacity card: a Medium pill (its tone is warn) and the expected-vs-capacity bars
+  const capacity = await cardSection('Curry may be short-handed for Dinner rush (Sun, Nov 8)')
+  expect(within(capacity).getByText('Medium')).toBeInTheDocument()
+  expect(within(capacity).getByRole('img', { name: 'Expected about 30 tickets; capacity about 24' }))
+    .toBeInTheDocument()
+  expect(within(capacity).getByText('Expected')).toBeInTheDocument()
+  expect(within(capacity).getByText('Capacity')).toBeInTheDocument()
+  // the stock card: a High pill (tone bad), the burn-down of its own curve, and the 86 action
+  const stock = await cardSection('Paneer runs out today, during dinner')
+  expect(within(stock).getByText('High')).toBeInTheDocument()
+  expect(within(stock).getByRole('img', { name: /Projected free stock: 100 now, running out/ }))
+    .toBeInTheDocument()
+  expect(within(stock).getByText('100 free now')).toBeInTheDocument()
+  expect(within(stock).getByText(/runs out 8:20 PM/)).toBeInTheDocument()
+  expect(within(stock).getByRole('button', { name: '86 dishes using Paneer' })).toBeInTheDocument()
+  // the goodwill decision: Priya's lapsed tone is warn, so Medium — and the decision buttons stay
+  const goodwill = await cardSection('Priya has drifted away')
+  expect(within(goodwill).getByText('Medium')).toBeInTheDocument()
+  expect(within(goodwill).getByRole('button', { name: 'Put it on the house' })).toBeInTheDocument()
+  // the standing cards carry pills too: shift readiness is all-filled here, so Low
+  expect(within(await cardSection('Shift readiness')).getByText('Low')).toBeInTheDocument()
+  expect(within(await cardSection('Waiting for your approval')).getByText('Low')).toBeInTheDocument()
+  expect(within(await cardSection('In the kitchen now')).getByText('Low')).toBeInTheDocument()
+})
+
+test('attention_filters_count_the_standing_cards_and_filter_by_kind', async () => {
+  analyticsBody = ANALYTICS_WITH_STOCK
+  render(<ManagerSurface params={{}} query={new URLSearchParams()} />)
+  fireEvent.click(screen.getByRole('tab', { name: /^Attention/ }))
+  expect(await screen.findByRole('button', { name: 'All (7)' })).toBeInTheDocument()
+  // rank order inside the feed is the server's: capacity before stock, whatever the filter
+  const capacity = await cardSection('Curry may be short-handed for Dinner rush (Sun, Nov 8)')
+  const stock = await cardSection('Paneer runs out today, during dinner')
+  expect(capacity.compareDocumentPosition(stock) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  fireEvent.click(screen.getByRole('button', { name: 'Inventory (2)' }))
+  expect(screen.getByText('Paneer runs out today, during dinner')).toBeInTheDocument()
+  expect(screen.getByText('Running low')).toBeInTheDocument()
+  expect(screen.queryByText('Curry may be short-handed for Dinner rush (Sun, Nov 8)')).toBeNull()
+  expect(screen.queryByText('Priya has drifted away')).toBeNull()
+  expect(screen.queryByText('Shift readiness')).toBeNull()
+  fireEvent.click(screen.getByRole('button', { name: 'Guests (1)' }))
+  expect(screen.getByText('Priya has drifted away')).toBeInTheDocument()
+  expect(screen.queryByText('Paneer runs out today, during dinner')).toBeNull()
+  expect(screen.queryByText('Running low')).toBeNull()
+  fireEvent.click(screen.getByRole('button', { name: 'Staffing (2)' }))
+  expect(screen.getByText('Curry may be short-handed for Dinner rush (Sun, Nov 8)')).toBeInTheDocument()
+  expect(screen.getByText('Shift readiness')).toBeInTheDocument()
+  expect(screen.queryByText('Priya has drifted away')).toBeNull()
+  fireEvent.click(screen.getByRole('button', { name: 'Operations (2)' }))
+  expect(screen.getByText('Waiting for your approval')).toBeInTheDocument()
+  expect(screen.getByText('In the kitchen now')).toBeInTheDocument()
+  expect(screen.queryByText('Shift readiness')).toBeNull()
+})
+
+test('stock_card_86_takes_every_blocked_dish_off_the_menu', async () => {
+  analyticsBody = ANALYTICS_WITH_STOCK
+  render(<ManagerSurface params={{}} query={new URLSearchParams()} />)
+  fireEvent.click(screen.getByRole('tab', { name: /^Attention/ }))
+  const stock = await cardSection('Paneer runs out today, during dinner')
+  fireEvent.click(within(stock).getByRole('button', { name: '86 dishes using Paneer' }))
+  // the confirm names every dish the run-out blocks before anything is sent
+  expect(within(stock).getByText(/Take Paneer Butter Masala, Palak Paneer, Paneer Tikka off the menu now/))
+    .toBeInTheDocument()
+  fireEvent.click(within(stock).getByRole('button', { name: '86 them' }))
+  await waitFor(() => expect(within(stock).getByText(/off the menu now/)).toBeInTheDocument())
+  const posts = calls.filter((c) => c.method === 'POST' && c.path === '/api/kds/availability')
+  expect(posts.map((c) => (c.body as { item_code: string }).item_code))
+    .toEqual(['PNR_BM', 'PALAK_PNR', 'PNR_TIKKA'])
+  expect(posts.every((c) => (c.body as { available: boolean }).available === false)).toBe(true)
+})
+
+test('capacity_card_open_people_goes_to_the_people_section', async () => {
+  render(<ManagerSurface params={{}} query={new URLSearchParams()} />)
+  fireEvent.click(screen.getByRole('tab', { name: /^Attention/ }))
+  const capacity = await cardSection('Curry may be short-handed for Dinner rush (Sun, Nov 8)')
+  fireEvent.click(within(capacity).getByRole('button', { name: 'Open People' }))
+  expect(await screen.findByText('Team')).toBeInTheDocument()
+  expect(screen.getByRole('tab', { name: /^People/ })).toHaveAttribute('aria-selected', 'true')
+})
+
+test('home_greets_the_manager_and_strips_the_top_cautions', async () => {
+  analyticsBody = ANALYTICS_WITH_STOCK
+  render(<ManagerSurface params={{}} query={new URLSearchParams()} />)
+  // the fixture's business clock is Sat Nov 7, 6:42 PM — an evening greeting for Lakshmi
+  expect(await screen.findByText('Good evening, Lakshmi')).toBeInTheDocument()
+  const strip = screen.getByLabelText('Top cautions')
+  const rows = within(strip).getAllByRole('button')
+  expect(rows).toHaveLength(3)
+  // severity first (the High stock card), then the feed's own rank among the Mediums
+  expect(rows[0]).toHaveTextContent('High')
+  expect(rows[0]).toHaveTextContent('Paneer runs out today, during dinner')
+  expect(rows[1]).toHaveTextContent('Medium')
+  expect(rows[1]).toHaveTextContent('Curry may be short-handed')
+  expect(rows[2]).toHaveTextContent('Priya has drifted away')
+  expect(rows[2]).toHaveTextContent('Put it on the house')
+  // tapping a row lands on the Attention section
+  fireEvent.click(rows[0])
+  expect(await screen.findByRole('button', { name: '86 dishes using Paneer' })).toBeInTheDocument()
 })

@@ -193,6 +193,14 @@ def test_analytics_without_history_stands_on_the_demand_prior(app):
                    if card["kind"] == "capacity" and "Biryani" in card["title"] and "tomorrow" in card["title"])
     assert biryani["tone"] == "bad"
     assert "nobody is on that station" in biryani["detail"]
+    # pass 9: the card carries the check's own numbers, so the console can draw them on the card
+    _kind, station_id, day, daypart = biryani["id"].split(":")
+    check = next(c for c in body["capacity"] if c["station_id"] == station_id and c["date"] == day
+                 and c["daypart"] == daypart)
+    assert biryani["subject"] == check["station_name"] == "Biryani"
+    assert biryani["expected_tickets"] == check["expected_tickets"]
+    assert biryani["capacity_tickets"] == check["capacity_tickets"] == 0  # nobody there: no hands, no capacity
+    assert biryani["burn_curve"] == [] and biryani["dishes"] == []  # stock evidence stays off capacity cards
     curry = next(check for check in body["capacity"]
                  if check["station_id"] == "STN_CURRY" and check["date"] == "2026-11-08"
                  and check["daypart"] == "dinner")
@@ -214,6 +222,24 @@ def test_analytics_stock_card_when_the_shelf_empties_before_any_delivery(app):
     assert card["tone"] == "bad"  # it runs out today, during dinner
     assert "runs out today" in card["title"]
     assert "Fresh Dairy Co. (sample)" in card["action"]  # the earliest carrier is named in the move
+    # pass 9: the card carries its evidence — the burn-down of the same walk that found the run-out,
+    # and the dishes the run-out blocks (on sale now, recipes using paneer, in menu order)
+    assert card["subject"] == "Paneer"
+    assert card["expected_tickets"] is None and card["capacity_tickets"] is None
+    watch = next(check for check in body["stock_watch"] if check["ingredient_id"] == "ING_PANEER")
+    curve = card["burn_curve"]
+    assert len(curve) >= 2
+    assert curve[0]["free"] == watch["free"] == 100  # the walk starts at the free stock
+    assert curve[-1]["free"] == 0  # and lands on the shelf at the run-out moment
+    assert curve[-1]["at_ms"] == ms_from_dt(dt.datetime.fromisoformat(watch["stockout_biz"]))
+    assert all(a["free"] >= b["free"] and a["at_ms"] <= b["at_ms"] for a, b in zip(curve, curve[1:], strict=False))
+    expected_dishes = [item.code for item in SEED.menu.items if item.available
+                       and any(line.item_code == item.code and line.ingredient_id == "ING_PANEER"
+                               for line in SEED.recipes)]
+    assert [dish["item_code"] for dish in card["dishes"]] == expected_dishes
+    assert {dish["item_code"] for dish in card["dishes"]} == {"PNR_BM", "PALAK_PNR", "PNR_TIKKA"}
+    names = {item.code: item.names.en for item in SEED.menu.items}
+    assert all(dish["name"] == names[dish["item_code"]] for dish in card["dishes"])
 
 
 # ----- analytics: the sales ladder -----------------------------------------------------------------------------------
