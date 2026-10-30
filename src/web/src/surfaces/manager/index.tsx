@@ -13,12 +13,16 @@
  * Everything shown comes from an API that exists today: role slots from `/api/staff/roles`, the rest from the
  * tenant state feed. The orders API exposes only open orders, so this view never claims a "revenue today"
  * figure — that number is a known gap, noted in BUJJI_SESSION_HANDOFF.md.
+ *
+ * Pass 3 presentation: the cards carry their urgency as the kit's tones — readiness glows warn while a job is
+ * open and ok when the shift is full, approvals wear the AI violet, low stock escalates watch→warn, act→bad —
+ * people are avatars, rows are soft tiles, and the open-orders count is a display number in the brand gradient.
  */
 
-import { ArrowRight, RefreshCw } from 'lucide-react'
+import { ArrowRight, Check, RefreshCw } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { SampleBadge } from '../../components/badges'
-import { Button, Card, Chip, cx } from '../../components/ui'
+import { Avatar, Button, Card, Chip, cx } from '../../components/ui'
 import type { InventoryItemView, RoleSlot } from '../../contracts/generated'
 import { formatCents } from '../../lib/format'
 import { clearStaffSession, loadStaffSession, staffApi } from '../../lib/staff'
@@ -102,7 +106,7 @@ export default function ManagerSurface(_props: SurfaceProps) {
   return (
     <main className="mx-auto flex min-h-full w-full max-w-4xl flex-col gap-6 p-6">
       <header className="flex flex-wrap items-center gap-3">
-        <h1 className="text-3xl font-bold tracking-tight">Manager</h1>
+        <h1 className="text-3xl font-black tracking-tight">Manager</h1>
         {data && <SampleBadge name={data.tenant.name} compact />}
         <div className="ml-auto flex items-center gap-2">
           <Button variant="ghost" icon={<RefreshCw className="size-4" />} onClick={() => void refreshSlots()}>
@@ -114,26 +118,36 @@ export default function ManagerSurface(_props: SurfaceProps) {
         </div>
       </header>
       {me?.staff && (
-        <p className="text-muted">
-          Signed in as <span className="font-semibold text-text">{me.staff.name}</span>
-          {me.claim ? <> — {me.claim.label}</> : null}
-        </p>
+        <div className="flex items-center gap-3">
+          <Avatar name={me.staff.name} className="size-9 text-sm" />
+          <p className="text-muted">
+            Signed in as <span className="font-semibold text-text">{me.staff.name}</span>
+            {me.claim ? <> — {me.claim.label}</> : null}
+          </p>
+        </div>
       )}
 
-      <Card title="Shift readiness" actions={slots !== null
-        ? <Chip>{`${filled.length} of ${slots.length} jobs filled`}</Chip> : undefined}>
+      <Card title="Shift readiness" tone={slots !== null ? (open.length > 0 ? 'warn' : 'ok') : undefined}
+        className="motion-safe:animate-rise"
+        actions={slots !== null
+          ? <Chip tone={open.length > 0 ? 'warn' : 'ok'}>{`${filled.length} of ${slots.length} jobs filled`}</Chip>
+          : undefined}>
         {slotsError && <p role="alert" className="text-bad">The shift list could not be loaded.</p>}
         {slots === null && !slotsError && <p className="text-muted">Loading the shift list…</p>}
         {slots !== null && (
           <div className="flex flex-col gap-4">
             {open.length > 0 && (
               <div>
-                <p className="mb-2 font-semibold text-warn">Still open — needs someone:</p>
+                <p className="mb-2 flex items-center gap-2 font-semibold text-warn">
+                  <span className="size-2 shrink-0 rounded-full bg-warn shadow-glow-warn-sm" />
+                  Still open — needs someone:
+                </p>
                 <ul className="flex flex-col gap-1.5">
                   {open.map((slot) => (
-                    <li key={slot.slot_id} className="flex items-center justify-between gap-3">
-                      <span>{slot.label}</span>
-                      <Chip>Open</Chip>
+                    <li key={slot.slot_id}
+                      className="flex items-center justify-between gap-3 rounded-xl bg-warn/8 px-3 py-2 ring-1 ring-warn/25">
+                      <span className="font-medium">{slot.label}</span>
+                      <Chip tone="warn">Open</Chip>
                     </li>
                   ))}
                 </ul>
@@ -142,9 +156,13 @@ export default function ManagerSurface(_props: SurfaceProps) {
             {filled.length > 0 && (
               <ul className="flex flex-col gap-1.5">
                 {filled.map((slot) => (
-                  <li key={slot.slot_id} className="flex items-center justify-between gap-3">
-                    <span>
-                      {slot.label} — <span className="font-semibold">{slot.holder!.name}</span>
+                  <li key={slot.slot_id}
+                    className="flex items-center justify-between gap-3 rounded-xl bg-white/2 px-3 py-2 ring-1 ring-white/5">
+                    <span className="flex min-w-0 items-center gap-2.5">
+                      <Avatar name={slot.holder!.name} className="size-7 text-xs" />
+                      <span className="truncate">
+                        {slot.label} — <span className="font-semibold">{slot.holder!.name}</span>
+                      </span>
                     </span>
                     {isManager && !slot.mine && (
                       <Button size="sm" variant="ghost" loading={busy === slot.slot_id}
@@ -152,26 +170,32 @@ export default function ManagerSurface(_props: SurfaceProps) {
                         Release
                       </Button>
                     )}
-                    {slot.mine && <Chip>On shift: you</Chip>}
+                    {slot.mine && <Chip tone="ok">On shift: you</Chip>}
                   </li>
                 ))}
               </ul>
             )}
-            {open.length === 0 && <p className="text-ok">Every job for this shift is filled.</p>}
+            {open.length === 0 && (
+              <p className="flex items-center gap-2 font-medium text-ok">
+                <Check className="size-5 shrink-0" /> Every job for this shift is filled.
+              </p>
+            )}
           </div>
         )}
       </Card>
 
-      <Card title="Waiting for your approval">
+      <Card title="Waiting for your approval" tone="ai" className="motion-safe:animate-rise"
+        style={{ animationDelay: '70ms' }}
+        actions={proposed.length > 0 ? <Chip tone="ai">{proposed.length}</Chip> : undefined}>
         {data === null ? (
           <p className="text-muted">Loading…</p>
         ) : proposed.length === 0 ? (
           <p className="text-muted">Nothing is waiting on you.</p>
         ) : (
           <div className="flex flex-col gap-3">
-            <ul className="flex flex-col gap-1.5">
+            <ul className="flex flex-col gap-2">
               {proposed.slice(0, 3).map((plan) => (
-                <li key={plan.id} className="text-muted">{plan.summary}</li>
+                <li key={plan.id} className="rounded-xl bg-ai/8 px-3.5 py-2.5 ring-1 ring-ai/20">{plan.summary}</li>
               ))}
             </ul>
             <Link to="/gm" className="inline-flex items-center gap-1 font-semibold text-accent underline">
@@ -182,7 +206,8 @@ export default function ManagerSurface(_props: SurfaceProps) {
       </Card>
 
       <div className="grid gap-6 sm:grid-cols-2">
-        <Card title="Running low">
+        <Card title="Running low" className="motion-safe:animate-rise" style={{ animationDelay: '140ms' }}
+          tone={lowStock.some((i) => i.forecast.band === 'act') ? 'bad' : lowStock.length > 0 ? 'warn' : undefined}>
           {data === null ? (
             <p className="text-muted">Loading…</p>
           ) : lowStock.length === 0 ? (
@@ -190,9 +215,23 @@ export default function ManagerSurface(_props: SurfaceProps) {
           ) : (
             <ul className="flex flex-col gap-2">
               {lowStock.map((item) => (
-                <li key={item.ingredient.id} className="flex items-baseline justify-between gap-3">
-                  <span className="font-semibold">{item.ingredient.names.en}</span>
-                  <span className={cx('text-sm', item.forecast.band === 'ok' ? 'text-muted' : 'text-warn')}>
+                <li key={item.ingredient.id}
+                  className="flex items-center justify-between gap-3 rounded-xl bg-white/2 px-3 py-2 ring-1 ring-white/5">
+                  <span className="flex min-w-0 items-center gap-2.5">
+                    <span className={cx('size-2 shrink-0 rounded-full',
+                      item.forecast.band === 'act'
+                        ? 'bg-bad shadow-glow-bad-sm'
+                        : item.forecast.band === 'watch'
+                          ? 'bg-warn shadow-glow-warn-sm'
+                          : 'bg-ok')} />
+                    <span className="truncate font-semibold">{item.ingredient.names.en}</span>
+                  </span>
+                  <span className={cx('shrink-0 text-right text-sm tabular-nums',
+                    item.forecast.band === 'ok'
+                      ? 'text-muted'
+                      : item.forecast.band === 'act'
+                        ? 'font-semibold text-bad'
+                        : 'font-medium text-warn')}>
                     {runwayText(item)} · {item.ingredient.on_hand} {item.ingredient.unit} on hand
                   </span>
                 </li>
@@ -201,12 +240,14 @@ export default function ManagerSurface(_props: SurfaceProps) {
           )}
         </Card>
 
-        <Card title="In the kitchen now">
+        <Card title="In the kitchen now" className="motion-safe:animate-rise" style={{ animationDelay: '210ms' }}>
           {data === null ? (
             <p className="text-muted">Loading…</p>
           ) : (
             <div className="flex flex-col gap-1">
-              <p className="text-3xl font-black">{openOrders.length}</p>
+              <p className="bg-linear-to-r from-accent to-accent-2 bg-clip-text text-6xl font-black leading-none text-transparent">
+                {openOrders.length}
+              </p>
               <p className="text-muted">
                 open orders, {formatCents(openValue)} of food being made
               </p>

@@ -9,11 +9,15 @@
 import { clsx, type ClassValue } from 'clsx'
 import { extendTailwindMerge } from 'tailwind-merge'
 
-// The glows of index.css (`shadow-glow`, `shadow-glow-ai`, `shadow-glow-ok-sm`, …) are shadow sizes. Untold,
-// tailwind-merge takes them for shadow colours, and a caller's own shadow (the streaming plan card's) could not
-// replace a component's glow.
+// The glows of index.css (`shadow-glow`, `shadow-glow-ai`, `shadow-glow-ok-sm`, …) and the depth shadows
+// (`shadow-pop`, `shadow-lift`) are shadow sizes. Untold, tailwind-merge takes them for shadow colours, and a
+// caller's own shadow (the streaming plan card's) could not replace a component's glow.
 const twMerge = extendTailwindMerge({
-  extend: { theme: { shadow: [(value: string) => value === 'glow' || value.startsWith('glow-')] } },
+  extend: {
+    theme: {
+      shadow: [(value: string) => value === 'glow' || value.startsWith('glow-') || value === 'pop' || value === 'lift'],
+    },
+  },
 })
 
 export function cx(...inputs: ClassValue[]): string {

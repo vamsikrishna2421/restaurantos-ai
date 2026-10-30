@@ -15,7 +15,8 @@ export interface BrandHatProps {
 }
 
 export function BrandHat({ size = 28, className }: BrandHatProps) {
-  return <img src={HAT_SRC} alt="" width={size} height={size} className={join('shrink-0 rounded-md', className)} />
+  // the corner radius is a share of the size, so the mark keeps its app-icon proportions at 28px and at hero size
+  return <img src={HAT_SRC} alt="" width={size} height={size} className={join('shrink-0 rounded-[22%]', className)} />
 }
 
 export interface BrandMarkProps {
@@ -29,7 +30,10 @@ export function BrandMark({ size = 28, className }: BrandMarkProps) {
   return (
     <span className={join('inline-flex items-center gap-2', className)}>
       <BrandHat size={size} />
-      <span>RestaurantOS <span className="text-accent">AI</span></span>
+      <span>
+        RestaurantOS{' '}
+        <span className="bg-linear-to-r from-accent to-accent-2 bg-clip-text text-transparent">AI</span>
+      </span>
     </span>
   )
 }

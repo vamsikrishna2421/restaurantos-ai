@@ -67,16 +67,25 @@ export function Tabs({ items, value, onChange, label, idPrefix, size = 'md', cla
             onClick={() => onChange(t.id)}
             onKeyDown={(e) => onKeyDown(e, t.id)}
             className={cx(
-              '-mb-px inline-flex shrink-0 items-center gap-2 border-b-2 font-semibold transition-colors',
+              '-mb-px inline-flex shrink-0 items-center gap-2 rounded-t-xl border-b-2 font-semibold transition-colors',
               'focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-accent',
               'disabled:opacity-40',
               size === 'lg' ? 'px-5 py-3 text-lg' : 'px-3 py-2 text-sm',
-              selected ? 'border-accent text-text' : 'border-transparent text-muted hover:text-text',
+              selected
+                ? 'border-accent bg-linear-to-b from-white/5 to-transparent text-text'
+                : 'border-transparent text-muted hover:bg-white/3 hover:text-text',
             )}
           >
             {t.label}
             {t.badge != null && (
-              <span className="rounded-full bg-panel-2 px-2 py-0.5 text-xs text-muted">{t.badge}</span>
+              <span
+                className={cx(
+                  'rounded-full px-2 py-0.5 text-xs font-semibold tabular-nums',
+                  selected ? 'bg-accent/15 text-accent' : 'bg-panel-2 text-muted',
+                )}
+              >
+                {t.badge}
+              </span>
             )}
           </button>
         )

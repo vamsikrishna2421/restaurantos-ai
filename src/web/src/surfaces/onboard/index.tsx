@@ -9,11 +9,15 @@
  *
  * Like `/staff`, entering this surface starts the device session when there is none yet: the onboarding API
  * answers session requests only.
+ *
+ * Pass 3 presentation: a two-step progress rail (Menu → Review), the step-1 form seated in a lit card with
+ * the Toast link as its hero input, station cards with gold prices and proper steppers on the review screen,
+ * and a success state with a glowing green mark over soft light. Flow, fields and strings unchanged.
  */
 
-import { ArrowLeft, Check, ChefHat, Minus, Plus, Store, Trash2 } from 'lucide-react'
-import { useEffect, useMemo, useState } from 'react'
-import { BrandHat, Button, Card, Chip } from '../../components/ui'
+import { ArrowLeft, Bell, Check, ChefHat, Crown, Link2, Minus, Plus, Store, Trash2 } from 'lucide-react'
+import { useEffect, useMemo, useState, type ComponentType } from 'react'
+import { BrandHat, Button, Card, Chip, cx } from '../../components/ui'
 import type {
   OnboardingDraft,
   OnboardingDraftItem,
@@ -27,7 +31,52 @@ import { useSession } from '../../stores'
 
 type Phase = 'start' | 'review' | 'done'
 
-const INPUT_CLS = 'w-full rounded-lg border border-line bg-panel px-4 py-3 text-lg'
+const INPUT_CLS =
+  'w-full rounded-xl border border-white/10 bg-panel bg-linear-to-b from-panel-2/70 to-panel px-4 py-3.5 ' +
+  'text-lg shadow-pop outline-none transition-[border-color,box-shadow] placeholder:text-muted/60 ' +
+  'focus:border-accent/60 focus:ring-4 focus:ring-accent/15'
+
+const LABEL_CLS = 'text-xs font-bold uppercase tracking-[0.08em] text-muted'
+
+const ALERT_CLS = 'rounded-xl border border-bad/35 bg-bad/10 px-4 py-3 font-medium text-bad'
+
+/** The two steps of setup, as a progress rail: where you are lit in the brand gradient, what is done in green. */
+const STEP_NAMES = ['Menu', 'Review'] as const
+
+function StepIndicator({ current }: { current: 1 | 2 }) {
+  return (
+    <ol aria-label="Setup progress" className="flex items-center gap-2.5">
+      {STEP_NAMES.map((label, i) => {
+        const n = i + 1
+        const state = n < current ? 'done' : n === current ? 'current' : 'todo'
+        return (
+          <li key={label} aria-current={state === 'current' ? 'step' : undefined}
+            className="flex items-center gap-2.5">
+            {i > 0 && <span aria-hidden className="h-px w-6 bg-line" />}
+            <span className={cx(
+              'flex size-7 items-center justify-center rounded-full text-sm font-black ring-1',
+              state === 'current' && 'bg-linear-to-r from-accent to-accent-2 text-ink shadow-glow-accent-sm ring-accent/50',
+              state === 'done' && 'bg-ok text-ink shadow-glow-ok-sm ring-ok/50',
+              state === 'todo' && 'bg-panel-2 text-muted ring-white/10',
+            )}>
+              {state === 'done' ? <Check className="size-4" /> : n}
+            </span>
+            <span className={cx('text-sm font-semibold', state === 'todo' ? 'text-muted' : 'text-text')}>
+              {label}
+            </span>
+          </li>
+        )
+      })}
+    </ol>
+  )
+}
+
+/** A job chip's icon, by the kind of job it is (the same tiles the staff slot picker uses). */
+const ROLE_ICONS: Readonly<Record<string, ComponentType<{ className?: string }>>> = {
+  manager: Crown,
+  chef: ChefHat,
+  front_counter: Bell,
+}
 
 function errorText(err: unknown): string {
   if (isApiError(err)) {
@@ -122,37 +171,48 @@ export default function OnboardSurface(_props: SurfaceProps) {
 
   if (phase === 'done' && result) {
     return (
-      <main className="mx-auto flex min-h-full w-full max-w-xl flex-col items-center justify-center gap-6 p-6 text-center">
-        <span className="flex size-16 items-center justify-center rounded-full bg-panel text-accent">
-          <Check className="size-8" />
+      <main className="relative mx-auto flex min-h-full w-full max-w-xl flex-col items-center justify-center gap-6 overflow-hidden p-6 text-center">
+        {/* the celebration's light: a green pool behind the mark, a warm one at the edge (gradients, no blur) */}
+        <div aria-hidden className="pointer-events-none absolute inset-0">
+          <div className="absolute left-1/2 top-[16%] h-72 w-72 max-w-none -translate-x-1/2 rounded-full bg-[radial-gradient(closest-side,rgb(46_204_113/0.14),transparent)]" />
+          <div className="absolute -right-24 bottom-0 h-64 w-64 rounded-full bg-[radial-gradient(closest-side,rgb(255_138_61/0.1),transparent)]" />
+        </div>
+        <span className="relative flex size-20 items-center justify-center rounded-full bg-linear-to-br from-ok to-ok/60 text-ink shadow-glow-ok ring-1 ring-white/25 motion-safe:animate-pop">
+          <Check className="size-10" />
         </span>
-        <div className="flex flex-col gap-2">
-          <h1 className="text-3xl font-black tracking-tight">{result.name} is ready</h1>
+        <div className="relative flex flex-col gap-2 motion-safe:animate-rise" style={{ animationDelay: '80ms' }}>
+          <h1 className="text-4xl font-black tracking-tight">{result.name} is ready</h1>
           <p className="text-muted">
             Your menu, kitchen stations and shift jobs are saved as this restaurant&apos;s setup.
           </p>
         </div>
-        <Card className="w-full text-left">
-          <dl className="flex flex-col gap-2 text-sm">
+        <Card className="relative w-full text-left motion-safe:animate-rise" style={{ animationDelay: '160ms' }}>
+          <dl className="flex flex-col gap-2.5 text-sm">
             <div className="flex items-center justify-between gap-4">
               <dt className="text-muted">Restaurant ID</dt>
-              <dd><code className="rounded bg-panel-2 px-2 py-1 font-mono">{result.tenant_id}</code></dd>
+              <dd>
+                <code className="rounded-lg bg-panel-2 px-2.5 py-1 font-mono font-semibold text-accent-2 ring-1 ring-white/8">
+                  {result.tenant_id}
+                </code>
+              </dd>
             </div>
             <div className="flex items-center justify-between gap-4">
               <dt className="text-muted">Dishes</dt>
-              <dd>{items.length}</dd>
+              <dd className="font-semibold tabular-nums">{items.length}</dd>
             </div>
             <div className="flex items-center justify-between gap-4">
               <dt className="text-muted">Kitchen stations</dt>
-              <dd>{activeStations.length}</dd>
+              <dd className="font-semibold tabular-nums">{activeStations.length}</dd>
             </div>
             <div className="flex items-center justify-between gap-4">
               <dt className="text-muted">Manager</dt>
-              <dd>{managerName.trim() || 'Manager'}</dd>
+              <dd className="font-semibold">{managerName.trim() || 'Manager'}</dd>
             </div>
           </dl>
         </Card>
-        <Button variant="primary" size="lg" onClick={() => navigate('/')}>Back to the front door</Button>
+        <Button variant="primary" size="lg" className="relative shadow-glow-accent" onClick={() => navigate('/')}>
+          Back to the front door
+        </Button>
       </main>
     )
   }
@@ -160,11 +220,12 @@ export default function OnboardSurface(_props: SurfaceProps) {
   if (phase === 'review') {
     return (
       <main className="mx-auto flex min-h-full w-full max-w-3xl flex-col gap-6 p-6">
-        <header className="flex flex-col gap-2">
+        <header className="flex flex-col gap-3">
           <button type="button" onClick={() => { setPhase('start'); setError(null) }}
-            className="inline-flex items-center gap-1 self-start text-sm text-muted underline">
+            className="inline-flex items-center gap-1.5 self-start rounded-full px-3.5 py-1.5 text-sm font-medium text-muted ring-1 ring-white/10 transition-colors hover:text-text hover:ring-accent/40 focus-visible:outline-2 focus-visible:outline-accent">
             <ArrowLeft className="size-4" /> Start over
           </button>
+          <StepIndicator current={2} />
           <h1 className="text-3xl font-black tracking-tight">Here&apos;s your restaurant — give it a once-over</h1>
           <p className="text-muted">
             We built this from your menu. Fix only what&apos;s wrong — everything here can be
@@ -172,10 +233,10 @@ export default function OnboardSurface(_props: SurfaceProps) {
           </p>
         </header>
 
-        {error && <p role="alert" className="rounded-lg border border-line bg-panel px-4 py-3">{error}</p>}
+        {error && <p role="alert" className={ALERT_CLS}>{error}</p>}
 
         <label className="flex flex-col gap-2">
-          <span className="font-semibold">Restaurant name</span>
+          <span className={LABEL_CLS}>Restaurant name</span>
           <input aria-label="Restaurant name" value={name} onChange={(e) => setName(e.target.value)}
             maxLength={80} className={INPUT_CLS} />
         </label>
@@ -189,21 +250,21 @@ export default function OnboardSurface(_props: SurfaceProps) {
                 {theirs.length === 0 ? (
                   <p className="text-sm text-muted">No dishes here right now — this station won&apos;t be created.</p>
                 ) : (
-                  <ul className="flex flex-col divide-y divide-line">
+                  <ul className="flex flex-col divide-y divide-white/6">
                     {theirs.map(({ item, index }) => (
-                      <li key={`${item.name}-${index}`} className="flex flex-wrap items-center gap-3 py-2">
+                      <li key={`${item.name}-${index}`} className="flex flex-wrap items-center gap-3 py-2.5">
                         <span className="min-w-40 flex-1">
                           <span className="font-medium">{item.name}</span>
                           {item.category && <span className="block text-sm text-muted">{item.category}</span>}
                         </span>
-                        <span className="font-semibold">{price(item.price_cents)}</span>
+                        <span className="font-bold tabular-nums text-accent-2">{price(item.price_cents)}</span>
                         <select aria-label={`Station for ${item.name}`} value={item.station_id}
                           onChange={(e) => moveItem(index, e.target.value)}
-                          className="rounded-lg border border-line bg-panel px-2 py-2">
+                          className="rounded-lg border border-white/10 bg-panel-2 px-2.5 py-2 outline-none transition-[border-color,box-shadow] focus:border-accent/60 focus:ring-4 focus:ring-accent/15">
                           {stations.map((s) => <option key={s.id} value={s.id}>{s.label}</option>)}
                         </select>
                         <button type="button" aria-label={`Remove ${item.name}`} onClick={() => removeItem(index)}
-                          className="rounded-lg border border-line p-2 text-muted hover:text-text">
+                          className="rounded-lg border border-white/10 p-2 text-muted transition-colors hover:border-bad/40 hover:text-bad focus-visible:outline-2 focus-visible:outline-bad">
                           <Trash2 className="size-4" />
                         </button>
                       </li>
@@ -219,16 +280,24 @@ export default function OnboardSurface(_props: SurfaceProps) {
           <h2 className="text-xl font-bold">Kitchen stations</h2>
           <p className="text-sm text-muted">How many cooks work each station at once — that&apos;s how many job slots it gets per shift.</p>
           {stations.map((station) => (
-            <div key={station.id} className="flex items-center justify-between gap-4 rounded-2xl border border-line bg-panel px-4 py-3">
-              <span className="font-medium">{station.label}</span>
+            <div key={station.id}
+              className="flex items-center justify-between gap-4 rounded-2xl border border-white/8 bg-panel bg-linear-to-b from-panel-2/70 to-panel px-5 py-4 shadow-glow">
+              <span className="text-lg font-semibold">{station.label}</span>
               <span className="flex items-center gap-3">
                 <button type="button" aria-label={`One fewer cook on ${station.label}`}
                   onClick={() => setSlots(station.id, station.parallel_slots - 1)}
-                  className="rounded-lg border border-line p-2"><Minus className="size-4" /></button>
-                <span className="min-w-24 text-center">{station.parallel_slots} cook{station.parallel_slots === 1 ? '' : 's'}</span>
+                  className="flex size-10 items-center justify-center rounded-full bg-panel-2 shadow-pop ring-1 ring-white/10 transition-[box-shadow,transform] hover:ring-accent/50 focus-visible:outline-2 focus-visible:outline-accent motion-safe:active:scale-95">
+                  <Minus className="size-4" />
+                </button>
+                <span className="min-w-24 text-center">
+                  <span className="text-xl font-black tabular-nums">{station.parallel_slots}</span>{' '}
+                  <span className="text-sm text-muted">cook{station.parallel_slots === 1 ? '' : 's'}</span>
+                </span>
                 <button type="button" aria-label={`One more cook on ${station.label}`}
                   onClick={() => setSlots(station.id, station.parallel_slots + 1)}
-                  className="rounded-lg border border-line p-2"><Plus className="size-4" /></button>
+                  className="flex size-10 items-center justify-center rounded-full bg-panel-2 shadow-pop ring-1 ring-white/10 transition-[box-shadow,transform] hover:ring-accent/50 focus-visible:outline-2 focus-visible:outline-accent motion-safe:active:scale-95">
+                  <Plus className="size-4" />
+                </button>
               </span>
             </div>
           ))}
@@ -237,18 +306,24 @@ export default function OnboardSurface(_props: SurfaceProps) {
         <section aria-label="Jobs on every shift" className="flex flex-col gap-3">
           <h2 className="flex items-center gap-2 text-xl font-bold"><ChefHat className="size-5 text-accent" /> Jobs on every shift</h2>
           <div className="flex flex-wrap gap-2">
-            {roles.map((role) => <Chip key={role.slot_id}>{role.label}</Chip>)}
+            {roles.map((role) => {
+              const Icon = ROLE_ICONS[role.kind] ?? ChefHat
+              return (
+                <Chip key={role.slot_id} icon={<Icon className="size-3.5" />}>{role.label}</Chip>
+              )
+            })}
           </div>
           <p className="text-sm text-muted">One person per job per shift — your team claims these when they sign in.</p>
         </section>
 
         <label className="flex flex-col gap-2">
-          <span className="font-semibold">Your name — you&apos;ll be the manager</span>
+          <span className={LABEL_CLS}>Your name — you&apos;ll be the manager</span>
           <input aria-label="Your name" value={managerName} onChange={(e) => setManagerName(e.target.value)}
             maxLength={60} className={INPUT_CLS} placeholder="e.g. Priya" />
         </label>
 
-        <Button variant="primary" size="xl" loading={busy} disabled={items.length === 0 || !name.trim()}
+        <Button variant="primary" size="xl" className="shadow-glow-accent" loading={busy}
+          disabled={items.length === 0 || !name.trim()}
           onClick={() => void goLive()}>
           Go live
         </Button>
@@ -259,46 +334,56 @@ export default function OnboardSurface(_props: SurfaceProps) {
   const canBuild = name.trim().length > 0 && (toastUrl.trim().length > 0 || menuText.trim().length > 0)
   return (
     <main className="mx-auto flex min-h-full w-full max-w-xl flex-col justify-center gap-6 p-6">
-      <div className="flex flex-col items-center gap-3 text-center">
-        <BrandHat size={56} />
-        <h1 className="text-3xl font-black tracking-tight">Set up your restaurant</h1>
-        <p className="max-w-md text-muted">
+      <div className="flex flex-col items-center gap-4 text-center motion-safe:animate-rise">
+        <StepIndicator current={1} />
+        <div className="rounded-[1.75rem] bg-linear-to-b from-panel-2 to-panel p-3.5 shadow-glow ring-1 ring-white/10">
+          <BrandHat size={52} />
+        </div>
+        <h1 className="text-4xl font-black tracking-tight">Set up your restaurant</h1>
+        <p className="max-w-md leading-relaxed text-muted">
           Give us your menu the way it already exists. We&apos;ll build your kitchen stations
           and your team&apos;s jobs from it — you just check the draft.
         </p>
       </div>
 
-      {error && <p role="alert" className="rounded-lg border border-line bg-panel px-4 py-3">{error}</p>}
+      {error && <p role="alert" className={ALERT_CLS}>{error}</p>}
 
-      <label className="flex flex-col gap-2">
-        <span className="font-semibold">Restaurant name</span>
-        <input aria-label="Restaurant name" value={name} onChange={(e) => setName(e.target.value)}
-          maxLength={80} className={INPUT_CLS} placeholder="e.g. Spice Route" />
-      </label>
-
-      <label className="flex flex-col gap-2">
-        <span className="font-semibold">Your Toast menu link</span>
-        <input aria-label="Your Toast menu link" value={toastUrl} onChange={(e) => setToastUrl(e.target.value)}
-          className={INPUT_CLS} placeholder="https://order.toasttab.com/online/…" inputMode="url" />
-        <span className="text-sm text-muted">The public ordering page your customers already use — we read its items, sections and prices.</span>
-      </label>
-
-      {pasteOpen ? (
+      <Card className="motion-safe:animate-rise" style={{ animationDelay: '90ms' }}
+        bodyClassName="flex flex-col gap-5 p-5 sm:p-6">
         <label className="flex flex-col gap-2">
-          <span className="font-semibold">Your menu</span>
-          <textarea aria-label="Your menu" value={menuText} onChange={(e) => setMenuText(e.target.value)}
-            rows={9} className={INPUT_CLS}
-            placeholder={'APPETIZERS\nChicken 65 — $7.99\nSamosa — $5.49\n\nBIRYANI\nChicken Dum Biryani — $16.99'} />
-          <span className="text-sm text-muted">One dish per line, ending with its price. Headings become sections.</span>
+          <span className={LABEL_CLS}>Restaurant name</span>
+          <input aria-label="Restaurant name" value={name} onChange={(e) => setName(e.target.value)}
+            maxLength={80} className={INPUT_CLS} placeholder="e.g. Spice Route" />
         </label>
-      ) : (
-        <button type="button" onClick={() => setPasteOpen(true)}
-          className="inline-flex items-center gap-1 self-start text-sm text-muted underline">
-          <Store className="size-4" /> No Toast page? Paste your menu instead
-        </button>
-      )}
 
-      <Button variant="primary" size="xl" loading={busy} disabled={!canBuild} onClick={() => void buildDraft()}>
+        <label className="flex flex-col gap-2">
+          <span className={LABEL_CLS}>Your Toast menu link</span>
+          <span className="relative block">
+            <Link2 aria-hidden className="pointer-events-none absolute left-4 top-1/2 size-5 -translate-y-1/2 text-muted" />
+            <input aria-label="Your Toast menu link" value={toastUrl} onChange={(e) => setToastUrl(e.target.value)}
+              className={cx(INPUT_CLS, 'pl-12')} placeholder="https://order.toasttab.com/online/…" inputMode="url" />
+          </span>
+          <span className="text-sm text-muted">The public ordering page your customers already use — we read its items, sections and prices.</span>
+        </label>
+
+        {pasteOpen ? (
+          <label className="flex flex-col gap-2">
+            <span className={LABEL_CLS}>Your menu</span>
+            <textarea aria-label="Your menu" value={menuText} onChange={(e) => setMenuText(e.target.value)}
+              rows={9} className={INPUT_CLS}
+              placeholder={'APPETIZERS\nChicken 65 — $7.99\nSamosa — $5.49\n\nBIRYANI\nChicken Dum Biryani — $16.99'} />
+            <span className="text-sm text-muted">One dish per line, ending with its price. Headings become sections.</span>
+          </label>
+        ) : (
+          <button type="button" onClick={() => setPasteOpen(true)}
+            className="inline-flex items-center gap-1.5 self-start rounded-full px-3.5 py-1.5 text-sm font-medium text-muted ring-1 ring-white/10 transition-colors hover:text-text hover:ring-accent/40 focus-visible:outline-2 focus-visible:outline-accent">
+            <Store className="size-4" /> No Toast page? Paste your menu instead
+          </button>
+        )}
+      </Card>
+
+      <Button variant="primary" size="xl" className="shadow-glow-accent" loading={busy} disabled={!canBuild}
+        onClick={() => void buildDraft()}>
         Build my restaurant draft
       </Button>
       <p className="text-center text-sm text-muted">Nothing is final until you check the draft on the next screen.</p>

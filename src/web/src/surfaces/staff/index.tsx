@@ -7,11 +7,15 @@
  * The tenant session is the sandbox every surface uses: when this device has none yet, entering staff mode
  * starts one (the old Start click, done here instead of on a separate page). The person layer is P41's staff
  * token in `lib/staff`; a device that already holds a shift lands on a "you are on shift" panel instead.
+ *
+ * Pass 3 presentation: people are identity cards with initial avatars (a stable tint per person) and a
+ * language chip; the PIN pad is raised keys with gradient dots; job slots carry a tinted icon tile per kind,
+ * a lit "Open" state, and a dimmed, locked taken state with the holder's avatar. Logic untouched.
  */
 
-import { ArrowLeft, Check, KeyRound, Lock } from 'lucide-react'
-import { useCallback, useEffect, useState } from 'react'
-import { Button, Card, Chip, cx } from '../../components/ui'
+import { ArrowLeft, Bell, Check, ChevronRight, Crown, ChefHat, KeyRound, Languages, Lock } from 'lucide-react'
+import { useCallback, useEffect, useState, type ComponentType } from 'react'
+import { Avatar, Button, Card, Chip, cx } from '../../components/ui'
 import type { RoleSlot, SpeakLang, StaffPerson } from '../../contracts/generated'
 import { isApiError } from '../../lib/api'
 import { LANGUAGE_NAMES, SPEAK_LANGS } from '../../lib/i18n'
@@ -38,6 +42,15 @@ function errorText(err: unknown): string {
   }
   return 'Something went wrong. Try again.'
 }
+
+const ALERT_CLS = 'rounded-xl border border-bad/35 bg-bad/10 px-4 py-3 font-medium text-bad'
+
+const INPUT_CLS =
+  'w-full rounded-xl border border-white/10 bg-panel bg-linear-to-b from-panel-2/70 to-panel px-4 py-3.5 ' +
+  'text-lg shadow-pop outline-none transition-[border-color,box-shadow] placeholder:text-muted/60 ' +
+  'focus:border-accent/60 focus:ring-4 focus:ring-accent/15'
+
+const LABEL_CLS = 'text-xs font-bold uppercase tracking-[0.08em] text-muted'
 
 // ----- the PIN pad -------------------------------------------------------------------------------------------------
 
@@ -87,24 +100,31 @@ function PinPad({ mode, onSubmit, busy }: { mode: 'once' | 'set'; onSubmit: (pin
   }, [press])
 
   return (
-    <div className="flex flex-col items-center gap-5">
-      <p className="text-lg font-semibold">
+    <div className="flex flex-col items-center gap-6">
+      <p className="text-xl font-bold tracking-tight">
         {mode === 'set' ? (first === null ? 'Choose a 4-digit PIN' : 'Enter it once more') : 'Enter your PIN'}
       </p>
       <div className="flex gap-3" aria-label={`${pin.length} of 4 digits entered`}>
         {[0, 1, 2, 3].map((i) => (
-          <span key={i} className={cx('size-4 rounded-full border-2 border-accent',
-            i < pin.length ? 'bg-accent' : 'bg-transparent')} />
+          <span key={i} className={cx('size-4 rounded-full transition-[background-color,box-shadow,border-color] duration-200',
+            i < pin.length
+              ? 'bg-linear-to-br from-accent to-accent-2 shadow-glow-accent-sm'
+              : 'border border-white/20 bg-white/5')} />
         ))}
       </div>
-      {note && <p role="alert" className="text-sm text-bad">{note}</p>}
+      {note && <p role="alert" className={ALERT_CLS}>{note}</p>}
       <div className="grid grid-cols-3 gap-3">
         {['1', '2', '3', '4', '5', '6', '7', '8', '9', '', '0', '⌫'].map((key) => key === '' ? (
           <span key="blank" />
         ) : (
           <button key={key} type="button" disabled={busy} aria-label={key === '⌫' ? 'Delete last digit' : `Digit ${key}`}
             onClick={() => (key === '⌫' ? setPin((p) => p.slice(0, -1)) : press(key))}
-            className="min-h-14 min-w-14 rounded-full border border-line bg-panel-2 text-2xl font-bold transition-colors hover:border-accent disabled:opacity-50">
+            className={cx(
+              'flex min-h-16 min-w-16 items-center justify-center rounded-full bg-panel bg-linear-to-b from-panel-2 to-panel',
+              'font-bold shadow-pop ring-1 ring-white/8 transition-[transform,box-shadow,border-color] duration-150',
+              'hover:ring-accent/50 focus-visible:outline-2 focus-visible:outline-accent disabled:opacity-50 motion-safe:active:scale-95',
+              key === '⌫' ? 'text-xl text-muted' : 'text-2xl',
+            )}>
             {key}
           </button>
         ))}
@@ -116,6 +136,18 @@ function PinPad({ mode, onSubmit, busy }: { mode: 'once' | 'set'; onSubmit: (pin
 // ----- the surface -------------------------------------------------------------------------------------------------
 
 type Step = 'boot' | 'signed-in' | 'pick' | 'pin' | 'signup' | 'setpin' | 'roles'
+
+/** A job slot's icon and tile tint, by the kind of job it is. */
+const SLOT_ICONS: Readonly<Record<RoleSlot['kind'], ComponentType<{ className?: string }>>> = {
+  manager: Crown,
+  chef: ChefHat,
+  front_counter: Bell,
+}
+const SLOT_TILES: Readonly<Record<RoleSlot['kind'], string>> = {
+  manager: 'bg-accent-2/15 text-accent-2 ring-accent-2/30',
+  chef: 'bg-accent/15 text-accent ring-accent/30',
+  front_counter: 'bg-ai/15 text-ai-2 ring-ai/30',
+}
 
 export default function StaffSurface(_props: SurfaceProps) {
   const sessionStatus = useSession((s) => s.status)
@@ -219,24 +251,28 @@ export default function StaffSurface(_props: SurfaceProps) {
   return (
     <main className="mx-auto flex min-h-full w-full max-w-2xl flex-col gap-6 p-6">
       <header className="flex items-center gap-3">
-        <Link to="/" className="inline-flex items-center gap-1 text-sm text-muted underline">
+        <Link to="/"
+          className="inline-flex items-center gap-1.5 rounded-full px-3.5 py-1.5 text-sm font-medium text-muted ring-1 ring-white/10 transition-colors hover:text-text hover:ring-accent/40">
           <ArrowLeft className="size-4" /> Start
         </Link>
-        <h1 className="text-2xl font-bold tracking-tight">Staff sign-in</h1>
+        <h1 className="text-3xl font-black tracking-tight">Staff sign-in</h1>
       </header>
-      {error && step !== 'pin' && <p role="alert" className="text-bad">{error}</p>}
+      {error && step !== 'pin' && <p role="alert" className={ALERT_CLS}>{error}</p>}
 
       {step === 'boot' && (sessionStatus === 'error'
-        ? <p role="alert" className="text-bad">The kitchen could not be reached. Reload to try again.</p>
+        ? <p role="alert" className={ALERT_CLS}>The kitchen could not be reached. Reload to try again.</p>
         : <p className="text-muted">Getting the kitchen ready…</p>)}
 
       {step === 'signed-in' && session && (
         <Card title={session.claim ? 'You are on shift' : 'You are signed in'}>
-          <div className="flex flex-col gap-4">
-            <p className="text-lg">
-              {session.staff.name}
-              {session.claim && <> — <span className="font-semibold">{session.claim.label}</span></>}
-            </p>
+          <div className="flex flex-col gap-5">
+            <div className="flex items-center gap-4">
+              <Avatar name={session.staff.name} className="size-14 text-xl" />
+              <p className="text-xl font-bold tracking-tight">
+                {session.staff.name}
+                {session.claim && <> — <span className="font-bold text-accent-2">{session.claim.label}</span></>}
+              </p>
+            </div>
             <div className="flex flex-wrap gap-3">
               {session.claim ? (
                 <Button variant="primary" size="lg" onClick={() => navigate(staffHome(session.claim!))}>
@@ -255,14 +291,18 @@ export default function StaffSurface(_props: SurfaceProps) {
 
       {step === 'pick' && (
         <section aria-label="Who is signing in?" className="flex flex-col gap-4">
-          <h2 className="text-lg font-semibold">Who is signing in?</h2>
+          <h2 className="text-xl font-bold tracking-tight">Who is signing in?</h2>
           <div className="grid gap-3 sm:grid-cols-2">
             {people.map((person) => (
               <button key={person.id} type="button"
                 onClick={() => { setPicked(person); setError(null); setStep('pin') }}
-                className="flex items-center justify-between rounded-xl border border-line bg-panel p-4 text-left transition-colors hover:border-accent">
-                <span className="text-lg font-semibold">{person.name}</span>
-                <Chip>{LANGUAGE_NAMES[person.language]}</Chip>
+                className="group flex items-center gap-4 rounded-2xl border border-white/8 bg-panel bg-linear-to-b from-panel-2/80 to-panel p-4 text-left shadow-glow transition-[transform,box-shadow,border-color] duration-200 hover:-translate-y-0.5 hover:border-accent/40 hover:shadow-lift focus-visible:outline-2 focus-visible:outline-accent">
+                <Avatar name={person.name} className="size-12 text-lg" />
+                <span className="flex min-w-0 flex-1 flex-col items-start gap-1.5">
+                  <span className="max-w-full truncate text-lg font-bold">{person.name}</span>
+                  <Chip icon={<Languages className="size-3.5" />}>{LANGUAGE_NAMES[person.language]}</Chip>
+                </span>
+                <ChevronRight className="size-5 shrink-0 text-muted transition-colors group-hover:text-accent" />
               </button>
             ))}
           </div>
@@ -273,11 +313,12 @@ export default function StaffSurface(_props: SurfaceProps) {
       )}
 
       {step === 'pin' && picked && (
-        <section aria-label={`PIN for ${picked.name}`} className="flex flex-col items-center gap-5">
-          <p className="inline-flex items-center gap-2 text-xl font-bold">
-            <Lock className="size-5 text-accent" /> {picked.name}
-          </p>
-          {error && <p role="alert" className="text-bad">{error}</p>}
+        <section aria-label={`PIN for ${picked.name}`} className="flex flex-col items-center gap-6">
+          <div className="flex flex-col items-center gap-3">
+            <Avatar name={picked.name} className="size-16 text-2xl" />
+            <p className="text-2xl font-black tracking-tight">{picked.name}</p>
+          </div>
+          {error && <p role="alert" className={ALERT_CLS}>{error}</p>}
           <PinPad mode="once" busy={busy} onSubmit={onLogin} />
           <Button variant="ghost" onClick={() => { setPicked(null); setError(null); setStep('pick') }}>
             Not you? Pick another name
@@ -286,21 +327,23 @@ export default function StaffSurface(_props: SurfaceProps) {
       )}
 
       {step === 'signup' && (
-        <section aria-label="Join the staff list" className="flex flex-col gap-4">
-          <h2 className="text-lg font-semibold">Join the staff list</h2>
+        <section aria-label="Join the staff list" className="flex flex-col gap-5">
+          <h2 className="text-xl font-bold tracking-tight">Join the staff list</h2>
           <label className="flex flex-col gap-2">
-            <span className="text-sm font-medium text-muted">Your name</span>
+            <span className={LABEL_CLS}>Your name</span>
             <input value={name} onChange={(e) => setName(e.target.value)} maxLength={60}
-              className="rounded-lg border border-line bg-panel px-4 py-3 text-lg" placeholder="e.g. Priya" />
+              className={INPUT_CLS} placeholder="e.g. Priya" />
           </label>
           <div className="flex flex-col gap-2">
-            <span className="text-sm font-medium text-muted">Your language</span>
+            <span className={LABEL_CLS}>Your language</span>
             <div className="flex flex-wrap gap-2">
               {SPEAK_LANGS.map((lang) => (
                 <button key={lang} type="button" aria-pressed={language === lang}
                   onClick={() => setLanguage(lang)}
-                  className={cx('rounded-full border px-4 py-2 font-medium',
-                    language === lang ? 'border-accent bg-panel-2 text-text' : 'border-line text-muted')}>
+                  className={cx('rounded-full px-4 py-2 font-semibold ring-1 transition-[color,background-color,box-shadow] focus-visible:outline-2 focus-visible:outline-accent',
+                    language === lang
+                      ? 'bg-linear-to-r from-accent to-accent-2 text-ink shadow-glow-accent-sm ring-accent/60'
+                      : 'bg-panel-2 text-muted ring-white/10 hover:text-text hover:ring-accent/40')}>
                   {LANGUAGE_NAMES[lang]}
                 </button>
               ))}
@@ -315,11 +358,14 @@ export default function StaffSurface(_props: SurfaceProps) {
       )}
 
       {step === 'setpin' && (
-        <section aria-label="Choose your PIN" className="flex flex-col items-center gap-5">
-          <p className="inline-flex items-center gap-2 text-xl font-bold">
-            <KeyRound className="size-5 text-accent" /> {name.trim()}
-          </p>
-          {error && <p role="alert" className="text-bad">{error}</p>}
+        <section aria-label="Choose your PIN" className="flex flex-col items-center gap-6">
+          <div className="flex flex-col items-center gap-3">
+            <span className="flex size-14 items-center justify-center rounded-2xl bg-ai/15 text-ai-2 shadow-glow-ai-sm ring-1 ring-ai/30">
+              <KeyRound className="size-7" />
+            </span>
+            <p className="text-2xl font-black tracking-tight">{name.trim()}</p>
+          </div>
+          {error && <p role="alert" className={ALERT_CLS}>{error}</p>}
           <PinPad mode="set" busy={busy} onSubmit={onSignupPin} />
           <Button variant="ghost" onClick={() => setStep('signup')}>Back</Button>
         </section>
@@ -327,26 +373,44 @@ export default function StaffSurface(_props: SurfaceProps) {
 
       {step === 'roles' && session && (
         <section aria-label="Pick your job for this shift" className="flex flex-col gap-4">
-          <h2 className="text-lg font-semibold">
+          <h2 className="text-xl font-bold tracking-tight">
             Hi {session.staff.name} — pick your job for this shift
           </h2>
           <div className="grid gap-3 sm:grid-cols-2">
-            {slots.map((slot) => (
-              <button key={slot.slot_id} type="button" disabled={slot.holder !== null || busy}
-                onClick={() => onClaim(slot)}
-                className={cx('flex flex-col items-start gap-1 rounded-xl border p-4 text-left',
-                  slot.holder !== null
-                    ? 'border-line bg-panel opacity-60'
-                    : 'border-line bg-panel transition-colors hover:border-accent')}>
-                <span className="inline-flex items-center gap-2 text-lg font-semibold">
-                  {slot.label}
-                  {slot.mine && <Check className="size-5 text-ok" />}
-                </span>
-                <span className="text-sm text-muted">
-                  {slot.holder !== null ? `Taken by ${slot.holder.name}` : 'Open'}
-                </span>
-              </button>
-            ))}
+            {slots.map((slot) => {
+              const Icon = SLOT_ICONS[slot.kind]
+              const taken = slot.holder !== null
+              return (
+                <button key={slot.slot_id} type="button" disabled={taken || busy}
+                  onClick={() => onClaim(slot)}
+                  className={cx('flex items-start gap-3.5 rounded-2xl border p-4 text-left',
+                    taken
+                      ? 'border-white/5 bg-panel/60 opacity-60'
+                      : 'border-white/8 bg-panel bg-linear-to-b from-panel-2/80 to-panel shadow-glow transition-[transform,box-shadow,border-color] duration-200 hover:-translate-y-0.5 hover:border-accent/40 hover:shadow-lift focus-visible:outline-2 focus-visible:outline-accent')}>
+                  <span className={cx('flex size-11 shrink-0 items-center justify-center rounded-xl ring-1', SLOT_TILES[slot.kind])}>
+                    <Icon className="size-5" />
+                  </span>
+                  <span className="flex min-w-0 flex-1 flex-col gap-1">
+                    <span className="inline-flex items-center gap-2 text-lg font-bold">
+                      {slot.label}
+                      {slot.mine && <Check className="size-5 text-ok" />}
+                    </span>
+                    {taken ? (
+                      <span className="flex items-center gap-2 text-sm text-muted">
+                        <Avatar name={slot.holder!.name} className="size-5 text-[10px]" />
+                        Taken by {slot.holder!.name}
+                        <Lock className="size-3.5 shrink-0" />
+                      </span>
+                    ) : (
+                      <span className="flex items-center gap-1.5 text-sm font-semibold text-ok">
+                        <span className="size-1.5 rounded-full bg-ok shadow-glow-ok-sm" />
+                        Open
+                      </span>
+                    )}
+                  </span>
+                </button>
+              )
+            })}
           </div>
           <Button variant="ghost" loading={busy} onClick={onEndShift}>Sign out instead</Button>
         </section>
