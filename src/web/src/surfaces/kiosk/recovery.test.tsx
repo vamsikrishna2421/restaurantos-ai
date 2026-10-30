@@ -24,24 +24,25 @@ async function openKiosk(over: Partial<KioskDeps> = {}) {
   const audio = fakeAudio()
   render(<Kiosk deps={{ audio: audio.deps, speech: null, storage: window.sessionStorage, ensureSession: async () => {},
     connect: FakeVoiceSocket.connect, random: () => 0, now: () => clock, newKey: () => `tk-${++keys}`, ...over }} />)
-  await act(async () => {
-    fireEvent.click(screen.getByRole('button', { name: 'Tap to start' }))
-    await settle()
-  })
+  await act(async () => { await settle() }) // the kiosk opens on mount: session and socket, no gate
   const sock = FakeVoiceSocket.latest()
   act(() => {
     sock.open()
     sock.recv(READY)
   })
   recv(sock, result({ turn_no: 1, cart: BIRYANIS }))
-  return { sock, node: audio.nodes[0], talk: screen.getByTestId('talk-button') }
+  return { sock, audio, talk: screen.getByTestId('talk-button') }
 }
 
-/** Hold, talk and let go: `stop` goes out after the two tail frames. */
-function talkAndRelease(node: { emit: () => void }, talk: HTMLElement) {
-  fireEvent.pointerDown(talk, { pointerId: 1 })
+/** One tap to talk, a second to stop: `stop` goes out after the two tail frames. */
+async function talkTapTap(audio: ReturnType<typeof fakeAudio>, talk: HTMLElement) {
+  await act(async () => {
+    fireEvent.click(talk) // the first tap also starts the microphone
+    await settle()
+  })
+  const node = audio.nodes[0]
   clock += 2000
-  fireEvent.pointerUp(talk, { pointerId: 1 })
+  fireEvent.click(talk)
   act(() => {
     node.emit()
     node.emit()
@@ -79,8 +80,8 @@ afterEach(() => {
 })
 
 test('a blip between stop and turn_result: the turn that landed shows from the feed, no repeat asked', async () => {
-  const { sock, node, talk } = await openKiosk()
-  talkAndRelease(node, talk)
+  const { sock, audio, talk } = await openKiosk()
+  await talkTapTap(audio, talk)
   expect(sock.messages().at(-1)).toMatchObject({ type: 'stop', turn_key: 'tk-1' })
 
   act(() => sock.drop(1006)) // the answer is lost; the server drains the turn into the resumable Dialogue
@@ -106,8 +107,8 @@ test('a blip between stop and turn_result: the turn that landed shows from the f
 })
 
 test('a feed that was faster than the answer: the completed turn shows as soon as the socket drops', async () => {
-  const { sock, node, talk } = await openKiosk()
-  talkAndRelease(node, talk)
+  const { sock, audio, talk } = await openKiosk()
+  await talkTapTap(audio, talk)
   feed(cartUpdated(600, WITH_SAMOSA))
   feed(turnCompleted(601, 2))
   expect(screen.queryByText('1× Samosa')).toBeNull() // a turn in flight waits for its own turn_result
@@ -118,7 +119,10 @@ test('a feed that was faster than the answer: the completed turn shows as soon a
 
 test('a request that never left is asked for again, and late feed events never undo a newer answer', async () => {
   const { sock, talk } = await openKiosk()
-  fireEvent.pointerDown(talk, { pointerId: 1 }) // still holding: no stop was sent
+  await act(async () => {
+    fireEvent.click(talk) // recording, never stopped: no stop was sent
+    await settle()
+  })
   act(() => sock.drop(1006))
   expect(screen.getByText('The connection dropped. Your order is safe; please say that again.')).toBeInTheDocument()
 
@@ -174,9 +178,11 @@ test('a lost "Review order" that landed shows the read-back; a lost turn of an e
 
 test('degraded{asr, typed} ends the voice turn at once, so typing works without waiting for the watchdog', async () => {
   const { sock, talk } = await openKiosk()
-  fireEvent.pointerDown(talk, { pointerId: 1 })
+  await act(async () => {
+    fireEvent.click(talk)
+    await settle()
+  })
   recv(sock, { type: 'degraded', component: 'asr', fallback: 'typed' }) // e.g. the ASR chaos drill: no transcript
-  fireEvent.pointerUp(talk, { pointerId: 1 })
   expect(sock.messages().filter((m) => m.type === 'stop')).toHaveLength(0)
   expect(talk).toHaveAttribute('data-state', 'idle')
   expect(screen.getByText(/voice is not working right now/i)).toBeInTheDocument()

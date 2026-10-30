@@ -587,4 +587,5 @@ export interface OnboardingGoLiveResult {
   tenant_id: string
   name: string
   files: string[]
+  status: 'live'
 }

@@ -17,12 +17,13 @@ API) or the menu pasted as text. This module does the rest:
   ``seed.loader`` reads for a tenant — validates them with the loader's own schemas and referential checks,
   and only then moves them into place.
 
-**What "go live" does and does not do today.** The files are written under ``config/tenants/<slug>/`` in
-exactly the seed format. The runtime seed loader currently materializes only the template tenant
-(``spice_route``) into the served ``live``/``demo``/sandbox tenants, so a newly onboarded restaurant's files
-are complete and validated but are **not served by the running app yet** — serving arbitrary onboarded
-tenants is the loader-generalization step that follows this package. Draft dish names are also English-only:
-the generated ``menu.yaml`` carries them into the te/ta/es name fields untranslated and flags the file
+**What "go live" does.** The files are written under ``config/tenants/<slug>/`` in exactly the seed format,
+then the route activates the tenant in the running app (``seed.materialize.activate_tenant``): its seed is
+materialized as the deployment's template (with ``live``/``demo`` rebuilt from it) and recorded as the
+active tenant (``seed.loader.set_active_tenant``), so new sessions, the staff sign-in and the kiosk serve
+the new restaurant immediately — no restart. Sessions already open keep the sandbox they cloned; they are
+per-device clones and are never yanked mid-shift. Draft dish names are also English-only: the generated
+``menu.yaml`` carries them into the te/ta/es name fields untranslated and flags the file
 ``review_status: unreviewed``, the same flag the sample tenant carries for its unchecked translations.
 """
 
@@ -87,6 +88,14 @@ class MenuUnparseable(AppError):
     """422: the page (or pasted text) was read, but nothing menu-shaped was found in it."""
 
     status, code = 422, "menu_unparseable"
+
+
+class ActivationFailed(AppError):
+    """500: the tenant config was written, but activating it in the running app failed. The details name the
+    tenant and the problems; the files stay on disk (a restart with ``RESTOS_TEMPLATE_TENANT`` set to the
+    tenant, or a fixed store, activates it then) — go-live never claims a restaurant is live when it is not."""
+
+    status, code = 500, "activation_failed"
 
 
 # ----- the station template -------------------------------------------------------------------------------------

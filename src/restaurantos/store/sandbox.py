@@ -39,7 +39,7 @@ from restaurantos.contracts.errors import NotFound
 from restaurantos.contracts.events import SCENARIO_NAMES, ScenarioName
 from restaurantos.contracts.ledger import GENESIS_HASH
 from restaurantos.seed import scenario as scenarios
-from restaurantos.seed.loader import load_seed
+from restaurantos.seed.loader import load_tenant_seed
 from restaurantos.store import tables as t
 
 if TYPE_CHECKING:
@@ -141,7 +141,7 @@ class Sandbox:
                 tax_bp=source.tax_bp, menu_version=source.menu_version, last_seq=0, ledger_seq=0,
                 ledger_head=GENESIS_HASH, seed_hash=source.seed_hash, flags=_flags()))
             await clone_config(tx.conn, req.template, tenant_id)
-            await self._load(tx, tenant_id, "sandbox", req.scenario, "scenario.loaded", now)
+            await self._load(tx, tenant_id, "sandbox", req.scenario, "scenario.loaded", now, req.template)
         log.info("sandbox %s created from %s (%s, pool %s)", tenant_id, req.template, req.scenario, req.pool)
         return tenant_id
 
@@ -164,7 +164,7 @@ class Sandbox:
             await conn.execute(update(t.tenants).where(t.tenants.c.id == tenant_id).values(
                 tax_bp=source.tax_bp, seed_hash=source.seed_hash, menu_version=row.menu_version + 1, ledger_seq=0,
                 ledger_head=GENESIS_HASH, flags=_flags(), last_active_ms=now, expires_ms=expires))
-            await self._load(tx, tenant_id, row.kind, name, "sandbox.reset", now)
+            await self._load(tx, tenant_id, row.kind, name, "sandbox.reset", now, row.template)
         log.info("tenant %s reset to %s", tenant_id, name)
 
     async def sweep(self, now_real_ms: int) -> int:
@@ -184,13 +184,23 @@ class Sandbox:
             log.info("sandbox sweep deleted %d idle sandbox(es)", len(doomed))
         return len(doomed)
 
-    async def _load(self, tx: Tx, tenant_id: str, kind: str, name: ScenarioName, event_type: str, now: int) -> None:
+    async def _load(self, tx: Tx, tenant_id: str, kind: str, name: ScenarioName, event_type: str, now: int,
+                    template: str) -> None:
         """Apply scenario ``name`` with the tenant's start clock, then announce it (``scenario.loaded`` on create,
-        ``sandbox.reset`` on reset) at the new clock's business time."""
-        seed = load_seed()
+        ``sandbox.reset`` on reset) at the new clock's business time.
+
+        The scenario is built from the seed of the tenant's own template (``template``), so a clone of an
+        onboarded restaurant starts from its own menu, stock and zone. The scripted scenarios
+        (``dinner_rush``) are written against the sample tenant's menu, so a tenant of any other template
+        starts ``quiet`` instead — a fresh restaurant at opening, not another restaurant's rush.
+        """
+        seed = load_tenant_seed(tenant_id=template)
+        if template != TEMPLATE_TENANT and name != "quiet":
+            log.info("tenant %s: scenario %s is a %s script; starting quiet", tenant_id, name, TEMPLATE_TENANT)
+            name = "quiet"
         own = scenarios.default_clock(scenarios.load_scenario(name, seed=seed), seed.tenant.timezone, now)
         spec = start_clock(own, kind, now)
-        await scenarios.apply(tx, tenant_id, name, spec, now_real_ms=now)
+        await scenarios.apply(tx, tenant_id, name, spec, now_real_ms=now, seed=seed)
         biz_time = biz_from_ms(self._store.clock.for_tenant(spec).now_biz_ms(), self._store.tz)
         await tx.append_event(tenant_id, event_type, {"tenant_id": tenant_id, "scenario": name, "biz_time": biz_time},
                               SYSTEM_ACTOR)

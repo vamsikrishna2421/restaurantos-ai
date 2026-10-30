@@ -240,6 +240,9 @@ class Settings(BaseSettings):
     ai_cache_dir: Path | None = None  # record/replay store; defaults to data_dir / "ai_cache"
     replay_paced: bool = False  # replay streams at recorded pace (for rehearsals)
     tenant_timezone: str = DEFAULT_TZ
+    template_tenant: str | None = None  # RESTOS_TEMPLATE_TENANT: the tenant seed this deployment serves
+    # (seed.loader.resolve_template_tenant); None = the template tenant, unless go-live recorded one in the
+    # data dir's active_tenant file, which wins over this setting.
     phase: Phase | None = None  # explicit override; None = automatic (see auto_phase)
 
     # Credentials and auth

@@ -344,19 +344,23 @@ def scenario_rows(scenario: Scenario, seed: SeedData, tenant_id: str, *, clock: 
 
 
 async def apply(tx: SeedTx, tenant_id: str, name: ScenarioName, clock: TenantClockSpec | None = None, *,
-                now_real_ms: int | None = None, root: Path | None = None) -> None:
-    """Write scenario ``name`` into ``tenant_id`` (a clone of the template) inside the caller's write transaction.
+                now_real_ms: int | None = None, root: Path | None = None, seed: SeedData | None = None) -> None:
+    """Write scenario ``name`` into ``tenant_id`` (a clone of a template) inside the caller's write transaction.
 
     Replaces the tenant's orders, order lines and tickets with the scenario's; sets every ingredient's on_hand and
     reserved, every supplier's notes and the tenant clock (``clock``, else the scenario's own). Other state (menu
     availability, plans, ledger, flags) is the caller's to reset. Raises ``LookupError`` for an unknown tenant or
     one that lacks a template row.
+
+    The scenario is validated and built against ``seed`` — the seed of the tenant's own template, so a clone of
+    an onboarded restaurant gets its own stock and suppliers, never the sample tenant's. Default: the template
+    tenant's seed.
     """
     conn = tx.conn
     exists = await conn.execute(select(tables.tenants.c.id).where(tables.tenants.c.id == tenant_id))
     if exists.first() is None:
         raise LookupError(f"tenant {tenant_id!r} does not exist")
-    seed = load_seed(root)
+    seed = seed or load_seed(root)
     scenario = load_scenario(name, root, seed=seed)
     now = real_now_ms(now_real_ms)
     spec = clock or default_clock(scenario, seed.tenant.timezone, now)

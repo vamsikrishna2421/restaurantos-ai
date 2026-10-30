@@ -186,7 +186,7 @@ function Empty() {
       <Headphones aria-hidden className="size-12 text-accent" />
       <p className="text-2xl font-semibold">No one is ordering right now</p>
       <p className="max-w-xl text-muted">
-        Hold to talk on the <Link to="/kiosk" className="text-accent underline">kiosk</Link>, play a sample clip on
+        Tap to talk on the <Link to="/kiosk" className="text-accent underline">kiosk</Link>, play a sample clip on
         the <Link to="/" className="text-accent underline">main screen</Link>, or call in. Every turn shows up here as
         it happens: the guest's words with an English subtitle, the cart, the path, the model calls, the cost and the
         latency of each stage.

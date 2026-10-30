@@ -3,7 +3,9 @@
 - **Start** (``start``, POST /api/session, the first Start click and never a page load). A caller whose ``ros_sess``
   still names a live sandbox keeps it, and no creation is counted; a judge passcode or an admin cookie upgrades its
   grade in place (``judge.limits``). Anyone else gets a new **paused** ``dinner_rush`` sandbox
-  (``store.sandbox.create``) once the creation limits allow it, and a new session id. A presented passcode is
+  (``store.sandbox.create``) once the creation limits allow it, and a new session id. The sandbox is cloned
+  from the tenant this deployment serves (``seed.loader.resolve_template_tenant``); for a template other
+  than the sample tenant the clone starts ``quiet`` (see ``store.sandbox``). A presented passcode is
   compared in constant time (``auth.secret_matches``); a wrong one is 403 ``forbidden_role`` with
   ``details.reason = "bad_passcode"`` and costs a passcode token. Sessions are minted with the ``judge`` role.
 - **Join** (``mint_join_link`` / ``join``): a one-time ``/join/{token}`` URL on ``public_base_url`` (10 min, so a QR
@@ -38,6 +40,7 @@ from restaurantos.contracts.events import ScenarioName
 from restaurantos.judge import limits
 from restaurantos.judge.limits import Grade
 from restaurantos.security import auth, tokens
+from restaurantos.seed.loader import resolve_template_tenant
 from restaurantos.store import repo
 from restaurantos.store import tables as t
 from restaurantos.store.sandbox import SANDBOX_IDLE_MS
@@ -172,7 +175,11 @@ async def start(c: Container, *, session: SessionClaims | None, admin: AdminClai
             log.info("session: sandbox %s upgraded to %s/%s", tenant.id, wanted.level, wanted.pool)
         return Grant(session.sid, tenant, created=False)
     limits.creation(wanted, ip, user_agent)
-    tenant_id = await c.store.sandbox.create(pool=wanted.pool, caps_level=wanted.level, scenario=START_SCENARIO)
+    # The clone's template is the tenant this deployment serves (go-live's record, then RESTOS_TEMPLATE_TENANT,
+    # then the sample tenant): a Start after a restaurant goes live opens on that restaurant.
+    template = resolve_template_tenant(settings=c.settings)
+    tenant_id = await c.store.sandbox.create(template=template, pool=wanted.pool, caps_level=wanted.level,
+                                             scenario=START_SCENARIO)
     log.info("session: new %s sandbox %s (pool %s)", wanted.level, tenant_id, wanted.pool)
     found = await find(c, tenant_id)
     if found is None:  # swept between the two statements: impossible within 24 h, but never hand out a dead id

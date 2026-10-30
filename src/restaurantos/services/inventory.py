@@ -41,7 +41,7 @@ from restaurantos.contracts.kitchen import TicketLine
 from restaurantos.contracts.ws import InventoryItemView
 from restaurantos.domain import detectors, inventory
 from restaurantos.domain import forecast as fc
-from restaurantos.seed.loader import load_seed
+from restaurantos.seed.loader import load_tenant_seed
 from restaurantos.services.clock import RealClock
 from restaurantos.services.container import require
 from restaurantos.store import repo as store_repo
@@ -173,21 +173,26 @@ def _targets(ingredient_ids: Collection[str] | None, item_codes: Collection[str]
 
 class InventoryReads:
     """Forecasts from any connection (a read snapshot or ``tx.conn``): the tenant clock's business now, its stock,
-    recipes and suppliers, the window from ``repo.reservations_since`` and the seed's demand curve for the prior."""
+    recipes and suppliers, the window from ``repo.reservations_since`` and the demand curve of the tenant's own
+    template seed for the prior (tenant rows do not carry the demand curve)."""
 
     def __init__(self, clock: ClockPort, tz: str = DEFAULT_TZ) -> None:
         self._clock = clock
         self._tz = tz
-        self._demand: DemandCurve | None = None
+        self._demands: dict[str, DemandCurve] = {}  # template tenant id -> its demand curve
 
     def _repo(self) -> RepoPort:
         return store_repo  # type: ignore[return-value] - the module satisfies RepoPort
 
-    def _prior_inputs(self, now_biz_ms: int) -> dict[str, Any] | None:
+    def _demand_for(self, template_id: str) -> DemandCurve:
+        """The demand curve of the tenant's template seed, loaded once per template."""
+        demand = self._demands.get(template_id)
+        if demand is None:
+            demand = self._demands[template_id] = load_tenant_seed(tenant_id=template_id).demand
+        return demand
+
+    def _prior_inputs(self, now_biz_ms: int, demand: DemandCurve) -> dict[str, Any] | None:
         """``prior_per_h`` keywords for the daypart of ``now``; None outside every daypart (closed: no prior)."""
-        if self._demand is None:
-            self._demand = load_seed().demand  # tenant rows do not carry the demand curve
-        demand = self._demand
         daypart = fc.daypart_at(now_biz_ms, demand.dayparts, tz=self._tz)
         if daypart is None:
             return None
@@ -207,7 +212,7 @@ class InventoryReads:
         suppliers = await repo.suppliers(conn, tenant_id)
         bands = await last_bands(conn, tenant_id)
         targets = _targets(ingredient_ids, item_codes, recipes)
-        prior = self._prior_inputs(now)
+        prior = self._prior_inputs(now, self._demand_for(await repo.template_id(conn, tenant_id)))
         out: dict[str, Forecast] = {}
         for ingredient in stock:
             if targets is not None and ingredient.id not in targets:

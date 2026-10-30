@@ -79,6 +79,12 @@ async def tenant(conn: AsyncConnection, tid: str) -> TenantInfo:
     return _tenant_info(await _tenant_row(conn, tid))
 
 
+async def template_id(conn: AsyncConnection, tid: str) -> str:
+    """The template tenant ``tid`` was cloned (or materialized) from: the id its seed loads under. NotFound
+    for an unknown tenant, like ``tenant``."""
+    return str((await _tenant_row(conn, tid)).template)
+
+
 async def tenant_by_dtmf(conn: AsyncConnection, code: str, now_real_ms: int) -> TenantInfo | None:
     """The tenant whose code is ``code`` while it is armed (``dtmf_armed_until_ms`` still in the future)."""
     if not code:

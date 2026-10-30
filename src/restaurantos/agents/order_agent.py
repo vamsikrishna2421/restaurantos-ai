@@ -152,10 +152,11 @@ def _cart_lines(cart: Cart | None) -> list[tuple[int, str, int, list[str]]]:
     return [(ln.line_no, ln.item_code, ln.qty, ln.modifiers) for ln in cart.lines] if cart is not None else []
 
 
-def _seed_menu() -> MenuSnapshot:
-    from restaurantos.seed.loader import load_seed  # warm-up before any parse: every tenant clones this menu
+def _seed_menu(settings: Settings | None = None) -> MenuSnapshot:
+    from restaurantos.seed.loader import load_seed, resolve_template_tenant  # warm-up before any parse
 
-    return load_seed().menu
+    # The fallback menu is the one the deployment serves: tenants clone the selected template's menu.
+    return load_seed(tenant_id=resolve_template_tenant(settings=settings)).menu
 
 
 class OrderAgent:
@@ -220,7 +221,7 @@ class OrderAgent:
         that sent the same prefix, or while chaos has Meta down. Never raises, so callers can fire and forget."""
         try:
             self._chaos().check(ctx.tenant_id, "meta")
-            menu = menu or self._last_menu or _seed_menu()
+            menu = menu or self._last_menu or _seed_menu(self.settings)
             request = order_prompt.build_request(menu, (), None, ctx.channel or "kiosk", WARM_UTTERANCE,
                                                  self.variant)
             now = self._now_ms()

@@ -22,19 +22,25 @@ function kioskDeps(audio: FakeAudio, over: Partial<KioskDeps> = {}): Partial<Kio
   }
 }
 
-/** Render the kiosk, pass the audio gate and let the server say ready. */
+/** Render the kiosk (it opens on the ordering interface: session and socket start on mount) and let the
+ * server say ready. The microphone starts on the first talk tap, not here. */
 async function openKiosk(over: Partial<KioskDeps> = {}, audio = fakeAudio()) {
   render(<Kiosk deps={kioskDeps(audio, over)} />)
-  await act(async () => {
-    fireEvent.click(screen.getByRole('button', { name: 'Tap to start' }))
-    await settle()
-  })
+  await act(async () => { await settle() })
   const sock = FakeVoiceSocket.latest()
   act(() => {
     sock.open()
     sock.recv(READY)
   })
-  return { audio, sock, node: audio.nodes[0], talk: screen.getByTestId('talk-button') }
+  return { audio, sock, talk: screen.getByTestId('talk-button') }
+}
+
+/** The first talk tap: starts the microphone, and listening begins the moment it runs. */
+async function tapTalk(talk: HTMLElement) {
+  await act(async () => {
+    fireEvent.click(talk)
+    await settle()
+  })
 }
 
 const recv = (sock: FakeVoiceSocket, msg: object) => act(() => sock.recv(msg))
@@ -57,18 +63,28 @@ afterEach(() => {
   vi.useRealTimers()
 })
 
-test('audio_gate_starts_worklet', async () => {
+test('kiosk_opens_on_ordering_and_the_first_talk_tap_starts_the_microphone', async () => {
   const audio = fakeAudio()
   render(<Kiosk deps={kioskDeps(audio)} />)
-  expect(screen.getByRole('dialog', { name: /order with your voice/i })).toBeInTheDocument()
-  expect(audio.contexts).toHaveLength(0) // nothing starts on page load
-  expect(FakeVoiceSocket.all).toHaveLength(0)
-  // until talking is possible the Space bar is left alone (it still presses the focused gate button)
-  expect(fireEvent.keyDown(window, { code: 'Space', key: ' ' })).toBe(true)
-  fireEvent.keyUp(window, { code: 'Space', key: ' ' })
+  // no gate: the ordering interface is live from the first paint, and nothing is inert
+  expect(screen.queryByRole('dialog')).toBeNull()
+  expect(screen.getByTestId('kiosk-body')).not.toHaveAttribute('inert')
+  expect(screen.getByRole('button', { name: 'Add Samosa, $6.99' })).toBeEnabled()
+  expect(audio.contexts).toHaveLength(0) // the microphone does not start on page load
 
+  await act(async () => { await settle() }) // session and socket start on mount
+  const sock = FakeVoiceSocket.latest()
+  expect(sock.url).toMatch(/\/ws\/voice\?purpose=order&lang=auto$/)
+  act(() => {
+    sock.open()
+    sock.recv(READY)
+  })
+  expect(sock.messages()).toEqual([{ type: 'warm' }])
+  expect(audio.contexts).toHaveLength(0) // still no microphone: it waits for the talk tap
+
+  const talk = screen.getByTestId('talk-button')
   await act(async () => {
-    fireEvent.click(screen.getByRole('button', { name: 'Tap to start' }))
+    fireEvent.click(talk)
     // inside the tap itself: a 16 kHz context, resumed (iOS unlocks audio only in a gesture)
     expect(audio.contexts.map((c) => [c.sampleRate, c.resumes])).toEqual([[16_000, 1]])
     await settle()
@@ -77,88 +93,82 @@ test('audio_gate_starts_worklet', async () => {
   expect(audio.contexts[0].modules).toEqual(['/worklets/pcm-capture.js'])
   expect(audio.nodes.map((n) => n.name)).toEqual(['pcm-capture'])
   expect(audio.contexts[0].streamSources[0].outputs).toEqual([audio.nodes[0]])
-  expect(screen.queryByRole('dialog')).toBeNull()
+  // the tap that started the microphone is the talk tap: listening began the moment the mic ran
+  expect(sock.messages().at(-1)).toEqual({ type: 'start', turn_key: 'tk-1', mode: 'ptt' })
+  expect(talk).toHaveAttribute('data-state', 'listening')
+  expect(screen.getByRole('button', { name: 'Tap to stop' })).toBeEnabled()
+  expect(screen.getByTestId('talk-elapsed')).toHaveTextContent('0:00')
+  expect(screen.getByText('Nothing is sent until you tap stop.')).toBeInTheDocument()
+})
 
+test('a failed open is a notice on the ordering screen, and the talk tap retries it', async () => {
+  const ensureSession = vi.fn().mockRejectedValueOnce(Object.assign(new Error('429'), { code: 'rate_limited' }))
+    .mockResolvedValue(undefined)
+  render(<Kiosk deps={kioskDeps(fakeAudio(), { ensureSession })} />)
+  await act(async () => { await settle() })
+  expect(screen.queryByRole('dialog')).toBeNull() // never a blocker in front of ordering
+  expect(screen.getByTestId('kiosk-body')).not.toHaveAttribute('inert')
+  expect(screen.getByText(/going a little fast/)).toBeInTheDocument()
+  expect(FakeVoiceSocket.all).toHaveLength(0) // the socket waits for a session
+
+  await act(async () => {
+    fireEvent.click(screen.getByTestId('talk-button')) // the talk tap retries the open
+    await settle()
+  })
+  expect(ensureSession).toHaveBeenCalledTimes(2)
   const sock = FakeVoiceSocket.latest()
-  expect(sock.url).toMatch(/\/ws\/voice\?purpose=order&lang=auto$/)
   act(() => {
     sock.open()
     sock.recv(READY)
   })
   expect(sock.messages()).toEqual([{ type: 'warm' }])
-  // the worklet runs from the gate on, but nothing leaves the page outside a turn
-  act(() => audio.nodes[0].emit())
-  expect(sock.binary()).toHaveLength(0)
-  expect(screen.getByRole('button', { name: 'Hold to talk' })).toBeEnabled()
 })
 
-test('the gate is modal: focus starts on Start and stays in the gate, and the kiosk behind it is inert', async () => {
-  const ensureSession = vi.fn().mockRejectedValueOnce(Object.assign(new Error('429'), { code: 'rate_limited' }))
-    .mockResolvedValue(undefined)
-  render(<Kiosk deps={kioskDeps(fakeAudio(), { ensureSession })} />)
-  const start = screen.getByRole('button', { name: 'Tap to start' })
-  expect(start).toHaveFocus()
-  expect(screen.getByTestId('kiosk-body')).toHaveAttribute('inert')
-  screen.getByRole('button', { name: 'Auto' }).focus() // a language chip behind the gate (inert in a browser)
-  fireEvent.keyDown(document.activeElement ?? document.body, { key: 'Tab', shiftKey: true })
-  expect(start).toHaveFocus()
-
-  start.blur()
-  await act(async () => {
-    fireEvent.click(start) // refused: the gate stays, and the focus comes back for another try
-    await settle()
-  })
-  expect(within(screen.getByRole('dialog')).getByRole('alert')).toHaveTextContent(/going a little fast/)
-  expect(start).toHaveFocus()
-  await act(async () => {
-    fireEvent.click(start)
-    await settle()
-  })
-  expect(screen.queryByRole('dialog')).toBeNull()
-  expect(screen.getByTestId('kiosk-body')).not.toHaveAttribute('inert')
-})
-
-test('ptt_start_frames_stop', async () => {
-  const { sock, node, talk } = await openKiosk()
-  act(() => node.emit(pcmFrame(5))) // heard just before the press: sent as pre-roll
-  fireEvent.pointerDown(talk, { pointerId: 1, button: 0, pointerType: 'touch' })
+test('tap_talk_tap_sends_the_turn', async () => {
+  const { audio, sock, talk } = await openKiosk()
+  await tapTalk(talk) // the first tap starts the microphone and, once it runs, the turn
   expect(sock.messages().at(-1)).toEqual({ type: 'start', turn_key: 'tk-1', mode: 'ptt' })
   expect(talk).toHaveAttribute('data-state', 'listening')
+  const node = audio.nodes[0]
   act(() => {
     node.emit(pcmFrame(6))
     node.emit(pcmFrame(7))
   })
   const frames = sock.binary()
-  expect(frames.map((f) => f.byteLength)).toEqual([2560, 2560, 2560])
-  expect(frames.map((f) => new Int16Array(f.buffer, f.byteOffset, 1280)[0])).toEqual([5, 6, 7])
+  expect(frames.map((f) => f.byteLength)).toEqual([2560, 2560])
+  expect(frames.map((f) => new Int16Array(f.buffer, f.byteOffset, 1280)[0])).toEqual([6, 7])
 
   clock += 1800
-  fireEvent.pointerUp(talk, { pointerId: 1, button: 0, pointerType: 'touch' })
-  expect(sentTypes(sock).at(-1)).toBe('start') // the tail: the last word often outlasts the finger
+  fireEvent.click(talk) // the second tap stops and sends: the tail frames go first
+  expect(sentTypes(sock).at(-1)).toBe('start') // the tail: the last word often outlasts the tap
   act(() => {
     node.emit(pcmFrame(8))
     node.emit(pcmFrame(9))
   })
   expect(sock.messages().at(-1)).toEqual({ type: 'stop', turn_key: 'tk-1' })
   act(() => node.emit(pcmFrame(10)))
-  expect(sock.binary()).toHaveLength(5) // nothing after stop
+  expect(sock.binary()).toHaveLength(4) // nothing after stop
   expect(talk).toHaveAttribute('data-state', 'thinking')
 
   recv(sock, result({ transcript: 'one samosa', cart: cart([['SAMOSA', 1]]) }))
   expect(talk).toHaveAttribute('data-state', 'idle')
 
-  // the Space bar works the same way (and never scrolls the page); a tap under 250 ms is cancelled, not a turn
-  expect(fireEvent.keyDown(window, { code: 'Space', key: ' ' })).toBe(false)
+  // the mic runs on now, so the next turn keeps its pre-roll; a stop tap under 250 ms cancels, not a turn
+  act(() => node.emit(pcmFrame(5))) // heard just before the tap: sent as pre-roll
+  fireEvent.click(talk)
   expect(sock.messages().at(-1)).toEqual({ type: 'start', turn_key: 'tk-2', mode: 'ptt' })
+  const preroll = sock.binary().at(-1)!
+  expect(new Int16Array(preroll.buffer, preroll.byteOffset, 1280)[0]).toBe(5)
   clock += 100
-  fireEvent.keyUp(window, { code: 'Space', key: ' ' })
+  fireEvent.click(talk)
   expect(sock.messages().at(-1)).toEqual({ type: 'cancel', turn_key: 'tk-2' })
-  expect(screen.getByText(/hold the button while you talk/i)).toBeInTheDocument()
+  expect(screen.getByText(/tap once to start talking/i)).toBeInTheDocument()
 })
 
 test('captions_replace', async () => {
-  const { sock, node, talk } = await openKiosk()
-  fireEvent.pointerDown(talk, { pointerId: 1 })
+  const { audio, sock, talk } = await openKiosk()
+  await tapTalk(talk)
+  const node = audio.nodes[0]
   recv(sock, { type: 'partial', turn_key: 'tk-1', text: 'two chicken' })
   expect(screen.getByTestId('caption')).toHaveTextContent('“two chicken”')
   expect(screen.getByTestId('caption')).toHaveAttribute('data-final', 'false')
@@ -168,7 +178,7 @@ test('captions_replace', async () => {
   expect(screen.getByTestId('caption')).toHaveTextContent(/^“two chicken biryanis”$/)
 
   clock += 2000
-  fireEvent.pointerUp(talk, { pointerId: 1 })
+  fireEvent.click(talk)
   act(() => {
     node.emit()
     node.emit()
@@ -308,12 +318,15 @@ test('typed_fallback', async () => {
   expect(screen.getByText('Typed')).toBeInTheDocument()
   cleanup()
 
-  // no microphone: typing (and the menu) is offered straight away
+  // no microphone: the first talk tap asks, is refused, and typing is offered with the reason inline
   FakeVoiceSocket.all = []
   await openKiosk({}, fakeAudio({ deny: 'NotAllowedError' }))
+  await tapTalk(screen.getByTestId('talk-button'))
   expect(screen.getByRole('textbox', { name: 'Type your order' })).toBeInTheDocument()
   expect(screen.getByText(/microphone access was blocked/i)).toBeInTheDocument()
   expect(screen.getByTestId('talk-button')).toBeDisabled()
+  // tap ordering keeps working without a microphone
+  expect(screen.getByRole('button', { name: 'Add Samosa, $6.99' })).toBeEnabled()
 })
 
 test('resume_reconnect_keeps_cart', async () => {
@@ -344,10 +357,7 @@ test('resume_reconnect_keeps_cart', async () => {
   FakeVoiceSocket.all = []
   render(<Kiosk deps={kioskDeps(fakeAudio())} />)
   expect(screen.getByText('2× Chicken Dum Biryani')).toBeInTheDocument()
-  await act(async () => {
-    fireEvent.click(screen.getByRole('button', { name: 'Tap to start' }))
-    await settle()
-  })
+  await act(async () => { await settle() }) // the reopened kiosk starts its socket on mount
   const reloaded = FakeVoiceSocket.latest()
   expect(reloaded.url).toContain(`resume=${SID}`)
   // the server's LRU had expired: the stale cart is cleared rather than shown
@@ -362,6 +372,7 @@ test('resume_reconnect_keeps_cart', async () => {
 test('reply audio plays gaplessly, and degraded TTS falls back to the browser voice in the reply language', async () => {
   const speech = fakeSpeech([{ lang: 'en-US', name: 'Samantha' }, { lang: 'es-MX', name: 'Paulina' }])
   const { sock, audio, talk } = await openKiosk({ speech })
+  fireEvent.click(screen.getByRole('button', { name: 'Add Samosa, $6.99' })) // a guest tap unlocks playback
   recv(sock, result({ cart: cart([['SAMOSA', 1]]), reply: reply('1 Samosa. Anything else?') }))
   recv(sock, { type: 'tts_start', utterance_id: 'utt_1', format: 'pcm_16000', text: '1 Samosa. Anything else?',
     text_en: '1 Samosa. Anything else?' })
@@ -399,21 +410,28 @@ test('reply audio plays gaplessly, and degraded TTS falls back to the browser vo
   expect(screen.getByTestId('reply')).toHaveTextContent('3 సమోసా. ఇంకేమైనా?')
 })
 
-test('a press during the reply barges in: the audio stops before the new turn starts', async () => {
+test('a tap during the reply barges in: the audio stops before the new turn starts', async () => {
   const { sock, audio, talk } = await openKiosk()
+  await tapTalk(talk) // the guest asked by voice; the reply follows their turn
+  fireEvent.click(talk)
+  act(() => {
+    audio.nodes[0].emit()
+    audio.nodes[0].emit()
+  })
   recv(sock, result({ reply: reply('Anything else?') }))
   recv(sock, { type: 'tts_start', utterance_id: 'utt_9', format: 'pcm_16000', text: 'Anything else?', text_en: '' })
   act(() => sock.recvAudio(new Uint8Array(3200).buffer))
-  fireEvent.pointerDown(talk, { pointerId: 1 })
+  fireEvent.click(talk) // the reply is playing: this tap barges in with the next turn
   expect(sentTypes(sock).slice(-2)).toEqual(['barge_in', 'start'])
   expect((audio.contexts[0].sources[0] as FakeSource).stopped).toBe(true)
   expect(talk).toHaveAttribute('data-state', 'listening')
 })
 
-test('a forgotten hold stops itself, and a turn with no answer is given up after 20 s', async () => {
+test('a forgotten recording stops itself, and a turn with no answer is given up after 20 s', async () => {
   vi.useFakeTimers()
-  const { sock, node, talk } = await openKiosk({ now: () => Date.now() }) // the hold clock follows fake time
-  fireEvent.pointerDown(talk, { pointerId: 1 })
+  const { audio, sock, talk } = await openKiosk({ now: () => Date.now() }) // the turn clock follows fake time
+  await tapTalk(talk)
+  const node = audio.nodes[0]
   act(() => {
     vi.advanceTimersByTime(29_000) // the auto-stop, before the server's 30 s limit
     node.emit()
@@ -421,7 +439,7 @@ test('a forgotten hold stops itself, and a turn with no answer is given up after
   })
   expect(sock.messages().at(-1)).toEqual({ type: 'stop', turn_key: 'tk-1' })
   expect(talk).toHaveAttribute('data-state', 'thinking')
-  fireEvent.pointerUp(talk, { pointerId: 1 }) // the late release changes nothing
+  fireEvent.click(talk) // a tap while the answer is pending starts nothing new
   expect(sentTypes(sock).filter((t) => t === 'stop')).toHaveLength(1)
 
   act(() => {
@@ -441,7 +459,7 @@ test('a forgotten hold stops itself, and a turn with no answer is given up after
   expect(screen.getByText(/could not confirm your last request.*please say it again/i)).toBeInTheDocument()
 })
 
-test('a server error ends the turn and says why; a session gone behind 1006 closes the gate until the next tap',
+test('a server error ends the turn and says why; a session gone behind 1006 restarts fresh by itself',
   async () => {
   vi.useFakeTimers()
   const ensureSession = vi.fn(async () => {})
@@ -466,17 +484,14 @@ test('a server error ends the turn and says why; a session gone behind 1006 clos
     await settle()
   })
   expect(probeSession).toHaveBeenCalledOnce()
-  const gate = screen.getByRole('dialog', { name: /order with your voice/i })
-  expect(within(gate).getByRole('alert')).toHaveTextContent(/session ended/i)
+  // no gate comes back: the ended session is a notice on the ordering screen, and a fresh one starts alone
+  expect(screen.queryByRole('dialog')).toBeNull()
+  expect(screen.getByText(/session ended/i)).toBeInTheDocument()
+  expect(ensureSession).toHaveBeenLastCalledWith(true)
+  expect(FakeVoiceSocket.latest().url).not.toContain('resume=') // a fresh voice session for the new cookie
   const opened = FakeVoiceSocket.all.length
   act(() => {
     vi.advanceTimersByTime(60_000)
   })
   expect(FakeVoiceSocket.all).toHaveLength(opened) // no endless "Reconnecting…"
-  await act(async () => {
-    fireEvent.click(screen.getByRole('button', { name: 'Tap to start' }))
-    await settle()
-  })
-  expect(ensureSession).toHaveBeenLastCalledWith(true)
-  expect(FakeVoiceSocket.latest().url).not.toContain('resume=') // a fresh voice session for the new cookie
 })

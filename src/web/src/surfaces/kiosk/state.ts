@@ -33,13 +33,10 @@ const LANGS: readonly VoiceLang[] = ['auto', 'en', 'te', 'ta', 'es']
 
 export type TalkState = 'idle' | 'listening' | 'thinking' | 'speaking'
 export type ReplyVoice = 'server' | 'browser' | 'captions'
-export type GatePhase = 'closed' | 'opening' | 'open'
 export type NoticeTone = 'neutral' | 'ok' | 'warn' | 'bad'
 export type TurnKind = 'voice' | 'text' | 'ops' | 'confirm'
 
 export interface KioskState {
-  gate: GatePhase
-  gateError: string | null
   mic: CaptureState
   voice: VoiceStatus
   lang: VoiceLang
@@ -69,7 +66,7 @@ export interface KioskState {
 
 export function initialState(): KioskState {
   return {
-    gate: 'closed', gateError: null, mic: 'idle', voice: 'idle', lang: 'auto', speakLanguages: ['en'],
+    mic: 'idle', voice: 'idle', lang: 'auto', speakLanguages: ['en'],
     talk: 'idle', level: 0, caption: null, reply: null, replyVoice: null, cart: null, rejected: [], dialogue: null,
     placedOrderId: null, path: null, latencyMs: null, busy: false, pending: null, queued: 0, typed: false,
     degraded: {}, notice: null,
@@ -80,7 +77,7 @@ export const ERROR_TEXT: Readonly<Record<string, string>> = {
   rate_limited: 'You are going a little fast. Please wait a moment and try again.',
   budget_exceeded: 'The live AI budget for this demo is used up. The menu buttons still work.',
   ai_unavailable: 'The AI is unavailable right now. The menu buttons still work.',
-  no_session: 'This kiosk session ended. Tap to start again.',
+  no_session: 'This kiosk session ended. A fresh one is starting…',
 }
 
 /** Merge queued taps: identical adds become one op with the summed qty. */
