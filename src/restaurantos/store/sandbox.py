@@ -60,7 +60,7 @@ SCENARIO_EVENTS = ("scenario.loaded", "sandbox.reset")
 CONFIG_TABLES = (t.stations, t.staff, t.modifiers, t.menu_items, t.ingredients, t.recipe_lines, t.suppliers)
 STATE_TABLES = (*CONFIG_TABLES, t.orders, t.order_lines, t.tickets, t.purchase_orders, t.staff_notices, t.staff_tasks,
                 t.quote_offsets, t.incidents, t.plans, t.approvals, t.corrections, t.ledger, t.events)
-KEPT_TABLES = (t.calls, t.turns, t.tokens, t.consents, t.feedback, t.handler_cursors)
+KEPT_TABLES = (t.calls, t.turns, t.tokens, t.consents, t.feedback, t.handler_cursors, t.support_items)
 TENANT_TABLES = tuple(table for table in t.metadata.sorted_tables if "tenant_id" in table.c)
 
 

@@ -1254,3 +1254,115 @@ actually wanted.)
 ### Commits (bujji/pass10-sim, local — for the parent to merge)
 
 See git log on this branch: the simulator + its plan tests, then this handoff.
+
+---
+
+## Pass 12 — Operator console v1: capture first, then the founders' fleet + support inbox (P44) — built by Bujji, branch `bujji/pass12`, off 1ba3508 (= production main 923cb34 content); NOT pushed
+
+Built 2026-10-30. The agreed order held: the restaurant-side capture shipped in the same pass as
+the operator surface that reads it, so no queue exists without its reader. No LLM calls anywhere
+in this pass; no new design language — the operator surface is the manager console's dark system
+(panels, rings, chips, tones) pointed at platform data instead of one restaurant's.
+
+### A) Capture — the manager console's Support section
+
+- New **Support** tab in the manager console (after Settings). The manager on shift files a
+  **problem report** or a **feature request** (kind chips, title ≤ 120, details ≤ 2000) and reads
+  the tenant's own queue back underneath with its standing (New / In progress / Done chips,
+  reporter + filed time). Anyone else holding a station sees a note that only the manager files;
+  the form is never offered to them.
+- Storage: new **`support_items`** table (SQLAlchemy Core, `store/tables.py`) — tenant_id, id
+  (`sup_<ULID>`, prefix registered in `contracts/ids.py`), kind, title, body, reporter_id,
+  reporter_name, reporter_role, status, created_ms/updated_ms; `metadata.create_all` creates it
+  in existing databases like every table here. It sits beside `feedback` in `STATE_TABLES`, so a
+  sandbox reset keeps filed items (the same call the codebase made for page feedback).
+- API (`api/routes_operator.py`, feature **P44**, registered in `REQUIRED_ROUTERS` so it is
+  always on): `POST /api/support` + `GET /api/support` ride the device session (tenant from the
+  cookie) plus the staff bearer, gated by the staff routes' own `_manager_on_shift` — a
+  non-manager gets 403 `manager_required`, no session gets 401. The reporter is the claim holder
+  the gate already resolved; `reporter_role` is stored as `manager` (the gate guarantees it).
+
+### B) Operator console — `/operator`, founders only
+
+- Gated by the **existing admin auth** (`POST /api/admin/login` → `ros_admin` cookie;
+  `require_global_admin`). The route is registered feed `none`, session `false`, and nothing
+  links to it from the splash, kiosk or staff paths — owners arrive by address. The surface
+  opens with its own token login card when the fleet read comes back 401/403.
+- **Fleet** (`GET /api/admin/fleet`): every real tenant — `sbx_*` sandboxes and the
+  `spice_route` template excluded — oldest first, from existing tables only: name + kind,
+  onboarded (`tenants.created_ms`), menu item count (`menu_items`), **team size from the staff
+  store** (see decisions), last order (`max(orders.created_ms)`), last activity
+  (`tenants.last_active_ms`).
+- **Support inbox** (`GET /api/admin/support`): all tenants' items newest first (cap 200)
+  with tenant name joined in, plus `open_count` (status != done). `POST
+  /api/admin/support/{id}/status` walks an item to any of new / in_progress / done (unknown
+  id → 404); the UI offers the three as buttons, current state highlighted, and updates the row
+  in place. The restaurant's own Support section shows the same standing — one queue, two ends.
+
+### Design decisions worth knowing
+
+- **Staff count comes from the P41 staff store, not the ros.db `staff` table.** The `staff`
+  table holds onboarded config rows (and stays empty for tenants created by `add_tenant`);
+  people — seed personas and signups — live in the staff store. The fleet reuses
+  `routes_staff._base` + `staff_store(c).people(...)`, the same read the sign-in screen makes,
+  so the number is the team a restaurant actually signs in with.
+- **A new table instead of extending `feedback`.** `feedback` is page+note only, written by the
+  page-feedback slot with no auth context; kind/status/reporter/tenant-queue semantics are a
+  different shape, and overloading it would have bent both.
+- Support times are **real times** (UTC ms like `feedback`), not tenant business times — the
+  operators work across tenants and timezones, so both UIs format them in the reader's zone.
+- The status walk accepts any target status from the API (the UI leads new → in_progress →
+  done); an operator can also send an item back to New, which a strict forward-only walk would
+  forbid for no product gain.
+- The operator endpoints live under **`/api/admin/*`**, not `/api/operator/*` (corrected in the
+  fixup commit): the cross-tenant walk (`tests/security/`) classifies only `/api/admin/*` (and
+  `/api/health/deep`) as admin-scope — every other `/api/*` route must answer `wrong_tenant` to
+  a foreign session, which a GlobalAdmin gate by design does not. The codebase's other
+  GlobalAdmin routes (kill-switch, caps) already live under `/api/admin/`; this pass follows.
+  The same fixup registered the pass in the standing contracts: the `support_items` SPEC
+  transcription (`tests/contracts/test_tables.py`), the `KEPT_TABLES` classification
+  (`store/sandbox.py`), `EXPECTED_MODULES` (`tests/integration/test_registry.py`), and an
+  `UNPROBED_PARAMS` entry for `item_id` in the extended cross-tenant walk (a support item is a
+  platform-queue resource the admin gate refuses before the id is read, so no tenant id can
+  name one).
+
+### Tests
+
+- New Python: `tests/api/test_operator_routes.py` (10 tests) — session/manager gating, filing
+  both kinds with the reporter stamped, validation bounds, per-tenant isolation, admin gating
+  (401 without credentials, 403 with only a restaurant session), fleet inclusion/exclusion and
+  its counts incl. a placed order's `last_order_at`, the cross-tenant inbox with the open count
+  moving as an item walks to done, 404/422 edges.
+- Python full suite (clean env, all proxy vars unset): **1566 tests — 1562 passed, 3 skipped,
+  1 failed** — `test_localhost_tcp_needs_opt_in`, the known environmental failure from the
+  pass-7/8 record. (Counts read from the run's JUnit report.)
+- Web: **280/280** (`vitest run`, 43 files; 276 before this pass + 4 new) and `tsc` clean. New:
+  `surfaces/manager/support.test.tsx` (manager files a feature request, POST pinned, own queue
+  reads back; a station holder is told only the manager files and no `/api/support` call is
+  made) and `surfaces/operator/operator.test.tsx` (token login, fleet card facts, inbox walk
+  new → in_progress → done with both POSTs pinned and the open count falling to 0; wrong token
+  refused).
+
+### Screenshots (goal files, pass12-shots/, tablet 1180×820, local dev server, mock AI)
+
+`01-manager-support.png` (the filed printer report under Your reports, New), `02-operator-login.png`,
+`03-operator-console.png` (fleet: the dev boot's live + demo tenants, 30 items / 5 people each;
+the sandbox-filed report in the inbox as New), `04-operator-in-progress.png` (same row after the
+walk). Capture note: `scripts/dev.sh` runs the venv's editable install — point `PYTHONPATH` at
+the worktree `src` or the server silently serves the main checkout's code.
+
+### Left undone (deliberately, per scope)
+
+- No reply thread from operators back to a restaurant — v1 is capture + status only (the agreed
+  sequencing: console v1 first, threads/analytics later).
+- No fleet health alerting, no per-tenant drill-in page; the inbox caps at the newest 200 items.
+- Nothing deployed, pushed or PR'd — the parent reviews, merges and deploys.
+
+### Commits (bujji/pass12, local — for the parent to merge)
+
+`01f7740` backend (table, contracts, routes, registry, generated TS, route tests) ·
+`3658b22` web (support lib, manager section, operator surface, route, web tests) ·
+`0146c60` this handoff · a fixup commit (contract registrations + the operator endpoints'
+move under `/api/admin/*`, with the entry above corrected to match).
+
+— Bujji, 2026-10-30

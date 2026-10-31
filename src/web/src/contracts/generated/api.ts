@@ -35,6 +35,10 @@ export type ForecastConfidence = 'steady' | 'early' | 'prior' | 'none'
 
 export type ConsoleCardKind = 'capacity' | 'stock'
 
+export type SupportKind = 'problem' | 'feature'
+
+export type SupportStatus = 'new' | 'in_progress' | 'done'
+
 export type GoodwillReason = 'incident' | 'lapsed' | 'milestone'
 
 export type GoodwillOptionKind = 'usual' | 'cheaper' | 'also_loved'
@@ -794,6 +798,49 @@ export interface ConsoleSettings {
   menu: SettingsMenuItem[]
   stations: SettingsStation[]
   tickets_per_cook_hour: number
+}
+
+export interface SupportItemCreate {
+  kind: SupportKind
+  title: string
+  body: string
+}
+
+export interface SupportItem {
+  id: string
+  tenant_id: string
+  tenant_name: string
+  kind: SupportKind
+  title: string
+  body: string
+  reporter_name: string
+  reporter_role: string
+  status: SupportStatus
+  created_at: string
+}
+
+export interface SupportStatusUpdate {
+  status: SupportStatus
+}
+
+export interface FleetTenant {
+  tenant_id: string
+  name: string
+  kind: string
+  created_at: string
+  menu_items: number
+  staff_count: number
+  last_order_at: string | null
+  last_active_at: string | null
+}
+
+export interface OperatorFleet {
+  tenants: FleetTenant[]
+}
+
+export interface OperatorInbox {
+  items: SupportItem[]
+  open_count: number
 }
 
 export interface IdentifyRequest {

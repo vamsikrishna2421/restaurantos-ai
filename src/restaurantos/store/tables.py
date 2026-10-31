@@ -263,3 +263,15 @@ feedback = Table(
     _id(), _s("tenant_id", null=True), _s("session_id", null=True), _s("trace_id", null=True), _s("page"), _s("note"),
     _i("created_ms"),
 )
+
+# Pass 12 (P44): a restaurant's support queue — a problem report or feature request filed by the
+# manager on shift, worked by the platform operators. Like feedback it is kept across a sandbox
+# reset (it is a message to the operators, not shift state); the sweep still deletes a sandbox's
+# rows with the tenant. Status walks new -> in_progress -> done.
+support_items = Table(
+    "support_items", metadata,
+    _tenant(), _id(), _s("kind"), _s("title"), _s("body"), _s("reporter_id"), _s("reporter_name"),
+    _s("reporter_role"), _s("status"), _i("created_ms"), _i("updated_ms"),
+    Index("ix_support_items_tenant_status", "tenant_id", "status"),
+    Index("ix_support_items_created_ms", "created_ms"),
+)

@@ -91,6 +91,9 @@ SPEC: dict[str, dict] = {
     "tokens": dict(cols="nonce kind subject exp_ms:i used_ms:i?", pk=("nonce",)),
     "consents": dict(cols="id subject_alias kind text_version granted_ms:i", pk=("id",)),
     "feedback": dict(cols="id tenant_id? session_id? trace_id? page note created_ms:i", pk=("id",)),
+    "support_items": dict(
+        cols="id kind title body reporter_id reporter_name reporter_role status created_ms:i updated_ms:i",
+        pk=("id",), ix={(("tenant_id", "status"), False), (("created_ms",), False)}),
 }
 NO_TENANT_COLUMN = {"tenants", "feedback"}
 QUOTE_OFFSETS_ACTIVE_SQL = ("CREATE UNIQUE INDEX uq_quote_offsets_active ON quote_offsets (tenant_id, "
