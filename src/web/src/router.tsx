@@ -61,6 +61,7 @@ export const ROUTES: readonly RouteDef[] = [
   route('/kiosk', 'kiosk', 'Kiosk'),
   route('/kds', 'kds', 'Kitchen display'),
   route('/monitor', 'monitor', 'Call monitor'),
+  route('/operator', 'operator', 'Operator console', 'none', false),
   route('/live', 'live', 'Live board', 'live', false),
   route('/gm', 'gm', 'GM console'),
   route('/approve/:token', 'approve', 'Approval', 'none', false),

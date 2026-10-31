@@ -89,6 +89,9 @@ UNPROBED_PARAMS = {  # path parameters B's world has no id for, and why the walk
     "sample_id": "global: sample clips are the same for every tenant (judge.samples)",
     "count_id": "known gap: P38's pending shelf counts are per tenant, but B's story makes none (a count needs the "
                 "perception model calls, which story() does not fake), so confirm gets the generic probes only",
+    "item_id": "platform queue: a support item is the operators' (GlobalAdmin, /api/admin/*), never resolved under "
+               "a tenant session — the gate refuses before the id is read, and the tenant-side support routes "
+               "take no item id, so no id of B's can name one",
 }
 # Every id route CP2 shipped but the approval tokens and the public phrase files: each gets B's real ids
 CP2_ID_ROUTES = frozenset(r for r in CP2_ROUTES if "{" in r and not r.split()[1].startswith(("/api/approve/",

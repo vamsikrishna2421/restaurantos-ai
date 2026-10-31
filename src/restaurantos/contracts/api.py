@@ -892,6 +892,73 @@ class ConsoleSettings(Model):
     tickets_per_cook_hour: int
 
 
+# ----- support queue and operator console (P44, pass 12) ------------------------------------------------------
+#
+# A restaurant tells the platform what it needs: the manager on shift files a problem report or a
+# feature request from the console, and it lands in that tenant's support queue with the reporter's
+# name and job on it. The platform's operators (the founders, on the admin login) read every
+# tenant's queue in one inbox and walk each item new -> in_progress -> done, and see the fleet —
+# every real restaurant on the platform with its size and last activity — on the same surface.
+# No model calls anywhere in this section: the queue is rows, the fleet is counts.
+
+SupportKind = Literal["problem", "feature"]
+SupportStatus = Literal["new", "in_progress", "done"]
+
+
+class SupportItemCreate(Model):
+    """The manager's report: what kind of ask it is, a one-line title and the detail."""
+
+    kind: SupportKind
+    title: str
+    body: str
+
+
+class SupportItem(Model):
+    """One filed report as both sides read it: the tenant it came from, who filed it, where it stands."""
+
+    id: str
+    tenant_id: str
+    tenant_name: str
+    kind: SupportKind
+    title: str
+    body: str
+    reporter_name: str
+    reporter_role: str
+    status: SupportStatus
+    created_at: UtcTime
+
+
+class SupportStatusUpdate(Model):
+    """The operator's answer on an item: its new place in the walk."""
+
+    status: SupportStatus
+
+
+class FleetTenant(Model):
+    """One real restaurant on the platform: when it onboarded, how big it is, when it last traded
+    and when anything last happened on it. Sandboxes and the template tenant are never listed."""
+
+    tenant_id: str
+    name: str
+    kind: str
+    created_at: UtcTime
+    menu_items: int
+    staff_count: int
+    last_order_at: UtcTime | None = None
+    last_active_at: UtcTime | None = None
+
+
+class OperatorFleet(Model):
+    tenants: list[FleetTenant] = Field(default_factory=list)
+
+
+class OperatorInbox(Model):
+    """Every tenant's support items, newest first, with the still-open count for the heading."""
+
+    items: list[SupportItem] = Field(default_factory=list)
+    open_count: int = 0
+
+
 # ----- customer memory and goodwill (P43) -----------------------------------------------------------------------
 #
 # A guest who gives a name and number at the kiosk is remembered by the number (its digits are the key;

@@ -24,6 +24,8 @@
  * - **Analytics** — sellers, station load, and the forecast with its working shown.
  * - **Customers** — the guest book (P43): regulars, the drifted, and goodwill dishes already waiting.
  * - **Settings** — the restaurant's setup as onboarding made it (read-only), plus live stock counts.
+ * - **Support** — the restaurant's line to the platform (pass 12): the manager on shift files a
+ *   problem report or a feature request, and the tenant's own queue reads back with its standing.
  *
  * Presentation stays the pass-3 system: urgency as the kit's tones, people as avatars, the open-orders
  * count as a display number in the brand gradient.
@@ -58,15 +60,17 @@ import OrdersSection from './orders'
 import PeopleSection from './people'
 import RevenueSection from './revenue'
 import SettingsSection from './settings'
+import SupportSection from './support'
 import TimesheetsSection from './timesheets'
 
 const LOW_STOCK_MAX = 6
 const SECTIONS = ['home', 'attention', 'orders', 'people', 'timesheets', 'revenue', 'analytics',
-  'customers', 'settings'] as const
+  'customers', 'settings', 'support'] as const
 type Section = (typeof SECTIONS)[number]
 const SECTION_LABELS: Record<Section, string> = {
   home: 'Home', attention: 'Attention', orders: 'Orders', people: 'People', timesheets: 'Timesheets',
   revenue: 'Revenue', analytics: 'Analytics', customers: 'Customers', settings: 'Settings',
+  support: 'Support',
 }
 
 /** Closest to running out first: an item with a runway beats one without, a shorter runway beats a longer one. */
@@ -749,6 +753,9 @@ export default function ManagerSurface(props: SurfaceProps) {
       </TabPanel>
       <TabPanel idPrefix="manager-sections" id="settings" value={section}>
         <SettingsSection />
+      </TabPanel>
+      <TabPanel idPrefix="manager-sections" id="support" value={section}>
+        <SupportSection me={me} />
       </TabPanel>
     </main>
   )
