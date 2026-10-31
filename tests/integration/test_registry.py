@@ -23,7 +23,7 @@ EXPECTED_MODULES = {
     "PROVIDERS": ["store", "realtime.bus", "realtime.hub", "voice.tts", "voice.tts.stitch", "voice.asr_bridge",
                   "services.orders", "services.kitchen", "services.inventory", "agents.order_agent",
                   "orders.dialogue", "governance.policy", "governance.ledger", "governance.approvals",
-                  "governance.executor", "gm.planner", "judge.chaos"],
+                  "governance.executor", "gm.planner", "judge.chaos", "services.messaging"],
     "REQUIRED_ROUTERS": ["api.routes_events", "realtime.ws_events", "api.routes_menu", "api.routes_orders",
                          "api.routes_kds", "api.routes_inventory", "api.routes_admin", "voice.ptt_ws",
                          "voice.tts.routes_phrases", "api.routes_gm", "api.routes_approvals", "api.routes_ledger",

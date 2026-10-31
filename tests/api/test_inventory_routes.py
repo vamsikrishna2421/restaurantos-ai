@@ -76,10 +76,11 @@ def test_get_inventory_lists_every_ingredient_with_its_forecast(app):
 def test_adjust_route_roles_and_validation(app):
     client, c = app
     body = {"ingredient_id": PANEER, "to_qty": 900, "reason": "shelf count after the rush"}
-    for role in ("guest", "cook", "foh"):  # M: a manager, a judge in its own sandbox, or an admin
-        sign_in(client, c, role)
+    for role in ("guest", "cook", "foh"):  # M: a manager, a judge in its own sandbox, or an admin —
+        sign_in(client, c, role)  # or, since pass 13, a staff sign-in holding Inventory Manager
         denied = client.post("/api/inventory/adjust", json=body)
-        assert error(denied) == (403, "forbidden_role") and denied.json()["error"]["details"] == {"needs": ["manager"]}
+        assert error(denied) == (403, "inventory_access") and denied.json()["error"]["details"] == {
+            "needs": ["manager", "inventory_manager"]}
 
     sign_in(client, c, "manager")
     r = client.post("/api/inventory/adjust", json=body)
@@ -102,7 +103,7 @@ def test_adjust_route_roles_and_validation(app):
     assert len([e for e in c.hub.events if e.type == "inventory.adjusted"]) == 1  # refusals wrote nothing
 
     sign_in(client, c, "judge", LIVE_LIKE)  # a judge has manager powers only inside its own sandbox
-    assert error(client.post("/api/inventory/adjust", json=body)) == (403, "forbidden_role")
+    assert error(client.post("/api/inventory/adjust", json=body)) == (403, "inventory_access")
     sign_in(client, c, "judge", OTHER)
     assert client.post("/api/inventory/adjust", json=body).json()["ingredient"]["on_hand"] == 900  # OTHER's paneer
     sign_in(client, c, "judge")

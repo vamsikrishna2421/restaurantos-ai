@@ -413,6 +413,30 @@ class DialogueDeps:
     chaos: ChaosPort
 
 
+# ----- guest messaging (P45) --------------------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class MessageOutcome:
+    """One guest message's fate, as the messaging adapter reports it. ``simulated`` is True when no real
+    provider carried the message (the sandbox adapter) — surfaces label those sends simulated, always."""
+
+    status: Literal["sent", "failed"]
+    simulated: bool
+    provider: str  # who carried it ("simulated" while no real provider is configured)
+    detail: str  # plain words a manager can be shown, e.g. why a send cannot happen yet
+
+
+@runtime_checkable
+class MessagingPort(Protocol):
+    """Outbound guest messaging (win-back texts). No real SMS provider is configured in this product yet:
+    the wired adapter is the simulated one in mock mode and the unavailable one in live mode, and both
+    say which they are through ``MessageOutcome`` — nothing ever pretends a simulated send was real."""
+
+    async def send_text(self, *, tenant_id: str, phone_key: str, text: str) -> MessageOutcome:
+        """Deliver one text to one guest's number (the full number exists only inside this call)."""
+
+
 # ----- GM and governance (§10.8, §9) ------------------------------------------------------------------------------
 
 
@@ -489,6 +513,7 @@ CONTAINER_PORTS: dict[str, str] = {
     "approvals": "ApprovalsPort",
     "ledger": "LedgerPort",
     "executor": "ExecutorPort",
+    "messaging": "MessagingPort",
 }
 """Container field -> the type it holds: a Protocol of this module, or a concrete class for the four fields P03
 builds itself (``Settings``, ``SpendGuard``, ``IdGen`` and ``random.Random``)."""

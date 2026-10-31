@@ -58,6 +58,7 @@ from restaurantos.contracts.menu import MenuItem
 from restaurantos.contracts.orders import Order
 from restaurantos.domain import console as cx
 from restaurantos.domain import forecast as fc
+from restaurantos.domain import why as why_mod
 from restaurantos.seed.loader import SeedData, load_tenant_seed
 from restaurantos.services import staff_identity as si
 from restaurantos.services.container import Container, require
@@ -390,10 +391,11 @@ class ManagerConsole:
                 [(today, forecast_today, staffing.claimed, "on shift now"),
                  (tomorrow, forecast_tomorrow, staffing.usual, "usual jobs")],
                 now_biz=now_biz, today=today, dayparts=dayparts, station_names=station_names,
-                station_slots=station_slots)
+                station_slots=station_slots, history=history)
             stock_watch, stock_cards = await self._stock_checks(
                 conn, tenant_id, [(today, forecast_today), (tomorrow, forecast_tomorrow)],
-                now_biz=now_biz, today=today, dayparts=dayparts, items=snapshot.items)
+                now_biz=now_biz, today=today, dayparts=dayparts, items=snapshot.items,
+                history=history)
 
             def daypart_list(forecast: cx.DayForecast, *, remaining_only: bool = False,
                              day: dt.date = tomorrow) -> list[ForecastDaypart]:
@@ -445,12 +447,16 @@ class ManagerConsole:
     def _capacity_checks(self, plans: list[tuple[dt.date, cx.DayForecast, dict[str, int], str]], *,
                          now_biz: int, today: dt.date, dayparts: cx.DaypartMap,
                          station_names: dict[str, str], station_slots: dict[str, int],
+                         history: list[cx.DaySales],
                          ) -> tuple[list[CapacityCheck], list[ConsoleCard]]:
         """Forecast tickets against hands, for today's dayparts that have not ended and all of tomorrow's."""
         hours = cx.daypart_hours(dayparts)
         checks: list[CapacityCheck] = []
         cards: list[ConsoleCard] = []
         for day, forecast, cooks_by_station, _basis_kind in plans:
+            # the same-weekday norm the card's why stands on: this station's tickets in this daypart
+            # on the traded past days that share the plan day's weekday (pass 15)
+            pool = [past for past in history if past.day.weekday() == day.weekday()]
             for daypart in dayparts:
                 _start, end = cx.daypart_bounds(day, daypart, dayparts, self._tz)
                 if day == today and end <= now_biz:
@@ -470,11 +476,16 @@ class ManagerConsole:
                         shortfall_tickets=shortfall, basis=basis)
                     checks.append(check)
                     if shortfall > 0:
-                        cards.append(self._capacity_card(check, day, today, dayparts))
+                        typical = (sum(past.station_tickets_by_daypart.get(daypart, {})
+                                       .get(station_id, 0) for past in pool) / len(pool)) if pool else None
+                        cards.append(self._capacity_card(
+                            check, day, today, dayparts, slots=station_slots.get(station_id, 0),
+                            hours=hours[daypart], typical_tickets=typical, typical_days=len(pool)))
         return checks, cards
 
     def _capacity_card(self, check: CapacityCheck, day: dt.date, today: dt.date,
-                       dayparts: cx.DaypartMap) -> ConsoleCard:
+                       dayparts: cx.DaypartMap, *, slots: int, hours: float,
+                       typical_tickets: float | None, typical_days: int) -> ConsoleCard:
         start, end = dayparts[check.daypart]
         span = f"{_clock_label(start)}–{_clock_label(end)}"
         when = _day_label(day, today)
@@ -488,16 +499,23 @@ class ManagerConsole:
                       f" {check.capacity_tickets} — {check.shortfall_tickets} ticket(s) over.")
             action = (f"Add a cook to {check.station_name} for {check.label}, or move someone over"
                       " before it starts.")
+        full_capacity = cx.capacity_shortfall(check.expected_tickets, slots, hours)[0] if slots else 0
+        card_why = why_mod.capacity_why(
+            station_name=check.station_name, daypart_label=check.label, day_name=day.strftime("%A"),
+            expected_tickets=check.expected_tickets, cooks=check.expected_cooks, slots=slots,
+            capacity_tickets=check.capacity_tickets, full_capacity_tickets=full_capacity,
+            usual_basis=day != today, typical_tickets=typical_tickets, typical_days=typical_days)
         return ConsoleCard(
             id=f"capacity:{check.station_id}:{day.isoformat()}:{check.daypart}",
             kind="capacity", tone="bad" if check.expected_cooks == 0 or check.shortfall_tickets >= 10 else "warn",
             title=f"{check.station_name} looks short for {check.label} {when}", detail=detail, action=action,
             subject=check.station_name, expected_tickets=check.expected_tickets,
-            capacity_tickets=check.capacity_tickets)
+            capacity_tickets=check.capacity_tickets, why=card_why)
 
     async def _stock_checks(self, conn: AsyncConnection, tenant_id: str,
                             plans: list[tuple[dt.date, cx.DayForecast]], *, now_biz: int, today: dt.date,
                             dayparts: cx.DaypartMap, items: list[MenuItem],
+                            history: list[cx.DaySales],
                             ) -> tuple[list[StockCheck], list[ConsoleCard]]:
         """Forecast burn against free stock over the horizon (the rest of today, then tomorrow)."""
         repo = self._repo()
@@ -510,6 +528,8 @@ class ManagerConsole:
             need_of[line.item_code][line.ingredient_id] += line.qty
 
         segments: list[tuple[int, int, dict[str, int]]] = []  # (start_ms, end_ms, per-ingredient need)
+        dish_use: dict[str, dict[str, int]] = defaultdict(lambda: defaultdict(int))  # ingredient -> item -> qty
+        servings_by_item: dict[str, int] = defaultdict(int)  # forecast servings per dish over the horizon
         for day, forecast in plans:
             for daypart in dayparts:
                 start, end = cx.daypart_bounds(day, daypart, dayparts, self._tz)
@@ -517,9 +537,31 @@ class ManagerConsole:
                     continue
                 need: dict[str, int] = defaultdict(int)
                 for item_code, qty in forecast.items_by_daypart.get(daypart, {}).items():
+                    servings_by_item[item_code] += qty
                     for ingredient_id, per_dish in need_of.get(item_code, {}).items():
                         need[ingredient_id] += qty * per_dish
+                        dish_use[ingredient_id][item_code] += qty * per_dish
                 segments.append((max(start, now_biz), end, dict(need)))
+
+        # pass 15: each ingredient's own daily use over the sales history (oldest first), so a stock
+        # card's why can tell a climb (the past week against the weeks before) from the usual shape
+        daily_use: dict[str, list[float]] = {}
+        for ingredient in stock:
+            series: list[float] = []
+            for past in history:
+                used = 0
+                for daypart_items in past.items_by_daypart.values():
+                    for item_code, qty in daypart_items.items():
+                        used += qty * need_of.get(item_code, {}).get(ingredient.id, 0)
+                series.append(float(used))
+            daily_use[ingredient.id] = series
+
+        def use_trend(ingredient_id: str) -> tuple[float | None, float | None]:
+            series = daily_use.get(ingredient_id, [])
+            if len(series) < 12:  # a week to compare and at least five days before it
+                return None, None
+            recent, prior = series[-7:], series[:-7]
+            return sum(recent) / len(recent), sum(prior) / len(prior)
 
         checks: list[StockCheck] = []
         cards: list[ConsoleCard] = []
@@ -547,13 +589,21 @@ class ManagerConsole:
                 dishes = [CardDish(item_code=item.code, name=item_names.get(item.code, item.code))
                           for item in items
                           if item.available and ingredient.id in need_of.get(item.code, {})]
+                recent_daily, prior_daily = use_trend(ingredient.id)
+                card_why = why_mod.stock_why(
+                    projected_need=projected, unit=ingredient.unit,
+                    dishes=[(item_names.get(code, code), servings_by_item.get(code, 0), qty)
+                            for code, qty in dish_use.get(ingredient.id, {}).items()],
+                    recent_daily=recent_daily, prior_daily=prior_daily)
                 cards.append(self._stock_card(check, stockout, restock[0] if restock else None, today,
-                                              curve=_burn_curve(free, needs, stockout), dishes=dishes))
+                                              curve=_burn_curve(free, needs, stockout), dishes=dishes,
+                                              card_why=card_why))
         checks.sort(key=lambda check: check.stockout_biz)  # soonest run-out first; all are set here
         return checks, cards
 
     def _stock_card(self, check: StockCheck, stockout_ms: int, restock_ms: int | None,
-                    today: dt.date, *, curve: list[BurnPoint], dishes: list[CardDish]) -> ConsoleCard:
+                    today: dt.date, *, curve: list[BurnPoint], dishes: list[CardDish],
+                    card_why: str | None = None) -> ConsoleCard:
         stockout_day = cx.day_of(stockout_ms, self._tz)
         when = _day_label(stockout_day, today)
         detail = (f"Forecast use through tomorrow is about {check.projected_need} {check.unit};"
@@ -569,7 +619,8 @@ class ManagerConsole:
             id=f"stock:{check.ingredient_id}:{stockout_day.isoformat()}", kind="stock",
             tone="bad" if stockout_day == today else "warn",
             title=f"{check.name} runs out {when} about {_time_label(stockout_ms, self._tz)}",
-            detail=detail, action=action, subject=check.name, burn_curve=curve, dishes=dishes)
+            detail=detail, action=action, subject=check.name, burn_curve=curve, dishes=dishes,
+            why=card_why)
 
     # ----- timesheets ---------------------------------------------------------------------------------------------
 

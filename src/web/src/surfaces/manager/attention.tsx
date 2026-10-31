@@ -15,6 +15,11 @@
  * **Evidence**: the burn-down sparkline and the capacity bars draw only the numbers the card's own
  * payload carries (the checks' computed values, plumbed through by the server) — no math happens
  * here beyond scaling to the drawing's box.
+ *
+ * **Why** (pass 15): a card whose payload carries a `why` line shows it under the evidence — the
+ * evidenced driver the server picked from the same numbers (a surge against the same-weekday norm,
+ * an unfilled slot, the dish doing the burning). A card with no `why` renders exactly as before:
+ * no cause cleared the evidence bar, and the feed never shows a guessed reason.
  */
 
 import { Chip, cx, type Tone } from '../../components/ui'

@@ -14,6 +14,7 @@
 
 import type {
   CustomRoleSpec,
+  Responsibility,
   RoleRequest,
   RoleSlot,
   SpeakLang,
@@ -138,5 +139,11 @@ export const staffApi = {
   /** Set (or clear, with null) a person's usual job — the manager on shift only. */
   setDefault(token: string, staffId: string, slotId: string | null): Promise<StaffPerson> {
     return api<StaffPerson>('POST', '/api/staff/default', { staff_id: staffId, slot_id: slotId }, bearer(token))
+  },
+  /** Grant or take back a standing responsibility (pass 13) — held on top of any job. */
+  setResponsibility(token: string, staffId: string, responsibility: Responsibility,
+    grant: boolean): Promise<StaffPerson> {
+    return api<StaffPerson>('POST', '/api/staff/responsibilities',
+      { staff_id: staffId, responsibility, grant }, bearer(token))
   },
 }

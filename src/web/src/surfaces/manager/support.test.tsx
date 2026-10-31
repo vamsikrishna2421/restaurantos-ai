@@ -17,6 +17,7 @@ const MANAGER_SESSION = {
   staff: {
     id: 'STF_LAKSHMI', name: 'Lakshmi', language: 'te' as const,
     default_role: { slot_id: 'manager', label: 'Manager', pending: false },
+    responsibilities: [],
   },
   claim: { slot_id: 'manager', label: 'Manager', kind: 'manager' as const, station_id: null },
 }
@@ -26,6 +27,7 @@ const CHEF_SESSION = {
   staff: {
     id: 'STF_CARLOS', name: 'Carlos', language: 'es' as const,
     default_role: { slot_id: 'STN_CURRY#1', label: 'Curry Chef 1', pending: false },
+    responsibilities: [],
   },
   claim: { slot_id: 'STN_CURRY#1', label: 'Curry Chef 1', kind: 'chef' as const, station_id: 'STN_CURRY' },
 }

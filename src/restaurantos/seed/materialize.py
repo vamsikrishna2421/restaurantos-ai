@@ -50,6 +50,7 @@ CONFIG_TABLES: tuple[Table, ...] = (
 STATE_TABLES: tuple[Table, ...] = (
     *CONFIG_TABLES, t.orders, t.order_lines, t.tickets, t.purchase_orders, t.staff_notices, t.staff_tasks,
     t.quote_offsets, t.incidents, t.plans, t.approvals, t.corrections, t.ledger, t.events,
+    t.closing_checks, t.supplier_receipts,
 )
 
 

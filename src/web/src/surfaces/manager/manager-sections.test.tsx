@@ -16,6 +16,7 @@ const MANAGER_SESSION = {
   staff: {
     id: 'STF_LAKSHMI', name: 'Lakshmi', language: 'te' as const,
     default_role: { slot_id: 'manager', label: 'Manager', pending: false },
+    responsibilities: [],
   },
   claim: { slot_id: 'manager', label: 'Manager', kind: 'manager' as const, station_id: null },
 }
@@ -29,8 +30,8 @@ const SLOTS = [
 
 const PEOPLE = [
   { id: 'STF_CARLOS', name: 'Carlos', language: 'es',
-    default_role: { slot_id: 'STN_CURRY#1', label: 'Curry Chef 1', pending: false } },
-  { id: 'STF_MEENA', name: 'Meena', language: 'ta', default_role: null },
+    default_role: { slot_id: 'STN_CURRY#1', label: 'Curry Chef 1', pending: false }, responsibilities: [] },
+  { id: 'STF_MEENA', name: 'Meena', language: 'ta', default_role: null, responsibilities: [] },
 ]
 
 const ORDERS = {
@@ -115,6 +116,16 @@ const ANALYTICS_WITH_STOCK = {
         { item_code: 'PNR_TIKKA', name: 'Paneer Tikka' },
       ] },
   ],
+}
+
+/** Pass 15: the same feed, with the server's why line plumbed onto both card kinds. */
+const ANALYTICS_WITH_WHY = {
+  ...ANALYTICS_WITH_STOCK,
+  cards: ANALYTICS_WITH_STOCK.cards.map((card) => (card.kind === 'capacity'
+    ? { ...card, why: "Only 1 of the station's 3 cooking slots have a usual-job cook — a full crew "
+        + 'would cover about 72 tickets, not 24.' }
+    : { ...card, why: 'Most of the burn is Paneer Butter Masala — about 900 of the 1400 g forecast, '
+        + 'roughly 6 servings.' })),
 }
 
 let analyticsBody: unknown = ANALYTICS
@@ -263,6 +274,8 @@ test('correlation_cards_lead_attention_and_analytics_shows_the_working', async (
   expect(await screen.findByText('Curry may be short-handed for Dinner rush (Sun, Nov 8)'))
     .toBeInTheDocument()
   expect(screen.getByText(/usual team covers ≈24/)).toBeInTheDocument()
+  // this feed's cards carry no why line (none was computed for them): nothing renders in its place
+  expect(screen.queryByText(/Why:/)).not.toBeInTheDocument()
   openSection(/^Analytics/)
   expect(await screen.findByText('Forecast for Sun, Nov 8')).toBeInTheDocument()
   expect(screen.getByText(/last few Saturdays/)).toBeInTheDocument()
@@ -337,6 +350,21 @@ test('attention_cards_carry_severity_pills_and_their_evidence', async () => {
   expect(within(await cardSection('Shift readiness')).getByText('Low')).toBeInTheDocument()
   expect(within(await cardSection('Waiting for your approval')).getByText('Low')).toBeInTheDocument()
   expect(within(await cardSection('In the kitchen now')).getByText('Low')).toBeInTheDocument()
+})
+
+test('attention_cards_show_their_why_line_with_the_evidence', async () => {
+  analyticsBody = ANALYTICS_WITH_WHY
+  render(<ManagerSurface params={{}} query={new URLSearchParams()} />)
+  fireEvent.click(screen.getByRole('tab', { name: /^Attention/ }))
+  // the capacity card's why names the unfilled slots with the full-crew number, under its bars
+  const capacity = await cardSection('Curry may be short-handed for Dinner rush (Sun, Nov 8)')
+  expect(within(capacity).getByText('Why:')).toBeInTheDocument()
+  expect(within(capacity).getByText(/usual-job cook/)).toBeInTheDocument()
+  expect(within(capacity).getByText(/72 tickets, not 24/)).toBeInTheDocument()
+  // the stock card's why names the dish doing most of the burning
+  const stock = await cardSection('Paneer runs out today, during dinner')
+  expect(within(stock).getByText('Why:')).toBeInTheDocument()
+  expect(within(stock).getByText(/Most of the burn is Paneer Butter Masala/)).toBeInTheDocument()
 })
 
 test('attention_filters_count_the_standing_cards_and_filter_by_kind', async () => {

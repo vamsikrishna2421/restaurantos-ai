@@ -22,6 +22,11 @@ photo → Muse Spark count/point grounding → SAM 3.1 per concept → consensus
   says nothing about other kitchens), every ingredient must be in that count and every count 0–999 (400). The count is
   then used up, and each ingredient goes through ``InventoryService.adjust(..., "count", AdjustEvidence(photo_sha256,
   spark_count, sam_count, agreed), actor=auth.role)`` with ``on_hand`` = count × 1 (``ea``) or × ``pack_size``.
+- **New-ingredient proposals** (pass 13): the Spark call also names countable stock the kitchen does not list
+  (``spark.read_proposals``); the pending count keeps them, and ``confirm``'s ``new_ingredients`` accepts any of
+  them by name (a name the photo never proposed is 400). Accepting creates the ingredient through
+  ``InventoryService.add_ingredient`` with the counted quantity as its opening stock, in the same confirm.
+  Proposals get no SAM pass: there is no catalog entry yet for a second count to agree with.
 - **The photo limit** (``PhotoLimit``): at most ``PHOTO_LIMIT`` photos per ``PHOTO_WINDOW_MS`` per session (an admin
   by name), a sliding window on the container's real clock; it is checked after the photo passed intake and the drill,
   just before the first model call, so a refused upload costs nothing. 429 ``rate_limited`` with ``Retry-After``.
@@ -35,12 +40,12 @@ import asyncio
 import logging
 import math
 from collections import deque
-from collections.abc import AsyncIterator, Callable, Mapping
+from collections.abc import AsyncIterator, Callable, Mapping, Sequence
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-from restaurantos.contracts.api import ShelfCount
+from restaurantos.contracts.api import ShelfCount, ShelfNewIngredient, ShelfProposal
 from restaurantos.contracts.common import CallCtx, is_sandbox
 from restaurantos.contracts.errors import BadRequest, ChaosDown, NotFound, RateLimited
 from restaurantos.contracts.events import AdjustEvidence
@@ -93,6 +98,7 @@ class PendingCount:
     created_ms: int
     photo_sha256: str
     items: Mapping[str, PendingItem]  # by ingredient id, in the count's order
+    proposals: tuple[ShelfProposal, ...] = ()  # countable stock this kitchen does not list yet (pass 13)
 
 
 class PendingCounts:
@@ -243,23 +249,26 @@ class ShelfCountService:
         key = session_key_for(auth)
         self.limit.take(key)
         async with self.turns.turn(key):
-            found, sams = await self._models(call_ctx(tenant, auth, self.c.settings), photo, allowed)
+            found, sams, proposals = await self._models(call_ctx(tenant, auth, self.c.settings), photo, allowed)
         items = [consensus.item(f, s) for f, s in zip(found, sams, strict=True)]
         kept = {f.ingredient.id: PendingItem(f.ingredient.id, f.ingredient.unit, f.ingredient.pack_size,
                                              row.spark_count, row.sam_count, row.agreed)
                 for f, row in zip(found, items, strict=True)}
         pending = PendingCount(id=new_id(ID_PREFIX), tenant_id=tenant.id, created_ms=self.c.clock.now_real_ms(),
-                               photo_sha256=photo.sha256, items=kept)
+                               photo_sha256=photo.sha256, items=kept, proposals=tuple(proposals))
         self.pending.put(pending)
-        log.info("shelf count %s for %s: %d item(s), %d agreed, %d without SAM", pending.id, tenant.id, len(items),
-                 sum(row.agreed for row in items), sum(row.sam_count is None for row in items))
-        return ShelfCount(id=pending.id, items=items)
+        log.info("shelf count %s for %s: %d item(s), %d agreed, %d without SAM, %d new proposal(s)",
+                 pending.id, tenant.id, len(items), sum(row.agreed for row in items),
+                 sum(row.sam_count is None for row in items), len(proposals))
+        return ShelfCount(id=pending.id, items=items, proposals=proposals)
 
     async def _models(self, ctx: CallCtx, photo: Photo, allowed: list[Ingredient],
-                      ) -> tuple[list[spark.SparkItem], list[sam.SamCount | None]]:
-        """Spark's items, then SAM's count per item (see the module docstring for what fails how)."""
+                      ) -> tuple[list[spark.SparkItem], list[sam.SamCount | None], list[ShelfProposal]]:
+        """Spark's items and new-ingredient proposals, then SAM's count per known item (see the module
+        docstring for what fails how). Proposals get no SAM pass: there is no catalog entry yet for a
+        second count to agree with."""
         try:
-            found = await spark.count_photo(self.c.meta, ctx, photo, allowed)
+            found, proposals = await spark.count_photo_full(self.c.meta, ctx, photo, allowed)
         except MetaAPIError as exc:
             if exc.status == 400:  # Meta could not decode the image
                 raise BadRequest("Muse Spark could not read this photo; take it again",
@@ -273,7 +282,7 @@ class ShelfCountService:
             for item in found:
                 calls.append(group.create_task(self._sam(ctx, item.concept, photo, shared=item.concept in shared)))
                 await asyncio.sleep(SAM_STAGGER_S)
-        return found, [call.result() for call in calls]
+        return found, [call.result() for call in calls], proposals
 
     async def _sam(self, ctx: CallCtx, concept: str, photo: Photo, *, shared: bool = False) -> sam.SamCount | None:
         """SAM's count for one concept, or None when the call failed, its answer could not be trusted, or another
@@ -291,10 +300,15 @@ class ShelfCountService:
         return None
 
     async def confirm(self, auth: Auth, count_id: str, counts: Mapping[str, int],
-                      inventory: InventoryService) -> list[InventoryItemView]:
-        """REST #43 (confirm): the person's counts become ``inventory.adjusted(count)`` (see the module docstring)."""
+                      inventory: InventoryService, *,
+                      new_ingredients: Sequence[ShelfNewIngredient] = (),
+                      actor: str | None = None) -> list[InventoryItemView]:
+        """REST #43 (confirm): the person's counts become ``inventory.adjusted(count)`` (see the module
+        docstring). Accepted new-ingredient proposals (pass 13) join the catalog in the same confirm,
+        their opening stock the counted quantity; their views ride along in the returned list (an id
+        the caller did not know before is a creation)."""
         pending = self.pending.get(auth.tenant_id, count_id)
-        if not counts:
+        if not counts and not new_ingredients:
             raise BadRequest("Confirm at least one count", details={"field": "counts"})
         if unknown := sorted(set(counts) - set(pending.items)):
             raise BadRequest("Those ingredients are not in this shelf count",
@@ -302,7 +316,16 @@ class ShelfCountService:
         if invalid := sorted(k for k, n in counts.items() if isinstance(n, bool) or not 0 <= n <= spark.MAX_COUNT):
             raise BadRequest(f"A count is a whole number from 0 to {spark.MAX_COUNT}",
                              details={"field": "counts", "invalid": invalid})
+        proposed = {" ".join(p.name.lower().split()): p for p in pending.proposals}
+        for accepted in new_ingredients:
+            if " ".join(accepted.spec.name.lower().split()) not in proposed:
+                raise BadRequest("That new ingredient was not proposed by this shelf count",
+                                 details={"field": "new_ingredients", "reason": "unknown_proposal"})
+            if not 0 <= accepted.count <= spark.MAX_COUNT:
+                raise BadRequest(f"A count is a whole number from 0 to {spark.MAX_COUNT}",
+                                 details={"field": "new_ingredients"})
         self.pending.pop(auth.tenant_id, count_id)  # used once: a second tap finds nothing
+        stamp = actor if actor is not None else auth.role
         views = []
         for ingredient_id, item in pending.items.items():
             if ingredient_id not in counts:
@@ -311,5 +334,11 @@ class ShelfCountService:
                                       sam_count=item.sam_count, agreed=item.agreed)
             qty = counts[ingredient_id] * consensus.per_count(item.unit, item.pack_size)
             views.append(await inventory.adjust(auth.tenant_id, ingredient_id, qty, "count", evidence,
-                                                actor=auth.role))
+                                                actor=stamp))
+        for accepted in new_ingredients:
+            spec = accepted.spec
+            opening = accepted.count * consensus.per_count(spec.unit, spec.pack_size)
+            views.append(await inventory.add_ingredient(
+                auth.tenant_id, name=spec.name, unit=spec.unit, pack_size=spec.pack_size,
+                par=spec.par, reorder_point=spec.reorder_point, opening_qty=opening, actor=stamp))
         return views

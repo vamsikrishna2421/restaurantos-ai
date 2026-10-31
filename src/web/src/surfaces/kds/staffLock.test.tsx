@@ -47,7 +47,7 @@ afterEach(() => {
 test('a_chef_claim_locks_the_display_to_the_claimed_station', () => {
   saveStaffSession({
     token: 'tok_carlos',
-    staff: { id: 'STF_CARLOS', name: 'Carlos', language: 'es', default_role: null },
+    staff: { id: 'STF_CARLOS', name: 'Carlos', language: 'es', default_role: null, responsibilities: [] },
     claim: { slot_id: 'STN_CURRY#1', label: 'Curry Chef 1', kind: 'chef', station_id: 'STN_CURRY' },
   })
   render(<KdsSurface params={{}} query={new URLSearchParams()} />)
@@ -65,6 +65,7 @@ test('a_custom_job_claim_shows_only_its_own_stations', () => {
     staff: {
       id: 'STF_RAVI', name: 'Ravi', language: 'en',
       default_role: { slot_id: 'custom:CUS_1', label: 'Runner', pending: false },
+      responsibilities: [],
     },
     claim: {
       slot_id: 'custom:CUS_1', label: 'Runner', kind: 'chef', station_id: 'STN_CURRY',

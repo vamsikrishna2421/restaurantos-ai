@@ -10,6 +10,11 @@ import { LANGUAGE_NAMES } from '../../lib/i18n'
 
 const PEOPLE_GRID = 'grid gap-3 sm:grid-cols-2 xl:grid-cols-3'
 
+/** Standing responsibilities a person can hold on top of their job (pass 13), by contract name. */
+export const RESPONSIBILITY_LABELS: Record<string, string> = {
+  inventory_manager: 'Inventory Manager',
+}
+
 export interface PeopleSectionProps {
   isManager: boolean
   slots: RoleSlot[] | null
@@ -18,10 +23,11 @@ export interface PeopleSectionProps {
   busy: string | null
   onDecide: (request: RoleRequest, approve: boolean) => void
   onChangeDefault: (person: StaffPerson, slotId: string) => void
+  onToggleResponsibility: (person: StaffPerson, grant: boolean) => void
 }
 
 export default function PeopleSection({ isManager, slots, requests, people, busy, onDecide,
-  onChangeDefault }: PeopleSectionProps) {
+  onChangeDefault, onToggleResponsibility }: PeopleSectionProps) {
   const heldBy = new Map((slots ?? []).filter((s) => s.holder).map((s) => [s.holder!.staff_id, s]))
   return (
     <div className="flex flex-col gap-6">
@@ -84,6 +90,15 @@ export default function PeopleSection({ isManager, slots, requests, people, busy
                     </span>
                     <span className="block">{LANGUAGE_NAMES[person.language] ?? person.language}</span>
                   </span>
+                  {person.responsibilities.length > 0 && (
+                    <span className="flex flex-wrap gap-1.5">
+                      {person.responsibilities.map((responsibility) => (
+                        <Chip key={responsibility} tone="accent">
+                          {RESPONSIBILITY_LABELS[responsibility] ?? responsibility}
+                        </Chip>
+                      ))}
+                    </span>
+                  )}
                   <span className="mt-auto">
                     {held
                       ? <Chip tone="ok">On shift: {held.label}</Chip>
@@ -123,6 +138,24 @@ export default function PeopleSection({ isManager, slots, requests, people, busy
                     </select>
                   </label>
                 )}
+                {/* pass 13: a standing responsibility lives next to the job, never instead of it */}
+                <span className="flex flex-wrap items-center gap-2 text-sm text-muted">
+                  Inventory Manager
+                  {person.responsibilities.includes('inventory_manager') ? (
+                    <>
+                      <Chip tone="accent">Holds it</Chip>
+                      <Button size="sm" variant="ghost" loading={busy === `resp:${person.id}`}
+                        onClick={() => onToggleResponsibility(person, false)}>
+                        Take back
+                      </Button>
+                    </>
+                  ) : (
+                    <Button size="sm" variant="secondary" loading={busy === `resp:${person.id}`}
+                      onClick={() => onToggleResponsibility(person, true)}>
+                      Give responsibility
+                    </Button>
+                  )}
+                </span>
               </li>
             ))}
           </ul>

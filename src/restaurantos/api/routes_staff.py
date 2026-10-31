@@ -13,6 +13,8 @@
 | GET /api/staff/role-requests | S + staff token | the usual-job asks waiting on the manager (pass 5) |
 | POST /api/staff/role-requests/decide | S + staff token | the manager approves or declines one ask |
 | POST /api/staff/default | S + staff token | the manager sets (or clears) a person's usual job |
+| POST /api/staff/responsibilities | S + staff token | the manager grants or takes back a standing |
+|  |  | responsibility (pass 13: Inventory Manager), held on top of any job |
 
 The tenant always comes from ``ros_sess`` (``security.auth``), never from the request or the staff token — the
 token only says *who* is acting inside that tenant. People and claims live in ``services.staff_identity``'s own
@@ -30,6 +32,7 @@ from fastapi import APIRouter, Depends, Request
 from restaurantos.api.deps import ContainerDep, get_store
 from restaurantos.contracts.api import (
     OkResult,
+    ResponsibilityUpdate,
     RoleClaimRequest,
     RoleReleaseRequest,
     RoleRequest,
@@ -293,6 +296,23 @@ async def decide_role_request(body: RoleRequestDecision, request: Request, who: 
             raise NotFound(f"unknown role request {body.request_id!r}")
         return OkResult()
     raise NotFound(f"unknown role request {body.request_id!r}")
+
+
+@router.post("/api/staff/responsibilities", response_model=StaffPerson)
+async def set_responsibility(body: ResponsibilityUpdate, request: Request, who: SessionAuth,
+                             c: ContainerDep, store: StoreDep) -> StaffPerson:
+    """Grant or take back a standing responsibility (pass 13; the manager on shift only). Additive:
+    the person's usual job and shift claim are untouched, and anyone may hold it alongside any job.
+    404 for an unknown person."""
+    predefined, _stations = await _base(c, store, who.tenant_id)
+    caller = _manager_on_shift(request, c, who.tenant_id)
+    tenant_store = staff_store(c)
+    defs = _tenant_defs(c, who.tenant_id, predefined)
+    if tenant_store.person(who.tenant_id, body.staff_id, defs) is None:
+        raise NotFound(f"unknown staff member {body.staff_id!r}")
+    tenant_store.set_responsibility(who.tenant_id, body.staff_id, body.responsibility, body.grant,
+                                    caller.id, c.clock.now_real_ms())
+    return tenant_store.person(who.tenant_id, body.staff_id, defs)  # type: ignore[return-value]
 
 
 @router.post("/api/staff/default", response_model=StaffPerson)

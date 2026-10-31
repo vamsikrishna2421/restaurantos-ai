@@ -79,7 +79,9 @@ def test_staff_list_seeds_the_tenant_personas(app):
     assert r.status_code == 200
     people = r.json()
     assert [(p["id"], p["name"], p["language"]) for p in people] == [(i, n, lang) for i, n, lang, _ in PERSONAS]
-    assert all(set(p) == {"id", "name", "language", "default_role"} for p in people)  # no PIN material ever
+    assert all(set(p) == {"id", "name", "language", "default_role", "responsibilities"}
+               for p in people)  # no PIN material ever; pass 13 adds the (empty) responsibilities
+    assert all(p["responsibilities"] == [] for p in people)
     # pass 5: seed personas start with the usual job their seed role implies, already approved
     assert {p["name"]: p["default_role"] for p in people} == {
         "Lakshmi": {"slot_id": "manager", "label": "Manager", "pending": False},
@@ -97,7 +99,8 @@ def test_login_checks_the_pin(app):
     assert r.status_code == 200
     body = r.json()
     assert body["staff"] == {"id": "STF_LAKSHMI", "name": "Lakshmi", "language": "te",
-                             "default_role": {"slot_id": "manager", "label": "Manager", "pending": False}}
+                             "default_role": {"slot_id": "manager", "label": "Manager", "pending": False},
+                             "responsibilities": []}
     assert body["token"] and body["expires_at"]
     assert error(client.post("/api/staff/login", json={"staff_id": "STF_LAKSHMI", "pin": "9999"})) == \
         (403, "bad_pin")

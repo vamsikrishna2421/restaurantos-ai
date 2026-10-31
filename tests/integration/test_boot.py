@@ -49,7 +49,7 @@ from tests.fakes.meta import FakeMetaClient, FakeScriptExhausted
 
 CONTRACT_FIELDS = ["settings", "guard", "meta", "clock", "ids", "rng", "chaos", "store", "repo", "bus", "hub",
                    "asr_factory", "tts", "phrases", "stitcher", "orders", "kitchen", "inventory", "order_agent",
-                   "dialogue_factory", "planner", "policy", "approvals", "ledger", "executor"]
+                   "dialogue_factory", "planner", "policy", "approvals", "ledger", "executor", "messaging"]
 
 
 @pytest.fixture(autouse=True)

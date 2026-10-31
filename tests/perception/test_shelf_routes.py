@@ -255,10 +255,10 @@ def test_tenant_isolation(app):
     count_id = upload(client).json()["id"]
     confirm = f"{SHELF}/{count_id}/confirm"
     body = {"counts": {"ING_PANEER": 2}}
-    for role in ("guest", "cook", "foh"):  # M: a manager, a judge in its own sandbox, or an admin
-        sign_in(client, c, role)
-        assert error(upload(client)) == (403, "forbidden_role")
-        assert error(client.post(confirm, json=body)) == (403, "forbidden_role")
+    for role in ("guest", "cook", "foh"):  # M: a manager, a judge in its own sandbox, or an admin —
+        sign_in(client, c, role)  # or, since pass 13, a staff sign-in holding Inventory Manager
+        assert error(upload(client)) == (403, "inventory_access")
+        assert error(client.post(confirm, json=body)) == (403, "inventory_access")
     sign_in(client, c, "judge", OTHER)
     assert error(client.post(confirm, json=body)) == (404, "not_found")  # another kitchen's count is unknown here
     assert error(client.post(confirm, json=body, params={"tenant": TID})) == (403, "wrong_tenant")

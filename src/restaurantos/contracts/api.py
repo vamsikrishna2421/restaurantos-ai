@@ -29,11 +29,13 @@ from restaurantos.contracts.common import (
     RushPhase,
     SpeakLang,
     SpendPool,
+    Unit,
     Usd,
     UtcTime,
 )
 from restaurantos.contracts.events import ComponentState, DegradedComponent, EventEnvelope, ScenarioName
 from restaurantos.contracts.gm import Incident, Plan, SituationReport
+from restaurantos.contracts.inventory import Forecast, Ingredient
 from restaurantos.contracts.ledger import (  # noqa: F401 - approval payloads, re-exported
     ApproveDecideRequest,
     ApproveResult,
@@ -335,9 +337,21 @@ class ShelfCountItem(Model):
     masks_svg: str
     points: list[ShelfPoint] = Field(default_factory=list)
 
+class ShelfProposal(Model):
+    """Something countable in the photo that this kitchen does not stock yet (pass 13): the vision pass
+    names it, guesses its unit and counts it, and a person decides at confirm whether it joins the
+    catalog. ``count`` is objects (packs or each), exactly like a known item's count."""
+
+    name: str
+    unit: Unit
+    count: int
+    concept: str
+
+
 class ShelfCount(Model):
     id: str
     items: list[ShelfCountItem] = Field(default_factory=list)
+    proposals: list[ShelfProposal] = Field(default_factory=list)
 
 class DraftNames(Model):
     te: str | None = None
@@ -485,8 +499,30 @@ class ConsentRequest(Model):
     kind: ConsentKind
     text_version: str
 
+class NewIngredientSpec(Model):
+    """A catalog entry a person accepts (pass 13): its name, the unit stock is kept in, and the buying
+    shape. ``par`` is the level the restaurant aims to hold; ``reorder_point`` where the watch starts
+    asking. Both default to the counted or received quantity's neighbourhood — the route fills them
+    when the caller leaves them at 0 only where a default is defined there; here they are explicit."""
+
+    name: str = Field(min_length=1, max_length=80)
+    unit: Unit
+    pack_size: int = Field(default=1, ge=1)
+    par: int = Field(default=0, ge=0)
+    reorder_point: int = Field(default=0, ge=0)
+
+
+class ShelfNewIngredient(Model):
+    """Accepting one shelf-photo proposal at confirm (pass 13): what the photo counted, plus the
+    catalog shape the person settled. ``count`` is objects counted (packs or each)."""
+
+    spec: NewIngredientSpec
+    count: int = Field(ge=0)
+
+
 class ShelfConfirmRequest(Model):
     counts: dict[str, int] = Field(default_factory=dict)  # ingredient id -> counted quantity
+    new_ingredients: list[ShelfNewIngredient] = Field(default_factory=list)
 
 class OnboardingPublishRequest(Model):
     draft: MenuDraft
@@ -512,14 +548,23 @@ class StaffDefaultRole(Model):
     pending: bool = False
 
 
+Responsibility = Literal["inventory_manager"]
+"""A standing responsibility a person holds on top of their job (pass 13). Unlike a shift slot it is
+not claimed per shift and not exclusive: several people may hold it, and one person may hold several
+responsibilities next to whatever job they work. ``inventory_manager`` minds the stock: initial
+entry, the nightly closing check, shelf counts, purchase bills."""
+
+
 class StaffPerson(Model):
     """A staff member as other staff may see them: never a PIN, never a hash. ``default_role`` is their usual
-    job (pass 5), or null when they have not chosen one."""
+    job (pass 5), or null when they have not chosen one. ``responsibilities`` are the standing extras
+    they hold (pass 13), on top of that job."""
 
     id: str
     name: str
     language: SpeakLang
     default_role: StaffDefaultRole | None = None
+    responsibilities: list[Responsibility] = Field(default_factory=list)
 
 
 class CustomRoleSpec(Model):
@@ -606,6 +651,15 @@ class SetDefaultRequest(Model):
 
     staff_id: str
     slot_id: str | None = None
+
+
+class ResponsibilityUpdate(Model):
+    """The manager on shift grants (``grant`` true) or takes back one standing responsibility (pass 13).
+    Granting is additive: it never touches the person's usual job or shift claim."""
+
+    staff_id: str
+    responsibility: Responsibility
+    grant: bool
 
 
 # ----- manager console (P42): orders, revenue, analytics, timesheets and settings ---------------------------------
@@ -781,7 +835,12 @@ class ConsoleCard(Model):
     The evidence fields (pass 9) carry the already-computed numbers behind the card so the console can
     draw them on the card itself: a stock card's burn curve and the dishes its ingredient blocks; a
     capacity card's expected and capacity tickets. Nothing here is computed for the card — the checks
-    above already produced every value."""
+    above already produced every value.
+
+    ``why`` (pass 15) is the evidenced driver behind the card, in one line: the strongest cause the
+    checks' own numbers support (a demand surge against the same-weekday norm, an unfilled slot, the
+    dish doing most of the burning), picked by ``domain.why`` from values already computed here. Null
+    when no cause clears the evidence bar — a card never carries a guessed reason."""
 
     id: str
     kind: ConsoleCardKind
@@ -794,6 +853,7 @@ class ConsoleCard(Model):
     expected_tickets: int | None = None  # capacity cards only
     capacity_tickets: int | None = None  # capacity cards only
     dishes: list[CardDish] = Field(default_factory=list)  # stock cards only
+    why: str | None = None  # the evidenced driver (pass 15); null when none clears the bar
 
 
 class ConsoleAnalytics(Model):
@@ -969,8 +1029,9 @@ class OperatorInbox(Model):
 # feed — a dish on the house, chosen from the guest's own history, at its MENU price (recipes carry
 # quantities, not costs, so no kitchen-cost figure exists anywhere in this section). Approving mints a
 # credit keyed to the number; the credit applies itself, as a $0 line, to the guest's next order.
-# ``marketing_opt_in`` exists in the store from day one and defaults off; nothing in this pass sends
-# anything to anyone.
+# ``marketing_opt_in`` exists in the store from day one and defaults off. P45 (below) is the only
+# sender: a win-back text goes only to a lapsed regular who opted in, only as a manager-approved
+# draft, and every send is recorded — simulated and labelled as such while no provider is connected.
 
 GoodwillReason = Literal["incident", "lapsed", "milestone"]
 GoodwillOptionKind = Literal["usual", "cheaper", "also_loved"]
@@ -983,6 +1044,9 @@ class IdentifyRequest(Model):
     phone: str = Field(min_length=1, max_length=32)
     name: str | None = Field(default=None, max_length=60)
     session_id: str = Field(min_length=1, max_length=80)
+    # P45: the guest's marketing answer, when the kiosk asked and they answered. Absent = not asked
+    # this time (the stored preference stands); present = set it (and remember that we asked).
+    marketing_opt_in: bool | None = None
 
 
 class UsualItem(Model):
@@ -1010,6 +1074,10 @@ class IdentifyResult(Model):
     visits: int = 0
     usual: list[UsualItem] = Field(default_factory=list)
     pending_credit: PendingCreditView | None = None
+    # P45: the stored marketing preference and whether it was ever asked — the kiosk offers the
+    # choice only while ``marketing_opt_in_asked`` is false, and never re-asks after an answer.
+    marketing_opt_in: bool = False
+    marketing_opt_in_asked: bool = False
 
 
 class CustomerOrderName(Model):
@@ -1069,6 +1137,10 @@ class GoodwillSuggestion(Model):
     customer_name: str | None = None
     phone_masked: str
     options: list[GoodwillOption] = Field(default_factory=list)
+    # pass 15: for a slow-wait incident, the evidenced cause of the wait (``domain.why.wait_incident_why``
+    # over the incident order's own station facts, wired by the goodwill service on read), or the
+    # honest no-single-cause line. Null for the non-incident reasons, which need no cause.
+    why: str | None = None
 
 
 class GoodwillFeed(Model):
@@ -1085,6 +1157,107 @@ class GoodwillDecision(Model):
     key: str
     approve: bool
     item_code: str | None = None
+
+
+# ----- win-back marketing (P45) -------------------------------------------------------------------------------------
+#
+# The outbound half of customer memory: a regular who drifted (the same arithmetic as the goodwill
+# ``lapsed`` signal — REGULAR_MIN_VISITS+ visits, last visit LAPSED_DAYS+ ago) can be invited back,
+# but only under three locks, all enforced server-side: the guest opted in to marketing (stored at
+# identify, default off, never messaged without it), a manager drafts and approves the exact text,
+# and the offer is the standing lapsed-goodwill promise — their usual on the house — minted as a
+# credit in the same book the goodwill decisions use, so it applies itself to the return order.
+# While no messaging provider is configured, sends in mock mode are recorded as simulated (and
+# labelled), and in live mode the send refuses in plain words instead of pretending.
+
+WinbackStatus = Literal["none", "draft", "sent", "returned"]
+
+
+class WinbackGuest(Model):
+    """One contactable lapsed regular in the Win back view: opted in, drifted, and what the outreach
+    to them looks like so far. ``key`` is the deterministic case key (the goodwill key's idiom);
+    guests who never opted in are not rows here at all — the view carries only their count."""
+
+    key: str
+    name: str | None = None
+    phone_masked: str
+    visits: int
+    last_visit_biz: AwareDatetime
+    days_since_last: int
+    usual_item_code: str | None = None
+    usual_name: str | None = None  # the dish the draft offers on the house
+    status: WinbackStatus = "none"
+    outreach_id: str | None = None  # the open draft / latest send for this guest, if any
+    pending_credit: PendingCreditView | None = None
+
+
+class WinbackOutreachView(Model):
+    """One win-back message's record: the draft a manager is editing, or the send that went out —
+    who approved it, when, on what channel, and whether the guest has come back since. Simulated
+    sends carry ``simulated`` and say so wherever this record shows."""
+
+    outreach_id: str
+    key: str  # the guest's win-back case key
+    name: str | None = None
+    phone_masked: str
+    message_text: str
+    offer_item_code: str | None = None
+    offer_name: str | None = None
+    status: Literal["draft", "sent", "returned"]
+    source: Literal["template", "model"] = "template"  # who wrote the draft (a person may have edited it since)
+    channel: str | None = None
+    simulated: bool = False
+    sent_biz: AwareDatetime | None = None
+    returned_order_id: str | None = None
+
+
+class WinbackSkipped(Model):
+    """One selected guest no draft was made for, and why (already contacted, already back, or the
+    facts moved). The manager sees the reason instead of a silent omission."""
+
+    key: str
+    reason: str
+
+
+class WinbackView(Model):
+    """The Win back view: contactable lapsed regulars, the count of those who can't be contacted,
+    every draft and send on record, and the channel's state in plain words (``provider_note``)."""
+
+    contactable: list[WinbackGuest] = Field(default_factory=list)
+    not_contactable_count: int = 0
+    outreach: list[WinbackOutreachView] = Field(default_factory=list)
+    provider_note: str
+    note: str
+
+
+class WinbackDraftRequest(Model):
+    """Draft a win-back message for each selected guest (their case keys). Every key must name a
+    contactable lapsed regular — a guest who never opted in is refused, never silently skipped."""
+
+    keys: list[str] = Field(min_length=1, max_length=50)
+
+
+class WinbackDraftResult(Model):
+    drafts: list[WinbackOutreachView] = Field(default_factory=list)
+    skipped: list[WinbackSkipped] = Field(default_factory=list)
+
+
+class WinbackEditRequest(Model):
+    """The manager's edit of one draft's text. Only drafts can be edited; a sent message is a record."""
+
+    outreach_id: str
+    message_text: str = Field(min_length=1, max_length=1000)
+
+
+class WinbackSendRequest(Model):
+    """Approve and send these drafts. Approval is the send: the manager sending is the approver of
+    record, and each guest's opt-in is re-checked at this moment, not at draft time."""
+
+    outreach_ids: list[str] = Field(min_length=1, max_length=50)
+
+
+class WinbackSendResult(Model):
+    sent: list[WinbackOutreachView] = Field(default_factory=list)
 
 
 # ----- restaurant onboarding (P39): the draft a menu becomes, and going live with it ------------------------------
@@ -1148,3 +1321,134 @@ class OnboardingGoLiveResult(Model):
     name: str
     files: list[str]
     status: Literal["live"] = "live"
+
+
+# ----- inventory management (P45, pass 13) ----------------------------------------------------------------------
+#
+# The stock workflow around the deterministic core (P12c) and the shelf count (P38): the restaurant
+# names an Inventory Manager (a standing responsibility, above), enters its opening stock once,
+# cross-checks the ingredients the forecast says will not last every night before closing, and
+# brings new stock in from photos — a shelf photo can also propose ingredients the kitchen does not
+# stock yet (their contracts sit with the shelf count, above), and a purchase bill scans straight
+# into a draft stock-in. Forecasts here are the core's own: order history against current stock.
+
+
+class InventorySetupView(Model):
+    """First-run stock entry: every catalog ingredient with its forecast, and whether the opening
+    counts have been entered. Until they are, the stock rows hold the catalog's par levels as
+    placeholders; saving writes each entered count as an ``initial`` adjustment."""
+
+    completed: bool
+    items: list[InventoryItemView] = Field(default_factory=list)
+
+
+class InventorySetupRequest(Model):
+    """The opening counts, in each ingredient's unit. Ingredients left out keep their current level."""
+
+    counts: dict[str, int] = Field(default_factory=dict)
+
+
+class ClosingCheckItem(Model):
+    """One ingredient the night's closing check asks about: its forecast, and how much the burn says
+    will be left when tomorrow's service ends (0 when it runs out before then)."""
+
+    ingredient: Ingredient
+    forecast: Forecast
+    projected_free: int
+
+
+class ClosingVariance(Model):
+    """One counted difference the closing check applied: what the books said, what the shelf said."""
+
+    ingredient_id: str
+    expected_qty: int
+    counted_qty: int
+
+
+class ClosingCheckCompletion(Model):
+    """The night's check, done: who finished it, when (real time), and the differences it fixed."""
+
+    completed_by_id: str
+    completed_by_name: str
+    completed_at: UtcTime
+    variances: list[ClosingVariance] = Field(default_factory=list)
+
+
+class ClosingCheckView(Model):
+    """The closing check for the current business day, evaluated when read: the ingredients whose
+    forecast runs out (or nearly) before tomorrow's service ends, and the day's completion if the
+    check already ran."""
+
+    biz_date: str
+    service_ends_at: AwareDatetime
+    items: list[ClosingCheckItem] = Field(default_factory=list)
+    completion: ClosingCheckCompletion | None = None
+
+
+class ClosingCheckCompleteRequest(Model):
+    """The counts the checker actually found, per ingredient (on hand, in its unit). An ingredient
+    left out is taken as matching the books — that is what makes an all-matching check one tap."""
+
+    counts: dict[str, int] = Field(default_factory=dict)
+
+
+class BillDraftLine(Model):
+    """One line read off a purchase bill: what the bill calls it, how much of it, and the catalog
+    ingredient it matched (null when it looks new). ``suggested_stock_qty`` is the line in stock
+    units — the billed quantity times the matched (or a standard) pack size — which the person
+    confirms or corrects."""
+
+    line_id: str
+    raw_name: str
+    qty: float
+    unit: str
+    price_cents: int | None = None
+    matched_ingredient_id: str | None = None
+    suggested_stock_qty: int
+
+
+class BillDraft(Model):
+    """A scanned purchase bill waiting for a person: its lines change nothing until confirmed.
+    ``simulated`` marks a draft produced without the vision model (offline mode), like the supplier
+    inbox labels its simulation."""
+
+    id: str
+    supplier_name: str | None = None
+    simulated: bool = False
+    lines: list[BillDraftLine] = Field(default_factory=list)
+
+
+class BillConfirmLine(Model):
+    """One confirmed bill line: the stock that actually arrived, in stock units, and where it goes —
+    an existing ingredient, or a new one to create from ``create``."""
+
+    line_id: str
+    ingredient_id: str | None = None
+    create: NewIngredientSpec | None = None
+    stock_qty: int = Field(ge=0)
+
+
+class BillConfirmRequest(Model):
+    lines: list[BillConfirmLine] = Field(default_factory=list)
+
+
+class SupplierReceiptLine(Model):
+    """One line of a received bill, as it landed: the ingredient it stocked and how much arrived."""
+
+    name: str
+    ingredient_id: str
+    qty: int
+    price_cents: int | None = None
+
+
+class SupplierReceipt(Model):
+    """A purchase bill that was scanned and received into stock: the supplier as the bill named it,
+    the lines, who received it and when. The stock-in counterpart of a purchase order's receipt."""
+
+    id: str
+    supplier_name: str | None = None
+    lines: list[SupplierReceiptLine] = Field(default_factory=list)
+    total_cents: int | None = None
+    received_by: str
+    simulated: bool = False
+    created_at: UtcTime

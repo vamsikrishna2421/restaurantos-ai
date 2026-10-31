@@ -96,7 +96,7 @@ export function problemText(err: unknown, step: 'upload' | 'confirm' = 'upload')
       : 'This photo could not be opened on this device. Try another photo, or enter the count by hand.'
   }
   if (err.status === 0) return 'The server could not be reached. Check the connection and try again.'
-  if (err.status === 401 || err.status === 403) return 'Only a manager can count stock. Start your kitchen as a judge.'
+  if (err.status === 401 || err.status === 403) return 'Only a manager, or the person holding Inventory Manager, can count stock.'
   if (step === 'confirm') {
     if (err.status === 404) {
       return 'This count is no longer waiting: it was saved already, or it expired (counts wait 15 minutes). ' +

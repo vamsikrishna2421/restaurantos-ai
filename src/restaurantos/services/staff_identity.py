@@ -15,6 +15,11 @@ The front-door layer the product spec adds on top of the sandbox engine. Three s
   never deleted, because the manager's timesheets read it. The record starts when it starts: claims open
   when the table first appears are backfilled with their claim time, but shifts that had already ENDED by
   then were never recorded anywhere — the timesheet says so rather than estimating them.
+- **Responsibilities** (pass 13): a fourth, separate thing — standing extras a person holds on top of
+  their job (today: ``inventory_manager``). Rows in ``responsibilities``, granted and revoked by the
+  manager on shift. Not a slot: not claimed per shift, not exclusive, and a person may hold several
+  next to any usual job — Carlos can cook curry *and* mind the stock. Inventory endpoints read them
+  to authorize the holder next to the session's manager role.
 
 Storage is a small dedicated SQLite file (``<data_dir>/staff.db``), deliberately outside the event store: identity
 is account data, not kitchen events, and a sandbox reset must not wipe the staff roster. Operations are tiny and
@@ -189,7 +194,18 @@ CREATE TABLE IF NOT EXISTS custom_roles (
     decided_ms INTEGER,
     PRIMARY KEY (tenant_id, role_id)
 );
+CREATE TABLE IF NOT EXISTS responsibilities (
+    tenant_id      TEXT NOT NULL,
+    staff_id       TEXT NOT NULL,
+    responsibility TEXT NOT NULL,
+    granted_by     TEXT NOT NULL,
+    granted_ms     INTEGER NOT NULL,
+    PRIMARY KEY (tenant_id, staff_id, responsibility)
+);
 """
+
+RESPONSIBILITIES: tuple[str, ...] = ("inventory_manager",)
+RESPONSIBILITY_LABELS: dict[str, str] = {"inventory_manager": "Inventory Manager"}
 
 
 @dataclass(frozen=True, slots=True)
@@ -294,9 +310,48 @@ class StaffStore:
                 "SELECT staff_id, name, language, default_role FROM staff WHERE tenant_id = ? ORDER BY rowid",
                 (tenant_id,)).fetchall()
             customs = self._customs_by_id(tenant_id)
+            held = self._responsibilities_by_person(tenant_id)
         by_id = {d.slot_id: d for d in defs}
         return [StaffPerson(id=r[0], name=r[1], language=r[2],
-                            default_role=_resolve_default(r[3], by_id, customs)) for r in rows]
+                            default_role=_resolve_default(r[3], by_id, customs),
+                            responsibilities=held.get(r[0], [])) for r in rows]
+
+    # ----- standing responsibilities (pass 13) -------------------------------------------------------------
+
+    def _responsibilities_by_person(self, tenant_id: str) -> dict[str, list[str]]:
+        """Held responsibilities per person, in the canonical order (call with ``self._lock`` held)."""
+        rows = self._conn.execute(
+            "SELECT staff_id, responsibility FROM responsibilities WHERE tenant_id = ?", (tenant_id,)).fetchall()
+        held: dict[str, list[str]] = {}
+        for staff_id, responsibility in rows:
+            held.setdefault(staff_id, []).append(responsibility)
+        order = {name: i for i, name in enumerate(RESPONSIBILITIES)}
+        return {staff_id: sorted(names, key=lambda n: order.get(n, len(order)))
+                for staff_id, names in held.items()}
+
+    def responsibilities_of(self, tenant_id: str, staff_id: str) -> list[str]:
+        """The standing responsibilities one person holds (empty when they hold none)."""
+        with self._lock:
+            return self._responsibilities_by_person(tenant_id).get(staff_id, [])
+
+    def set_responsibility(self, tenant_id: str, staff_id: str, responsibility: str, grant: bool,
+                           granted_by: str, now_ms: int) -> list[str]:
+        """Grant or take back one standing responsibility; returns what the person holds afterwards.
+        Additive by design: a grant never touches the person's usual job or shift claim, and several
+        people may hold the same responsibility."""
+        if responsibility not in RESPONSIBILITIES:
+            raise ValueError(f"unknown responsibility {responsibility!r}")
+        with self._lock, self._conn:
+            if grant:
+                self._conn.execute(
+                    "INSERT OR IGNORE INTO responsibilities (tenant_id, staff_id, responsibility,"
+                    " granted_by, granted_ms) VALUES (?, ?, ?, ?, ?)",
+                    (tenant_id, staff_id, responsibility, granted_by, now_ms))
+            else:
+                self._conn.execute(
+                    "DELETE FROM responsibilities WHERE tenant_id = ? AND staff_id = ?"
+                    " AND responsibility = ?", (tenant_id, staff_id, responsibility))
+            return self._responsibilities_by_person(tenant_id).get(staff_id, [])
 
     def person(self, tenant_id: str, staff_id: str, defs: list[SlotDef]) -> StaffPerson | None:
         """One person with their usual job resolved, or None when the id is unknown here."""

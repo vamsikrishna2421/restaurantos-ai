@@ -66,7 +66,7 @@ export type TicketAction = 'start' | 'bump' | 'recall' | 'undo' | 'void' | 'chan
 
 export type AvailabilitySource = 'plan' | 'kitchen' | 'manager' | 'seed'
 
-export type AdjustSource = 'count' | 'manual' | 'receiving'
+export type AdjustSource = 'count' | 'manual' | 'receiving' | 'initial'
 
 export type IncidentReason = 'opened' | 'replan_suggested' | 'observe' | 'monitoring' | 'resolved'
 
