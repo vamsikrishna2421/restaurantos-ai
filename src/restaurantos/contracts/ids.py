@@ -26,7 +26,7 @@ _MAX_RAND = (1 << _RAND_BITS) - 1
 # the format) so packages can mint IDs for their own rows (for example ``smp`` for sample clips).
 KNOWN_PREFIXES = frozenset(
     {"sbx", "ord", "crt", "tkt", "vs", "call", "inc", "pln", "apr", "po", "ntc", "tsk", "tr", "smp", "cns", "fb",
-     "cor", "rec", "shc", "sup"}
+     "cor", "rec", "shc", "sup", "chk", "bdr", "brc"}
 )
 
 

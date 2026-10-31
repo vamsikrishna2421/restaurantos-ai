@@ -1366,3 +1366,286 @@ the worktree `src` or the server silently serves the main checkout's code.
 move under `/api/admin/*`, with the entry above corrected to match).
 
 — Bujji, 2026-10-30
+
+## Pass 13 — Inventory management: the Inventory Manager responsibility, opening stock, the nightly closing check, photo-found ingredients, bill scan (branch `bujji/pass13`, off pass-12 head 4b2be97; NOT pushed)
+
+Vamsi's spec (2026-10-31): someone is assigned the Inventory Manager role; a single user can hold multiple roles; initial inventory is entered at setup; every day the app shows possible low-stock ingredients to cross-check at night before closing; low stock is estimated from order history and the initial inventory size; images auto-identify new ingredients and their quantities; purchasing bills are scanned to add stock. The parent audit found the deterministic core already built (BOM reserve/consume/release/receive/adjust, the burn/stockout forecast, shelf-photo counting, supplier POs) — this pass wires the missing surfaces to it and rebuilds none of it.
+
+### What shipped
+
+1. **Inventory Manager responsibility + multi-role** (`50b1f27`). A new `responsibilities` table in the staff store (`services/staff_identity.py`), additive by construction: it never touches the default role, the PIN-login flow, or per-shift slot claims. `POST /api/staff/responsibilities` (manager-on-shift only, 404 on an unknown person) grants/revokes `inventory_manager`; `StaffPerson.responsibilities` rides every roster/login response. Authorization is one dependency (`InventoryAccess` in `routes_inventory.py`): a session with the manager cap OR a staff Bearer token whose person holds the responsibility; the actor stamp is the session role or `inventory_manager`, so the ledger says who really counted. Denial is 403 `inventory_access` with `details.needs = ["manager", "inventory_manager"]`. It gates stock adjust, setup, the closing check, shelf-count confirm, and bill-scan confirm. Manager console: People cards carry a responsibility chip next to the usual job (Carlos reads "Usual job: Curry Chef 1" + an Inventory Manager chip), and the Team jobs card has a per-person Give responsibility / Take back row.
+2. **Opening-stock entry.** `GET/POST /api/inventory/setup`: the view pairs the full catalog with whether setup is done (an `initial` event exists); saving validates the whole grid first, then writes one auditable `initial` adjustment per ingredient whose count differs — and when every count matches the placeholder pars, one same-level marker `initial` event so "setup done" itself is on the ledger. Web: the manager console's new **Inventory** section opens with the grid, every row prefilled with its par (per the spec), flagged "Setup step" until saved, then "Entered" with re-entry one tap away. Placement decision: the grid lives in the manager Inventory section rather than the onboarding review — the onboard draft has no ingredient model (pars are inferred server-side at materialize), so onboarding placement would have meant inventing a draft ingredient model; the section is the setup step for a fresh tenant either way, and Settings → Inventory remains the natural later home.
+3. **Tonight's closing check.** `GET /api/inventory/closing-check` + `POST .../complete`. Due = the existing forecast says the ingredient needs watching/acting (band) OR its stockout ETA lands on or before the NEXT business day's service end (seeded template close, fallback 23:59) — evaluated against current on_hand, which already reflects opening stock minus order consumption; each row carries expected remaining at tomorrow's close (`free − burn × hours left`), sorted soonest-out first. Blank counts mean "matches the books"; entered counts apply a `count` adjust per variance before the completion row (`closing_checks` table: business date, who, when, per-ingredient book-vs-counted) is written. A second completion the same business day is 409. On-demand and evaluated on read, like everything else in this product — no push is faked. Web: the ClosingCheck card in the Inventory section (count inputs prefilled with the book qty as placeholder, completion banner naming who/when and listing variances).
+4. **Photo identifies NEW ingredients.** The Spark shelf read now also returns `new_items` (name, unit ea/g/ml, count) for countable stock the kitchen does not list; `spark.read_proposals` drops anything already catalogued, uncountable-unit, duplicated, or zero-count. Proposals ride the pending count (no SAM pass — there is no catalog entry for a second count to agree with, and the UI says the count is Spark's). `ShelfConfirmRequest.new_ingredients` accepts proposals by name (a name the photo never proposed is 400, checked before the pending count is consumed); accepting creates the ingredient through `InventoryService.add_ingredient` — slug `ING_<NAME>` deduped against the catalog, opening stock = counted qty (× pack size for weighed units), par/reorder defaulting to the opening / half of it, both editable right in the review — in the same confirm, and the created item rides back in the confirm response so the screen can show it. Known-ingredient behavior is byte-identical; `count_photo` kept its signature (it is now a wrapper over `count_photo_full`).
+5. **Bill scan → stock in.** `perception/bill_scan.py` + `perception/pdf_text.py`. Upload a photo (the usual prepare path) or a PDF (dependency-free text-layer extraction — FlateDecode streams + Tj/TJ strings; an image-only PDF gets an honest 400 "take a photo instead"). The parse yields a DRAFT: supplier, per line the raw name/qty/unit/price, a deterministic catalog match (exact name/id, else a single whole-word-subset candidate; ambiguity stays unmatched), and a suggested stock qty (same unit passes through; kg→g and L→ml convert ×1000; pack-words or untranslatable units fall back to packs × pack size; unmatched lines suggest their bare qty for the create form). Confirm receives through the existing inventory receive path (PO-receipt deltas, correlation = the receipt id) or creates the ingredient for create-lines, then writes the `supplier_receipts` row; `GET /api/supplier/receipts` lists them in the supplier surface (and the Inventory section shows "Bills received"). Mock AI mode returns a deterministic simulated draft built from the tenant's own catalog, `simulated: true` and badged "Simulated scan — offline mode" on screen, the supplier-inbox precedent. Pending drafts expire in 15 minutes; the 12 MB cap and one-photo-per-person discipline follow the shelf flow.
+
+Contracts: `AdjustSource` gains `"initial"`; new id prefixes `chk`/`bdr`/`brc`; `closing_checks` + `supplier_receipts` join `STATE_TABLES` in both the sandbox cloner and the materializer (a sandbox now carries them like every other state table); TS contracts regenerated (+118 lines in api.ts).
+
+### Tests
+
+- Python: **1613 tests — 1609 passed, 3 skipped, 1 failed**, the failure only the known environmental `test_localhost_tcp_needs_opt_in`. New coverage: `tests/api/test_inventory_management_routes.py` (grant/revoke + the multi-role authorization matrix — a cook holding the responsibility adjusts/counts/sets up, a plain cook gets 403 `inventory_access`; opening stock writes `initial` events; closing-check list/variance/completion/409; responsibilities endpoint gates) and `tests/perception/test_bill_scan.py` (proposal filtering, bill matching + unit conversion, PDF text extraction, the recorded live draft, the mock simulated draft, confirm → on_hand + receipt record), plus shelf-proposal cases in `test_shelf_routes.py`. Two existing suites were updated for the deliberate contract changes (the adjust/shelf denial shape, and `StaffPerson` gaining `responsibilities`).
+- Web: **284 tests across 44 files**; new `surfaces/manager/inventory.test.tsx` (opening entry save body pinned, closing list + completion/variance rendering, bill draft → receive body pinned, People chip + grant/revoke bodies pinned) and two proposal tests in the shelf-count suite. Full-suite runs on this VM intermittently fail ONE rotating timing-sensitive test (`staff.test.tsx` switch-job, once `approve.test.tsx` digest) — reproduced on the untouched pass-12 tree (the staff file failed 3 of 4 solo runs there), so it is a pre-existing environment flake, not a pass-13 regression; every pass-13 test passed in every run. `tsc -p tsconfig.json` clean, `vite build` clean, `ruff check src tests scripts` clean.
+
+### Screenshots (goal files, pass13-shots/)
+
+Tablet 1180×820, local dev server, mock AI, fresh tenant: `01-opening-stock-entry.png` (the grid, pars prefilled, "Setup step"), `02-closing-check.png` ("26 to check", Paneer ACT with ETA + counted inputs), `03-photo-new-ingredient.png` (the shelf dialog: Paneer AGREE plus "New in this photo" — Greek Yogurt Tubs accepted, opening 12 ea; the shelf POST was fulfilled with the exact ShelfCount JSON the live server returns, since mock mode's photo count is the manual fallback by design), `04-bill-scan-draft.png` (the simulated draft, matched lines, stock-in prefilled), `05-people-two-roles.png` (Carlos: Curry Chef 1 + Inventory Manager chip). Two screenshot-driven fixes: the grid now prefills pars (the spec's words) instead of current on_hand (cc10f1c), and the proposal reorder input was widened so its hint is not clipped (165d09d).
+
+### Left undone / notes
+
+- The closing check's "or run a shelf photo per ingredient" path is the existing GM shelf slot (it counts the whole shelf, not one ingredient); the check's counted inputs are the per-ingredient path. Nothing scheduled exists behind the check — it is tonight's list whenever it is opened, per the product's honesty rule.
+- Commits: `50b1f27` backend · `5b4b8e3` web · `cc10f1c` + `165d09d` screenshot polish · this handoff. NOT pushed, no PR — the parent merges. Deploy waits on the Fly machine, which stays stopped at Vamsi's word.
+
+## Pass 14 — Regulars win-back marketing (P45) — built by Bujji, branch `bujji/pass14`, off 4b2be97 (pass 12 head); NOT pushed
+
+Built 2026-10-31. P43 identified the regulars and stored `marketing_opt_in` (default off, "nothing
+sends anything"); this pass is the outbound half: find the drifted regulars who opted in, draft each
+a personal invitation, let the manager edit and approve it, send it through a messaging port, hold
+the promised dish as a goodwill credit, and mark the outreach returned when the guest orders again.
+No new credit system and no new consent system — both ride what P43 already keeps. (Phase is **P45**:
+P44 was already the operator console's.)
+
+### 1) The Win back view (manager console → Customers, new card under Drifting away)
+
+`GET /api/manager/winback` (session auth) returns the contactable list — lapsed regulars (3+ visits,
+last visit ≥14 days ago, P43's own definitions) with `marketing_opt_in = true` — each with visits,
+last visit, usual dish, days away, and the state of their current case (none / draft / sent /
+returned + any credit already waiting). Guests who never opted in are returned **only as a count**
+(`not_contactable_count`): no names, no numbers, nothing messageable. Case keys are deterministic
+(`winback:<masked number>:lapsed:<last order id>`) so a case is re-derived from the same facts and a
+fresh drift is a fresh case; the key carries the MASKED number — unlike the goodwill suggestion key,
+this one travels to staff surfaces.
+
+### 2) Drafts — always drafts until a human sends
+
+`POST /api/manager/winback/draft` (manager on shift only) takes case keys and writes one draft per
+guest: name, usual dish, days away, and the offer — **their usual on the house**, the same dish the
+lapsed-goodwill suggestion would hold. In live AI mode the text comes from the existing Meta path
+(`Purpose.GM`, customer data class, tenant spend scope) with the template as an automatic fallback
+on any failure; in mock mode it is the deterministic template. The source (`model` / `template`) is
+recorded on the draft. Drafting refuses the whole request if any key is unknown/not-lapsed (400
+`not_lapsed`) or belongs to a guest without opt-in (400 `not_opted_in`) — batch selection can never
+smuggle in a non-consenting guest. Re-drafting an open case returns the existing draft; a case
+already sent or returned is reported under `skipped`. `POST /api/manager/winback/edit` saves the
+manager's rewrite (drafts only; a sent message is a record and refuses edits, 400 `already_sent`).
+
+### 3) Approve & send — a port, an honest channel, a record
+
+Sending is the approval: `POST /api/manager/winback/send` (manager on shift; the sender is recorded
+as the approver) re-checks **every guest's opt-in at send time** — a guest who opted out after
+drafting refuses the whole batch (400 `not_opted_in`, nothing sent). It then sends through a new
+`MessagingPort` (`contracts/ports.py`, a `Container` field, wired by a PROVIDERS entry
+`services.messaging` like every other port): `SimulatedMessaging` in mock mode (recorded, labelled
+simulated; the response carries `X-Simulation: simulated-messaging`, the supplier inbox's header
+idiom) and `UnavailableMessaging` in live mode — no SMS provider is configured in this product, so
+the send refuses plainly with 400 `no_provider` and the UI's provider note says the same in words
+("…can't be sent yet. Drafts can still be prepared and edited."). Every send is a row in the book:
+guest, final text, offer, approver, sent time (business clock), channel, simulated flag, status.
+
+### 4) The promise and the return — one credit book, matched on read
+
+At send time the promised usual is minted through the goodwill book's own mint path
+(`CustomerStore.mint_credit`, extracted so `record_decision` and win-back share it) under the case
+key — or linked, never duplicated, if a credit for the case already waits. It then behaves exactly
+like any goodwill credit: `pending_credit` at the guest's next identification, applied as a $0
+`goodwill_comp` line at placement, spent once. Returns are matched on read (like cautions): a sent
+outreach whose guest places a later non-cancelled order (business clock) flips to `returned` with
+that order's id linked, and the guest leaves the drifted list — they are back. Stored in a new
+`winback_outreach` table in the customers book (customers.db, so no store/tables registration).
+
+### 5) Opt-in capture — the stored field, surfaced honestly
+
+`IdentifyRequest` gains `marketing_opt_in: bool | None`: when the kiosk identification collects an
+answer it is stored (and `marketing_asked` set — a new column, added by a guarded ALTER so older
+books keep working); `IdentifyResult` now reports `marketing_opt_in` and `marketing_opt_in_asked`
+so surfaces can ask once and never nag. Absent answer = not asked; nothing about the kiosk flow
+changed shape, no new consent surface was invented, and the default stays off.
+
+### Web
+
+`customersApi.winback / draftWinback / editWinback / sendWinback` (generated contracts regenerated,
+additive only). The **Win back** card: provider note first, the not-contactable count line,
+contactable guest cards (checkbox only while no outreach exists, manager only), **Draft messages**,
+a Drafts section with per-guest editable text areas + source chip + save-edit, **Approve & send
+selected**, and a Sent list with Sent / **Returned** / **Simulated** chips, the offer chip and the
+return's order link. Drafting/sending requires the manager's staff session (the section now takes
+`me`, like Support); if the win-back read fails the card hides itself and the rest of the section
+stands. Contracts note: adding the `messaging` container field grew CONTRACTS_RUNTIME §10.0 — the
+two test mirrors of the field list (`tests/contracts/test_ports.py`, `tests/integration/test_boot.py`)
+were amended to match, the same way the registry mirror grows.
+
+### Tests
+
+- Python: `tests/api/test_winback_routes.py` (8 new) — view gating (opt-in only, count-only for the
+  rest, numbers never in the payload), identify opt-in storage + asked flag + answer changes, draft
+  gate / opt-in refusal / unknown case / idempotence, batch draft + edit + 404, send record + credit
+  minted + return flip + re-send/edit refusals, **opt-out after draft refuses the send**, live-mode
+  no-provider refusal, and the win-back credit riding a return order through placement as a $0
+  comp line. Full suite: 1,574 collected (1,566 + 8). In this sandbox the run shows 20 failures
+  that are **identical on the pristine pass-12 base** — root-caused to the sandbox's `NO_PROXY`
+  value (bracketed IPv6 entries httpx cannot parse; every one of those tests passes with
+  `NO_PROXY` unset) plus the known `test_localhost_tcp_needs_opt_in` permission failure; none is in
+  code this pass touched. One 200 ms timing test flaked under parallel load and passes solo.
+- Web: 281 tests (280 + `winback_draft_edit_and_send_flow`: select → draft → edit → send with POST
+  bodies asserted, simulated chip and waiting credit visible). One staff-surface test flakes
+  intermittently in this sandbox on both the base and this branch (different tests in that file
+  across runs); the first full run here passed 281/281. `tsc` clean.
+
+### Screenshots
+
+`~/workspace/goals/meta-global-ai-developer-hackathon-2026-application/files/pass14-shots/` —
+`01-winback-list.png` (contactable Asha + Chandra, Vikram as the not-contactable count),
+`02-draft-editor.png` (both template drafts in editors), `03-sent-and-returned.png` (Asha Returned
+with her order linked, Chandra Sent, both labelled Simulated). Taken on the local dev server
+(sample tenant's sandbox, business clock Sat 2026-11-07) with a seeded book: three regulars whose
+last visits were backdated in the ledger; Asha's return is a ledger order placed after the send on
+the business clock.
+
+### Left undone / notes for the parent
+
+- No real SMS provider exists in the product, so live mode honestly cannot send — wiring one is a
+  new adapter behind `MessagingPort` when the founders pick a provider.
+- The kiosk identification UI does not yet ask the marketing question; the API + stored field are
+  ready and report asked/opted state (pass-level call: no new consent surface in this pass).
+- Nothing deployed, pushed or PR'd — the parent reviews and merges. Pass 13 (inventory) worked in
+  parallel in its own worktree; no inventory/perception/staff files were touched here.
+
+### Commits (bujji/pass14, local — for the parent to merge)
+
+`b35fec7` backend (messaging port + adapters, win-back service + routes, customers book outreach +
+opt-in capture, contract-mirror amendments, route tests) · `6d8ec34` web (API client, Win back card,
+section prop, web test, regenerated contracts) · `8c41995` fixup (win-back renumbered P44 → P45;
+P44 is the operator console's) · this handoff entry.
+
+— Bujji, 2026-10-31
+
+## Pass 15 — Cautions carry their "why" — built by Bujji, branch `bujji/pass15`, off the pass-12 head 4b2be97 (= main aa313b0 content); NOT pushed
+
+Founder requirement (Vamsi, 2026-10-31): "unusually long cooking time etc needs to be analyzed
+with why reason." A caution now says not just WHAT is wrong but WHY — the evidenced driver,
+picked from numbers the checks already computed. Zero new model calls, zero new reads: this is
+statistics over the same payloads (the zero-token principle), and a cause is named only when it
+clears an evidence bar — otherwise the card keeps no why line, and a wait incident says so
+outright ("No single cause stands out in the record — …") rather than guessing.
+
+### The engine (`domain/why.py`, new, pure)
+
+- `capacity_why(...)` — a forecast-vs-hands shortfall is driven by a **surge** (expected ≥ 1.25×
+  the same-weekday typical for that station/daypart, ≥ 3 tickets over) and/or an **unfilled
+  slot** (a full crew's capacity beats the staffed one by ≥ 5 tickets). Two causes stack,
+  biggest first ("Two things stack up: …"). With a norm on record and neither cause clearing,
+  the honest no-single-cause line names the norm it compared against. With no history and a
+  full crew — or nobody on the station at all (the card's own detail already says exactly
+  that) — it returns `None`.
+- `stock_why(...)` — a run-out is driven by a **usage climb** (the past week's daily use ≥ 1.3×
+  the weeks before it; needs ≥ 12 history days) and/or **the dish doing the burning** (one dish
+  ≥ 40% of the forecast need, named with its quantity and servings). Evenly spread burn at
+  flat use returns `None`.
+- `wait_incident_why(legs, ...)` — for a slow order, from the incident order's OWN per-station
+  facts: the bottleneck is the longest leg; its evidenced causes are **overload** (tickets past
+  what its cooks cover at the planner's 6/hour pace in the window), **unfilled slots**,
+  a **room surge** (orders in the window ≥ 1.3× the same-weekday norm), and an **86'd dish** on
+  the ticket named as a circumstance (worded as may-have, never as proven cause). Nothing
+  clearing returns the no-single-cause line built only from established negatives. ALWAYS
+  returns a line — an incident the founder asked "why" about always gets an answer.
+
+### Wiring
+
+- `contracts/api.py`: `ConsoleCard.why: str | None` and `GoodwillSuggestion.why: str | None`
+  (TS contracts regenerated; both render in `surfaces/manager/index.tsx` under the Pass 9
+  evidence visual / the goodwill detail, above "Suggested:"; no why → renders exactly as
+  before).
+- `services/manager_console.py`: capacity checks pass the same-weekday typical (mean over the
+  history days sharing the plan day's weekday — the same pool discipline as the forecast) plus
+  the station's slot count; stock checks accumulate the per-dish burn split and each
+  ingredient's daily-use series over the history already read for the forecast. Capacity and
+  stock cards in the live feed now carry whys (see screenshots).
+- **Goodwill is deliberately NOT wired in the service this pass**: `services/customers.py` is
+  owned by the parallel pass-14 build. The contract field, the web rendering, and the tested
+  engine all ship; the follow-up hook is one function — in `CustomerService._suggestion_view`,
+  for `reason == "slow"` suggestions, build `StationWindow`s from the incident order's lines
+  (per-station leg = that station's ready-minus-fired span, window = the wait, tickets/cooks/
+  slots from the KDS read at incident close, room counts from orders in the window vs the
+  tenant's same-weekday norm, 86'd dishes from the incident order's items) and set
+  `why=wait_incident_why(...)`. No order in the seeded data reconstructs another way: the
+  incident is a ledger read, and the legs must come from the incident order itself, never from
+  today's staffing. Lapsed-regular suggestions carry no why by design (a drift has no
+  evidenced single cause in the record).
+
+### Tests
+
+- New `tests/domain/test_why.py` (13): surge / unfilled slot / stacking order / no-single-cause
+  / null cases for capacity; top-dish and usage-climb for stock; bottleneck-with-numbers,
+  surge, 86-circumstance, and the no-single-cause line for wait incidents.
+- API: `tests/api/test_manager_routes.py` — Curry's tomorrow-dinner card why names the slots
+  ("Only 1 of the station's 3 cooking slots have a usual-job cook — a full crew would cover
+  about 72 tickets, not 24"); the nobody-on-Biryani card's why is `None`; the paneer stock
+  card's why names Paneer Butter Masala with the forecast's own numbers (5700 of 11310 g,
+  ~38 servings).
+- Web: `manager-sections.test.tsx` (why lines on both card kinds; a feed whose payloads carry
+  no why renders no "Why:" anywhere) and `customers.test.tsx` (a slow goodwill incident shows
+  its why). Touched Python areas (domain + api + services): 223/223. tsc clean. Full suites
+  in the builder's sandbox showed only pre-existing environmental failures (this sandbox's
+  `no_proxy` breaks httpx URL parsing — identical failure set on the untouched pass-12 base,
+  verified by subset parity; web timeouts under parallel load, all green on an idle box).
+
+### Screenshots (goal files, pass15-shots/, tablet 1180×820, local dev server, mock AI)
+
+`00-attention-feed.png` (the whole feed), `01-capacity-card-why.png` (Curry, live payload),
+`02-stock-card-why.png` (Paneer, live payload), `03-goodwill-card-why.png` (the shipped
+rendering fed by request interception with a suggestion payload whose why string is
+`wait_incident_why`'s real output — the goodwill service hook lands with pass 14, see above).
+
+## Merge — Passes 13 + 14 + 15 land together, plus Pass 15's goodwill hook (branch `bujji/passes-13-15`)
+
+Merged locally in sequence (13 → 14 → 15) off the pass-12 head 4b2be97 (= main aa313b0 content), then
+pushed as one PR for review and merged to main; the image build was dispatched on the new main. The
+Fly machine stays stopped — nothing deployed, per Vamsi's word.
+
+### Conflicts and fixups
+
+- `BUJJI_SESSION_HANDOFF.md` on both merges: pure append collisions — both entries kept, in pass
+  order (13, then 14, then 15).
+- `src/web/src/surfaces/manager/customers.test.tsx` (pass 15 merge): pass 14's win-back fixtures and
+  pass 15's slow-suggestion fixture both extend the same mock — kept both fixture sets and both
+  `beforeEach` resets; nothing dropped.
+- Everything else (contracts/api.py, generated TS, manager index, services) auto-merged; the wins
+  were checked semantically at each checkpoint rather than trusted.
+- Fixup `9a92417` (ruff): pass 14's column-list SQL tripped S608 (the only interpolation is the module
+  constant; values stay bound — noqa'd per the codebase's own precedent) and an unused `now_biz` in
+  the win-back view was dropped. Base was ruff-clean, so the merge restores that.
+- Fixup `9daae96` (cross-tenant walk): pass 13's new `POST /api/perception/bill/{draft_id}/confirm`
+  route was missing from the security walk's registry. Bill drafts are per tenant (confirm looks the
+  draft up under the caller's tenant), so `draft_id` joins `UNPROBED_PARAMS` with its why, on the
+  `count_id` precedent. Verified: the walk fails on the untouched base for nothing, and passes on the
+  merged tree with the entry.
+
+### The goodwill hook (f977925) — pass 15's follow-up, now wired
+
+`CustomerService._incident_why` feeds `wait_incident_why` from the incident order's own record:
+its tickets' per-station spans (created → bumped), the tickets those stations took in during the
+wait (cancelled orders excluded), the cooks the shift log shows on each station over the window
+(claims are attendance, the timesheets' doctrine — spans convert through the tenant clock, so no
+fact is read off today's staffing), the room's order count against the same-weekday norm (pooled
+over the trailing eight weeks; silent under two pool days), and any of the order's dishes 86'd
+during the wait, from the availability events. Lapsed and cancelled suggestions keep `why = null`
+by design. The goodwill route now hands the service the staff store + slot defs, the timesheets
+route's own pattern. New `tests/api/test_goodwill_why.py`: a slow incident on an overloaded Curry
+station (7 tickets, 1 of 3 slots claimed) shows "The wait built at Curry (50 min of it): … 7 tickets
+in that stretch — more than its 1 cook(s) cover at the usual pace (about 5)"; a lapsed suggestion's
+why is null.
+
+### Verification on the merged tree
+
+- Checkpoints after each merge: pass-13 areas (inventory routes, perception) green; pass-14 areas
+  (win-back, customers, contract mirrors, boot/registry) green; pass-15 areas (`test_why`, manager
+  routes) green; web 284 → 285 → 287 across the checkpoints, tsc clean at each.
+- Python, final full run: **1607 tests — 1600 passed, 6 skipped, 1 failed**, the failure only the
+  known environmental `test_localhost_tcp_needs_opt_in` (a sandbox socket-permission probe; it
+  fails identically on the untouched pass-12 base). With this sandbox's `NO_PROXY` left set, ~19
+  further httpx `Invalid port: ':1]'` failures appear on base and merged trees alike — environmental,
+  not regressions; the counts above are with it unset.
+- Web, final full run: 286/287 — the one failure is the known rotating `staff.test.tsx` switch-job
+  timing flake (reproduced on the untouched pass-12 tree), green solo (7/7). `tsc` clean,
+  `scripts/gen_ts_contracts.py --check` clean, `ruff check src tests scripts` clean.
+
+— Bujji, 2026-10-31

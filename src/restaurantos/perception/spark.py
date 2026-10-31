@@ -22,6 +22,13 @@ and a strict JSON schema (``schema``): which of **this kitchen's countable ingre
 ``read_items`` validates the answer in code (the strict schema has no bounds): unknown or repeated ingredients are
 dropped, a count outside 0–``MAX_COUNT`` becomes None (Spark failed for that concept), shared phrases become names,
 and anything that is not the schema's JSON raises ``SparkUnreadable``.
+
+**New-ingredient proposals** (pass 13): the same call also reports clearly countable stock that is NOT on the
+kitchen's list (``new_items``: a plain name, a guessed unit of ``ea``/``g``/``ml``, a concept, points and a count).
+``read_proposals`` validates them the same way — a "new" item whose name matches a known ingredient is dropped, as
+are unusable units and counts — and the shelf count offers them as proposals a person can accept into the catalog.
+SAM does not verify proposals: there is no catalog entry to agree or disagree with yet, so Spark's count stands
+as the proposal's count until a person confirms it.
 """
 
 from __future__ import annotations
@@ -35,7 +42,7 @@ from typing import TYPE_CHECKING, Any
 from pydantic import BaseModel, ConfigDict, ValidationError
 
 from restaurantos.config import Purpose
-from restaurantos.contracts.api import ShelfPoint
+from restaurantos.contracts.api import ShelfPoint, ShelfProposal
 from restaurantos.perception.responses import output_text
 
 if TYPE_CHECKING:
@@ -45,7 +52,9 @@ if TYPE_CHECKING:
     from restaurantos.perception.image import Photo
 
 MAX_ITEMS = 4
+MAX_NEW_ITEMS = 4
 MAX_COUNT = 999
+PROPOSAL_UNITS = ("ea", "g", "ml")  # a shelf proposal is countable stock: each, or bought in packs
 GRID = 1000
 CONCEPT_MAX_WORDS = 4
 CONCEPT_MAX_CHARS = 40
@@ -86,9 +95,19 @@ class _Item(BaseModel):
     count: int | None = None
 
 
+class _NewItem(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    name: str
+    unit: str
+    concept: str
+    points: list[_Point] = []
+    count: int | None = None
+
+
 class _Output(BaseModel):
     model_config = ConfigDict(extra="ignore")
     items: list[_Item]
+    new_items: list[_NewItem] = []
 
 
 def countable(stock: Sequence[Ingredient]) -> list[Ingredient]:
@@ -109,7 +128,8 @@ def how_counted(ingredient: Ingredient) -> str:
 
 def schema(ingredient_ids: Sequence[str]) -> dict[str, Any]:
     """The strict output schema (``lint_strict``-clean): ``items[{ingredient_id ∈ ids, concept, points[{x, y}],
-    count}]``; points come before the count so the model points first."""
+    count}]`` plus ``new_items`` for countable stock the kitchen does not list (pass 13); points come
+    before the count so the model points first."""
     point = {"type": "object", "additionalProperties": False, "required": ["x", "y"],
              "properties": {"x": {"type": "integer"}, "y": {"type": "integer"}}}
     item = {"type": "object", "additionalProperties": False,
@@ -117,8 +137,14 @@ def schema(ingredient_ids: Sequence[str]) -> dict[str, Any]:
             "properties": {"ingredient_id": {"type": "string", "enum": list(ingredient_ids)},
                            "concept": {"type": "string"}, "points": {"type": "array", "items": point},
                            "count": {"type": "integer"}}}
-    return {"type": "object", "additionalProperties": False, "required": ["items"],
-            "properties": {"items": {"type": "array", "items": item}}}
+    new_item = {"type": "object", "additionalProperties": False,
+                "required": ["name", "unit", "concept", "points", "count"],
+                "properties": {"name": {"type": "string"}, "unit": {"type": "string", "enum": list(PROPOSAL_UNITS)},
+                               "concept": {"type": "string"}, "points": {"type": "array", "items": point},
+                               "count": {"type": "integer"}}}
+    return {"type": "object", "additionalProperties": False, "required": ["items", "new_items"],
+            "properties": {"items": {"type": "array", "items": item},
+                           "new_items": {"type": "array", "items": new_item}}}
 
 
 def prompt(ingredients: Sequence[Ingredient]) -> str:
@@ -134,7 +160,13 @@ def prompt(ingredients: Sequence[Ingredient]) -> str:
             "- points: one {x, y} per counted item on a 0-1000 grid, (0, 0) top-left and (1000, 1000) bottom-right.\n"
             "- count: the number of points.\n"
             "Count only items you can clearly see; skip anything hidden or unsure. If no listed ingredient is "
-            "visible, return an empty items list.")
+            "visible, return an empty items list.\n\n"
+            "Also report countable stock that is clearly visible but NOT in the list above (for example a "
+            "crate of an ingredient this kitchen has never listed) under new_items, at most "
+            f"{MAX_NEW_ITEMS}: for each give a short plain name as it looks (for example \"Greek yogurt "
+            "tubs\"), unit \"ea\" when items are counted one by one or \"g\"/\"ml\" when they are bought in "
+            "packs or bottles, a concept phrase under the same rules, points, and the count. Never report a "
+            "listed ingredient as new, and skip anything you cannot clearly identify or count.")
 
 
 def request(ingredients: Sequence[Ingredient], data_url: str) -> dict[str, Any]:
@@ -197,8 +229,50 @@ def read_items(response: Any, allowed: Mapping[str, Ingredient]) -> list[SparkIt
     return own_concepts(items)
 
 
+def _proposal_concept(raw: str, name: str) -> str:
+    """A usable SAM-style phrase for a proposal: Spark's phrase when it follows the rules, else the name's."""
+    text = " ".join(raw.lower().split())
+    if _usable(text):
+        return text
+    from_name = " ".join(re.sub(r"[^a-z0-9' -]+", " ", name.lower()).split()[:CONCEPT_MAX_WORDS])
+    return from_name if _usable(from_name) else name.lower()
+
+
+def read_proposals(response: Any, known: Sequence[Ingredient]) -> list[ShelfProposal]:
+    """The answer's new-ingredient proposals, checked in code: a name matching a stocked ingredient is not
+    new, an uncountable unit or an unusable count is dropped, repeats collapse to the first sighting."""
+    try:
+        out = _Output.model_validate_json(output_text(response))
+    except ValidationError:
+        raise SparkUnreadable("Muse Spark's answer was not the shelf-count JSON") from None
+    known_names = {" ".join((i.names.get("en") or i.id).lower().split()) for i in known}
+    known_names |= {i.id.lower().replace("_", " ") for i in known}
+    proposals: list[ShelfProposal] = []
+    seen: set[str] = set()
+    for raw in out.new_items:
+        name = " ".join(_NAME_UNSAFE.sub(" ", raw.name).split())[:60]
+        key = name.lower()
+        if not name or key in known_names or key in seen:
+            continue
+        if raw.unit not in PROPOSAL_UNITS or raw.count is None or not 1 <= raw.count <= MAX_COUNT:
+            continue
+        seen.add(key)
+        proposals.append(ShelfProposal(name=name, unit=raw.unit,  # type: ignore[arg-type]
+                                       count=raw.count, concept=_proposal_concept(raw.concept, name)))
+        if len(proposals) == MAX_NEW_ITEMS:
+            break
+    return proposals
+
+
 async def count_photo(meta: MetaPort, ctx: CallCtx, photo: Photo, ingredients: Sequence[Ingredient],
                       ) -> list[SparkItem]:
     """One Muse Spark vision call. Meta errors propagate (the caller maps them); SparkUnreadable for a bad answer."""
+    items, _proposals = await count_photo_full(meta, ctx, photo, ingredients)
+    return items
+
+
+async def count_photo_full(meta: MetaPort, ctx: CallCtx, photo: Photo, ingredients: Sequence[Ingredient],
+                           ) -> tuple[list[SparkItem], list[ShelfProposal]]:
+    """``count_photo`` plus the answer's new-ingredient proposals (pass 13), from the same single call."""
     data, _ = await meta.responses(purpose=Purpose.VISION, ctx=ctx, **request(ingredients, photo.data_url))
-    return read_items(data, {i.id: i for i in ingredients})
+    return read_items(data, {i.id: i for i in ingredients}), read_proposals(data, ingredients)

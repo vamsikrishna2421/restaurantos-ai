@@ -16,6 +16,7 @@ const MANAGER_SESSION = {
   staff: {
     id: 'STF_LAKSHMI', name: 'Lakshmi', language: 'te' as const,
     default_role: { slot_id: 'manager', label: 'Manager', pending: false },
+    responsibilities: [],
   },
   claim: { slot_id: 'manager', label: 'Manager', kind: 'manager' as const, station_id: null },
 }
@@ -135,10 +136,12 @@ test('the_manager_changes_a_usual_job_from_the_team_list', async () => {
     {
       id: 'STF_CARLOS', name: 'Carlos', language: 'es',
       default_role: { slot_id: 'STN_CURRY#1', label: 'Curry Chef 1', pending: false },
+      responsibilities: [],
     },
     {
       id: 'STF_NADIA', name: 'Nadia', language: 'en',
       default_role: { slot_id: 'manager', label: 'Manager', pending: true },
+      responsibilities: [],
     },
   ]
   render(<ManagerSurface params={{}} query={new URLSearchParams()} />)

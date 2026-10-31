@@ -275,3 +275,25 @@ support_items = Table(
     Index("ix_support_items_tenant_status", "tenant_id", "status"),
     Index("ix_support_items_created_ms", "created_ms"),
 )
+
+# Nightly closing checks (pass 13): one row per business day, written when the check completes —
+# who finished it, when (real ms), and the variances it applied as ``count`` adjustments (the
+# adjustments themselves are events; this row is the day's sign-off record). The check's list is
+# forecast-derived and evaluated on read, so there is nothing else to store.
+closing_checks = Table(
+    "closing_checks", metadata,
+    _tenant(), _id(), _s("biz_date"), _s("completed_by_id"), _s("completed_by_name"),
+    _i("completed_ms"), _j("variances"),
+    Index("ix_closing_checks_tenant_date", "tenant_id", "biz_date"),
+)
+
+# Supplier receipts (pass 13): purchase bills that were scanned and received into stock — the
+# supplier as the bill named it, the lines as they landed (ingredient + stock units), and who
+# received them. The stock movement itself is the receive deltas and their events; this row is the
+# paper trail the supplier surface lists next to the purchase orders.
+supplier_receipts = Table(
+    "supplier_receipts", metadata,
+    _tenant(), _id(), _s("supplier_name", null=True), _j("lines"),
+    _i("total_cents", null=True), _s("received_by"), _b("simulated"), _i("created_ms"),
+    Index("ix_supplier_receipts_tenant_created", "tenant_id", "created_ms"),
+)

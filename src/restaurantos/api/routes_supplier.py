@@ -22,8 +22,9 @@ from fastapi import APIRouter, Response
 from sqlalchemy import select, update
 
 from restaurantos.api.deps import ContainerDep
+from restaurantos.api.routes_perception import BillDep
 from restaurantos.contracts import events as ev
-from restaurantos.contracts.api import EmptyBody
+from restaurantos.contracts.api import EmptyBody, SupplierReceipt
 from restaurantos.contracts.common import biz_from_ms, utc_from_ms
 from restaurantos.contracts.errors import Conflict, NotFound
 from restaurantos.contracts.inventory import PurchaseOrder
@@ -80,6 +81,14 @@ async def ack(po_id: str, auth: SessionAuth, c: ContainerDep, response: Response
                               correlation_id=po.plan_id)
     _simulated(response)
     return po
+
+
+@router.get("/receipts", response_model=list[SupplierReceipt])
+async def receipts(auth: SessionAuth, bills: BillDep) -> list[SupplierReceipt]:
+    """Pass 13: the purchase bills this kitchen scanned and received into stock, newest first — the
+    stock-in paper trail next to the purchase orders above. Real records of real scans (a receipt
+    whose scan ran in offline mode says so on itself), so no simulation header here."""
+    return await bills.receipts(auth.tenant_id)
 
 
 @router.post("/po/{po_id}/receive", response_model=PurchaseOrder)

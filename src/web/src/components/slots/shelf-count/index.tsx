@@ -13,6 +13,11 @@
  * count no longer waits (404). Every other problem (503, 429, 413, 400, …) is said in plain words next to the count
  * by hand (`HandCount.tsx`).
  *
+ * Pass 13: the same photo can propose ingredients the kitchen does not stock yet (`ShelfCount.proposals`).
+ * Each proposal is offered under "New in this photo" with Spark's count and a guessed unit; accepting one
+ * (with its pack size, par and reorder point, all editable) rides the same Confirm and creates the
+ * ingredient at the counted quantity.
+ *
  * Accessibility: one polite live region says each stage (counting, counts ready, saving, the new stock); focus moves
  * to the stage's main button when a stage change would leave it outside the dialog, and to Done once saved.
  *
@@ -22,7 +27,14 @@
 import { Camera, CheckCircle2, LoaderCircle, RotateCcw } from 'lucide-react'
 import { useEffect, useId, useRef, useState, type ChangeEvent, type Ref } from 'react'
 import { Badge, Button, Chip, Modal, cx } from '../../ui'
-import type { Ingredient, InventoryItemView, ShelfCount, ShelfCountItem } from '../../../contracts/generated'
+import type {
+  Ingredient,
+  InventoryItemView,
+  ShelfCount,
+  ShelfCountItem,
+  ShelfNewIngredient,
+  ShelfProposal,
+} from '../../../contracts/generated'
 import { api, isApiError } from '../../../lib/api'
 import { formatNumber } from '../../../lib/format'
 import { useTenantList } from '../../../stores'
@@ -36,6 +48,17 @@ type Stage = 'counting' | 'review' | 'saving' | 'done' | 'problem'
 
 interface Shot extends ShrunkPhoto {
   url: string
+}
+
+/** One new-ingredient proposal as the person edits it (pass 13): accepted or not, its counted
+ * quantity, and the catalog shape. Empty par/reorder fields take the server's defaults. */
+interface ProposalState {
+  on: boolean
+  count: string
+  unit: ShelfProposal['unit']
+  packSize: string
+  par: string
+  reorderPoint: string
 }
 
 const previewUrl = (blob: Blob) => (typeof URL.createObjectURL === 'function' ? URL.createObjectURL(blob) : '')
@@ -54,6 +77,7 @@ export default function ShelfCountSlot(props: SlotProps) {
   const [shot, setShot] = useState<Shot | null>(null)
   const [count, setCount] = useState<ShelfCount | null>(null)
   const [values, setValues] = useState<Record<string, string>>({})
+  const [proposals, setProposals] = useState<Record<string, ProposalState>>({})
   const [saved, setSaved] = useState<InventoryItemView[]>([])
   const [problem, setProblem] = useState<string | null>(null)
   const [saveProblem, setSaveProblem] = useState<string | null>(null)
@@ -99,8 +123,13 @@ export default function ShelfCountSlot(props: SlotProps) {
     try {
       const result = await api<ShelfCount>('POST', '/api/perception/shelf', form)
       if (mine !== run.current) return
-      setCount(result)
+      const normalized = { ...result, proposals: result.proposals ?? [] }
+      setCount(normalized)
       setValues(Object.fromEntries(result.items.map((item) => [item.ingredient_id, String(proposedCount(item) ?? '')])))
+      setProposals(Object.fromEntries(normalized.proposals.map((p) => [p.name, {
+        on: false, count: String(p.count), unit: p.unit,
+        packSize: p.unit === 'ea' ? '1' : '1000', par: '', reorderPoint: '',
+      }])))
       setStage('review')
     } catch (err) {
       fail(mine, err)
@@ -112,7 +141,28 @@ export default function ShelfCountSlot(props: SlotProps) {
     const n = parseCount(text)
     return n === null ? [] : [[id, n] as const]
   })
-  const ready = chosen.length > 0 && typed.every(([, text]) => countProblem(text) === null)
+  // pass 13: accepted new-ingredient proposals ride the same confirm; a proposal whose count is
+  // not a whole number holds Confirm back, like a known item's count does
+  const accepted: ShelfNewIngredient[] = count ? count.proposals.flatMap((p) => {
+    const state = proposals[p.name]
+    const n = state?.on ? parseCount(state.count) : null
+    if (!state?.on || n === null) return []
+    return [{
+      spec: {
+        name: p.name, unit: state.unit,
+        pack_size: state.unit === 'ea' ? 1 : Math.max(1, Number(state.packSize) || 1),
+        par: Math.max(0, Number(state.par) || 0),
+        reorder_point: Math.max(0, Number(state.reorderPoint) || 0),
+      },
+      count: n,
+    }]
+  }) : []
+  const proposalsValid = count ? count.proposals.every((p) => {
+    const state = proposals[p.name]
+    return !state?.on || parseCount(state.count) !== null
+  }) : true
+  const ready = (chosen.length > 0 || accepted.length > 0)
+    && typed.every(([, text]) => countProblem(text) === null) && proposalsValid
 
   const confirm = async () => {
     if (!count || !ready) return
@@ -121,7 +171,8 @@ export default function ShelfCountSlot(props: SlotProps) {
     setStage('saving')
     try {
       const views = await api<InventoryItemView[]>('POST',
-        `/api/perception/shelf/${encodeURIComponent(count.id)}/confirm`, { counts: Object.fromEntries(chosen) })
+        `/api/perception/shelf/${encodeURIComponent(count.id)}/confirm`,
+        { counts: Object.fromEntries(chosen), new_ingredients: accepted })
       if (mine !== run.current) return
       setSaved(views)
       setStage('done')
@@ -158,7 +209,7 @@ export default function ShelfCountSlot(props: SlotProps) {
         {retake()}
         <Button ref={main} variant="primary" loading={stage === 'saving'} disabled={!ready}
           onClick={() => void confirm()}>
-          {chosen.length > 1 ? `Confirm ${chosen.length} counts` : 'Confirm count'}
+          {chosen.length + accepted.length > 1 ? `Confirm ${chosen.length + accepted.length} counts` : 'Confirm count'}
         </Button>
       </>
     ) : stage === 'problem' ? <>{retake(main)}<Button variant="ghost" onClick={close}>Close</Button></>
@@ -211,6 +262,24 @@ export default function ShelfCountSlot(props: SlotProps) {
                 </div>
               )}
             </div>
+            {count.proposals.length > 0 && (
+              <div className="flex flex-col gap-2">
+                <h3 className="font-semibold">New in this photo</h3>
+                <p className="text-sm text-muted">
+                  Countable stock this kitchen does not list yet. Accept one and it joins the catalog
+                  with the counted quantity as its opening stock.
+                </p>
+                <ul aria-label="New ingredients" className="flex flex-col gap-3">
+                  {count.proposals.map((proposal) => (
+                    <ProposalRow key={proposal.name} proposal={proposal}
+                      state={proposals[proposal.name]}
+                      onChange={(patch) => setProposals((s) => ({
+                        ...s, [proposal.name]: { ...s[proposal.name], ...patch },
+                      }))} />
+                  ))}
+                </ul>
+              </div>
+            )}
           </div>
         )}
         {stage === 'problem' && (
@@ -295,6 +364,87 @@ function ItemRow({ item, index, ingredient, value, onChange }: ItemRowProps) {
           {picks.map((p) => (
             <Chip key={p.label} onClick={() => onChange(String(p.n))} selected={value === String(p.n)}>{p.label}</Chip>
           ))}
+        </div>
+      )}
+    </li>
+  )
+}
+
+function ProposalRow({ proposal, state, onChange }: {
+  proposal: ShelfProposal
+  state: ProposalState | undefined
+  onChange: (patch: Partial<ProposalState>) => void
+}) {
+  const on = state?.on ?? false
+  const countText = state?.count ?? String(proposal.count)
+  const rule = on ? countProblem(countText) : null
+  const n = parseCount(countText)
+  const per = !state || state.unit === 'ea' ? 1 : Math.max(1, Number(state.packSize) || 1)
+  const opening = n === null ? null : n * per
+  const field = 'rounded-md border border-line bg-ink px-2 py-1 tabular-nums text-text'
+  return (
+    <li aria-label={proposal.name} className="flex flex-col gap-2 rounded-lg border border-line bg-panel-2 p-3">
+      <div className="flex flex-wrap items-center gap-2">
+        <h4 className="min-w-0 font-semibold">{proposal.name}</h4>
+        <Badge tone="warn" className="ml-auto">New</Badge>
+      </div>
+      <p className="text-sm text-muted">
+        Muse Spark counted {proposal.count} (“{proposal.concept}”). It is not in the catalog yet.
+      </p>
+      <div>
+        <Chip selected={on} onClick={() => onChange({ on: !on })}>
+          {on ? 'Will add to the catalog' : 'Add to the catalog'}
+        </Chip>
+      </div>
+      {on && (
+        <div className="flex flex-col gap-2">
+          <div className="flex flex-wrap items-center gap-2 text-sm">
+            <label className="flex items-center gap-1.5 text-muted">
+              Count
+              <input type="text" inputMode="numeric" autoComplete="off" value={countText}
+                aria-label={`Count for ${proposal.name}`}
+                onChange={(e) => onChange({ count: e.target.value })} className={`w-20 ${field}`} />
+            </label>
+            <label className="flex items-center gap-1.5 text-muted">
+              Unit
+              <select value={state?.unit ?? proposal.unit} aria-label={`Unit for ${proposal.name}`}
+                onChange={(e) => onChange({ unit: e.target.value as ProposalState['unit'] })}
+                className="rounded-md border border-line bg-ink px-2 py-1 text-text">
+                <option value="ea">each</option>
+                <option value="g">grams</option>
+                <option value="ml">ml</option>
+              </select>
+            </label>
+            {state && state.unit !== 'ea' && (
+              <label className="flex items-center gap-1.5 text-muted">
+                Pack size
+                <input type="text" inputMode="numeric" autoComplete="off" value={state.packSize}
+                  aria-label={`Pack size for ${proposal.name}`}
+                  onChange={(e) => onChange({ packSize: e.target.value })} className={`w-20 ${field}`} />
+              </label>
+            )}
+          </div>
+          <div className="flex flex-wrap items-center gap-2 text-sm">
+            <label className="flex items-center gap-1.5 text-muted">
+              Par
+              <input type="text" inputMode="numeric" autoComplete="off" value={state?.par ?? ''}
+                placeholder={opening !== null ? `auto (${formatNumber(opening)})` : 'auto'}
+                aria-label={`Par for ${proposal.name}`}
+                onChange={(e) => onChange({ par: e.target.value })} className={`w-24 ${field}`} />
+            </label>
+            <label className="flex items-center gap-1.5 text-muted">
+              Reorder at
+              <input type="text" inputMode="numeric" autoComplete="off" value={state?.reorderPoint ?? ''}
+                placeholder="auto (half of par)" aria-label={`Reorder point for ${proposal.name}`}
+                onChange={(e) => onChange({ reorderPoint: e.target.value })} className={`w-36 ${field}`} />
+            </label>
+            {opening !== null && (
+              <span className="text-muted">
+                opens with {formatNumber(opening)} {state?.unit ?? proposal.unit} on hand
+              </span>
+            )}
+          </div>
+          {rule && <p className="text-sm text-bad">{rule}</p>}
         </div>
       )}
     </li>

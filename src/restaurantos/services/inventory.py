@@ -18,11 +18,21 @@ CONTRACTS_RUNTIME §10.7 and §10.3, CONTRACTS_API §3 (#18) and §7, ARCHITECTU
   handler hands evaluation to ``bus.spawn`` (coalesced per tenant) to stay inside its 50 ms budget.
 - ``inventory.changed`` carries the domain's deltas (what the cause asked for) and the counters after them, which
   never go below zero (``domain.inventory.apply``).
+- **Pass 13 workflow**: ``save_initial_counts`` writes the restaurant's opening stock as ``initial`` adjustments
+  (an ingredient entered at its placeholder level still records the entry, so "setup ran" is an audited fact);
+  ``closing_check`` evaluates tonight's cross-check list on read — band watch/act, or a stockout on or before
+  tomorrow's service end (the template seed's close) — and ``complete_closing_check`` applies the counted
+  differences as ``count`` adjustments and records the day's sign-off in ``closing_checks``; ``add_ingredient``
+  grows the catalog (a shelf proposal accepted, a bill's new line) with its opening stock as an ``initial``
+  adjustment, par defaulting to the opening quantity and the reorder point to half of par;
+  ``receive_quantities`` books a scanned bill's stock-in through the same ``receive`` deltas as a PO receipt.
 """
 
 from __future__ import annotations
 
+import datetime as dt
 import logging
+import re
 from collections import Counter, OrderedDict
 from collections.abc import Collection, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
@@ -30,9 +40,17 @@ from typing import TYPE_CHECKING, Any, get_args
 
 from pydantic import ValidationError
 from sqlalchemy import and_, func, select, update
+from sqlalchemy import insert as sa_insert
 
 from restaurantos.contracts import events as ev
-from restaurantos.contracts.common import DEFAULT_TZ, Band, biz_from_ms, utc_from_ms
+from restaurantos.contracts.api import (
+    ClosingCheckCompletion,
+    ClosingCheckItem,
+    ClosingCheckView,
+    ClosingVariance,
+    InventorySetupView,
+)
+from restaurantos.contracts.common import DEFAULT_TZ, Band, Unit, biz_from_ms, ms_from_dt, utc_from_ms
 from restaurantos.contracts.errors import BadRequest, Conflict, Forbidden, NotFound
 from restaurantos.contracts.events import AdjustEvidence, AdjustSource
 from restaurantos.contracts.ids import new_id
@@ -475,6 +493,234 @@ class InventoryService(InventoryReads):
             forecast = await self._evaluate(tx, tid, po.ingredient_id, received=True)
         self._publish(tid, [forecast], as_of)
         return po
+
+    # ----- pass 13: opening stock, the nightly closing check, growing the catalog --------------------------------
+    #
+    # The workflow layer on top of the deterministic core, in the founder's terms: the restaurant
+    # enters its opening stock once (``initial`` adjustments, so the placeholder pars are replaced by
+    # audited counts), and every night before closing someone cross-checks the ingredients the
+    # forecast says will not last through tomorrow's service. Both write through ``adjust`` so every
+    # change lands in the same event ledger as a count or a receipt.
+
+    async def _initial_done(self, conn: AsyncConnection, tenant_id: str) -> bool:
+        """True once any ``initial`` adjustment exists: the opening counts were entered."""
+        e = t.events
+        row = await conn.execute(select(func.count()).select_from(e).where(
+            e.c.tenant_id == tenant_id, e.c.type == "inventory.adjusted",
+            e.c.payload["source"].as_string() == "initial"))
+        return (row.scalar_one() or 0) > 0
+
+    async def setup_view(self, tenant_id: str) -> InventorySetupView:
+        """REST: the opening-stock entry state — every ingredient's view plus whether entry ran."""
+        async with self._store().read() as conn:
+            return InventorySetupView(completed=await self._initial_done(conn, tenant_id),
+                                      items=await self.views(conn, tenant_id))
+
+    async def save_initial_counts(self, tenant_id: str, counts: Mapping[str, int], *,
+                                  actor: str) -> InventorySetupView:
+        """Write the opening counts: each entered ingredient becomes an ``initial`` adjustment from
+        its placeholder level to the real one. An ingredient entered at the level it already holds
+        applies no delta but still appends its ``initial`` event — the entry itself is the audit
+        record that setup ran. Every id is validated against the catalog first, so a bad entry
+        changes nothing."""
+        async with self._store().read() as conn:
+            stock = {ing.id: ing for ing in await self._repo().ingredients(conn, tenant_id)}
+        for ingredient_id, qty in counts.items():
+            if ingredient_id not in stock:
+                raise NotFound(f"unknown ingredient {ingredient_id!r}")
+            if not isinstance(qty, int) or isinstance(qty, bool) or qty < 0 or qty > MAX_QTY:
+                raise BadRequest(f"count for {ingredient_id} must be between 0 and {MAX_QTY}",
+                                 details={"ingredient_id": ingredient_id, "reason": "bad_qty"})
+        for ingredient_id, qty in counts.items():
+            await self.adjust(tenant_id, ingredient_id, qty, source="initial", actor=actor)
+        async with self._store().read() as conn:
+            done = await self._initial_done(conn, tenant_id)
+            current = {ing.id: ing.on_hand for ing in await self._repo().ingredients(conn, tenant_id)}
+        if not done and counts:
+            # Every entered count matched its placeholder, so no adjustment event landed; record the
+            # entry itself on the first ingredient (same level in, same level out) so "setup ran"
+            # stays an audited fact rather than a UI guess.
+            first = next(iter(counts))
+            async with self._store().write() as tx:
+                await tx.append_event(tenant_id, "inventory.adjusted",
+                                      ev.InventoryAdjustedPayload(ingredient_id=first,
+                                                                  from_qty=current[first],
+                                                                  to_qty=current[first],
+                                                                  source="initial"),
+                                      actor, correlation_id=new_id("adj"))
+        return await self.setup_view(tenant_id)
+
+    def _close_local(self, template_id: str) -> str | None:
+        """The template seed's daily close (``"22:00"``), or None when the tenant has no seed config
+        on disk (an onboarded tenant's hours live in its own config; the check then uses the end of
+        the business day)."""
+        try:
+            seed = load_tenant_seed(tenant_id=template_id)
+        except Exception:  # noqa: BLE001 - a missing/unreadable seed config must not break the check
+            return None
+        return str(seed.tenant.hours.close_local)
+
+    def _next_service_end_ms(self, template_id: str, now_biz_ms: int) -> int:
+        """Business ms of tomorrow's service end: the next business date at the kitchen's close."""
+        from zoneinfo import ZoneInfo
+        zone = ZoneInfo(self._tz)
+        today = biz_from_ms(now_biz_ms, self._tz).date()
+        close = self._close_local(template_id) or "23:59"
+        try:
+            hour, minute = (int(part) for part in close.split(":")[:2])
+        except ValueError:
+            hour, minute = 23, 59
+        end = dt.datetime.combine(today + dt.timedelta(days=1), dt.time(hour, minute), tzinfo=zone)
+        return ms_from_dt(end)
+
+    async def closing_check(self, tenant_id: str) -> ClosingCheckView:
+        """REST: tonight's cross-check list, evaluated on read. An ingredient is due when the
+        forecast's band already flags it (watch/act) or its stockout lands on or before tomorrow's
+        service end; each carries what the burn says will be left at that end."""
+        async with self._store().read() as conn:
+            repo = self._repo()
+            tenant = await repo.tenant(conn, tenant_id)
+            clock = self._clock.for_tenant(tenant.clock)
+            now_biz = clock.now_biz_ms()
+            end_ms = self._next_service_end_ms(await repo.template_id(conn, tenant_id), now_biz)
+            stock, forecasts, _bands = await self.forecasts(conn, tenant_id)
+            minutes_left = max(0.0, (end_ms - now_biz) / 60_000.0)
+            items: list[ClosingCheckItem] = []
+            for ing in stock:
+                f = forecasts[ing.id]
+                projected = f.free if f.burn_per_h <= 0 else max(
+                    0, f.free - round(f.burn_per_h * minutes_left / 60.0))
+                runs_out = f.eta_biz is not None and ms_from_dt(f.eta_biz) <= end_ms
+                if f.band == "ok" and not runs_out:
+                    continue
+                items.append(ClosingCheckItem(ingredient=ing, forecast=f, projected_free=projected))
+            items.sort(key=lambda item: (item.forecast.eta_biz is None,
+                                         item.forecast.eta_biz or dt.datetime.max.replace(
+                                             tzinfo=dt.UTC),
+                                         item.ingredient.id))
+            biz_date = biz_from_ms(now_biz, self._tz).date().isoformat()
+            row = (await conn.execute(select(t.closing_checks).where(
+                t.closing_checks.c.tenant_id == tenant_id,
+                t.closing_checks.c.biz_date == biz_date))).mappings().first()
+            completion = None
+            if row is not None:
+                completion = ClosingCheckCompletion(
+                    completed_by_id=row["completed_by_id"], completed_by_name=row["completed_by_name"],
+                    completed_at=utc_from_ms(row["completed_ms"]),
+                    variances=[ClosingVariance(**v) for v in row["variances"]])
+            return ClosingCheckView(biz_date=biz_date,
+                                    service_ends_at=biz_from_ms(end_ms, self._tz),
+                                    items=items, completion=completion)
+
+    async def complete_closing_check(self, tenant_id: str, counts: Mapping[str, int], *,
+                                     actor: str, by_id: str, by_name: str) -> ClosingCheckView:
+        """Finish tonight's check: counted quantities that differ from the books apply as ``count``
+        adjustments (the drift machinery reads them like a shelf count), ingredients left out count
+        as matching, and the completion — who, when, what differed — is recorded for the day.
+        409 when the day's check already ran."""
+        view = await self.closing_check(tenant_id)
+        if view.completion is not None:
+            raise Conflict("the closing check for this day is already complete",
+                           details={"biz_date": view.biz_date, "reason": "already_completed"})
+        due = {item.ingredient.id: item for item in view.items}
+        for ingredient_id in counts:
+            if ingredient_id not in due:
+                raise BadRequest(f"{ingredient_id!r} is not on tonight's closing check",
+                                 details={"ingredient_id": ingredient_id, "reason": "not_due"})
+        variances: list[ClosingVariance] = []
+        for ingredient_id, item in due.items():
+            counted = counts.get(ingredient_id, item.ingredient.on_hand)
+            if not isinstance(counted, int) or isinstance(counted, bool) \
+                    or counted < 0 or counted > MAX_QTY:
+                raise BadRequest(f"count for {ingredient_id} must be between 0 and {MAX_QTY}",
+                                 details={"ingredient_id": ingredient_id, "reason": "bad_qty"})
+            if counted != item.ingredient.on_hand:
+                variances.append(ClosingVariance(ingredient_id=ingredient_id,
+                                                 expected_qty=item.ingredient.on_hand,
+                                                 counted_qty=counted))
+        for variance in variances:
+            await self.adjust(tenant_id, variance.ingredient_id, variance.counted_qty,
+                              source="count", actor=actor)
+        completed_ms = self._c.clock.now_real_ms()
+        async with self._store().write() as tx:
+            await tx.conn.execute(sa_insert(t.closing_checks).values(
+                id=new_id("chk"), tenant_id=tenant_id, biz_date=view.biz_date,
+                completed_by_id=by_id, completed_by_name=by_name, completed_ms=completed_ms,
+                variances=[v.model_dump() for v in variances]))
+        return await self.closing_check(tenant_id)
+
+    async def receive_quantities(self, tenant_id: str, quantities: Mapping[str, int], *,
+                                 actor: str, ref: str) -> list[InventoryItemView]:
+        """Stock arriving without a purchase order (a scanned purchase bill, pass 13): ``on_hand``
+        grows by each quantity through the same ``receive`` deltas a PO receipt books, under the
+        caller's correlation ``ref`` (the receipt's id). Every id is validated first, so a bad line
+        receives nothing."""
+        async with self._store().read() as conn:
+            known = {ing.id for ing in await self._repo().ingredients(conn, tenant_id)}
+        for ingredient_id, qty in quantities.items():
+            if ingredient_id not in known:
+                raise NotFound(f"unknown ingredient {ingredient_id!r}")
+            if not isinstance(qty, int) or isinstance(qty, bool) or qty < 0 or qty > MAX_QTY:
+                raise BadRequest(f"quantity for {ingredient_id} must be between 0 and {MAX_QTY}",
+                                 details={"ingredient_id": ingredient_id, "reason": "bad_qty"})
+        todo = {i: q for i, q in quantities.items() if q > 0}
+        if not todo:
+            return await self.list_items(tenant_id)
+        async with self._store().write() as tx:
+            deltas = [InventoryDelta(ingredient_id=i, delta_on_hand=q, delta_reserved=0,
+                                     cause="receive", ref_id=ref) for i, q in todo.items()]
+            await apply_deltas(tx, tenant_id, deltas, actor, correlation_id=ref)
+            forecasts = [await self._evaluate(tx, tenant_id, i, received=True) for i in todo]
+            as_of = tx.events[-1].seq or 0
+        self._publish(tenant_id, forecasts, as_of)
+        async with self._store().read() as conn:
+            views = {v.ingredient.id: v for v in await self.views(conn, tenant_id)}
+        return [views[i] for i in todo]
+
+    async def add_ingredient(self, tenant_id: str, *, name: str, unit: str, pack_size: int = 1,
+                             par: int = 0, reorder_point: int = 0, opening_qty: int,
+                             actor: str) -> InventoryItemView:
+        """Grow the catalog (pass 13): a shelf photo's accepted proposal or a bill's new line becomes
+        a real ingredient, its opening stock written as an ``initial`` adjustment so the arrival is
+        audited like any other stock change. Par defaults to the opening quantity and the reorder
+        point to half of par when the caller leaves them at 0 — editable afterwards in Settings."""
+        clean = " ".join(name.split())
+        if not clean or len(clean) > 80:
+            raise BadRequest("an ingredient name is 1–80 characters", details={"reason": "bad_name"})
+        if unit not in get_args(Unit):
+            raise BadRequest(f"unknown unit {unit!r}", details={"reason": "bad_unit"})
+        if pack_size < 1 or opening_qty < 0 or opening_qty > MAX_QTY or par < 0 or reorder_point < 0:
+            raise BadRequest("pack size, par, reorder point and opening quantity out of range",
+                             details={"reason": "bad_shape"})
+        if par == 0:
+            par = max(opening_qty, pack_size)
+        if reorder_point == 0:
+            reorder_point = par // 2
+        async with self._store().read() as conn:
+            existing = {ing.id for ing in await self._repo().ingredients(conn, tenant_id)}
+        base = "ING_" + (re.sub(r"[^A-Z0-9]+", "_", clean.upper()).strip("_") or "ITEM")[:32]
+        ingredient_id, suffix = base, 2
+        while ingredient_id in existing:
+            ingredient_id, suffix = f"{base}_{suffix}", suffix + 1
+        ingredient = Ingredient(id=ingredient_id, names={"en": clean}, unit=unit,  # type: ignore[arg-type]
+                                pack_size=pack_size, par=par, reorder_point=reorder_point,
+                                allergens=[], on_hand=0, reserved=0)
+        ref = new_id("adj")
+        async with self._store().write() as tx:
+            await tx.conn.execute(sa_insert(t.ingredients).values(
+                tenant_id=tenant_id, **ingredient.model_dump(mode="json")))
+            await tx.append_event(tenant_id, "inventory.adjusted",
+                                  ev.InventoryAdjustedPayload(ingredient_id=ingredient_id, from_qty=0,
+                                                              to_qty=opening_qty, source="initial"),
+                                  actor, correlation_id=ref)
+            await apply_deltas(tx, tenant_id, inventory.adjust(ingredient, opening_qty, ref_id=ref),
+                               actor, correlation_id=ref)
+            forecast = await self._evaluate(tx, tenant_id, ingredient_id, received=True)
+            as_of = tx.events[-1].seq or 0
+        self._publish(tenant_id, [forecast], as_of)
+        async with self._store().read() as conn:
+            views = {v.ingredient.id: v for v in await self.views(conn, tenant_id)}
+        return views[ingredient_id]
 
 
 # ----- registry entry points (CONTRACTS_API §7) -------------------------------------------------------------------

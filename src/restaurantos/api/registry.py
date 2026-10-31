@@ -70,6 +70,7 @@ PROVIDERS: tuple[Entry, ...] = (
     Entry("governance.executor", "P25", "CP2", sets=("executor",)),
     Entry("gm.planner", "P23a", "CP2", sets=("planner",)),
     Entry("judge.chaos", "P30b", "CP2", sets=("chaos",)),
+    Entry("services.messaging", "P45", "CP4", sets=("messaging",)),
 )
 
 REQUIRED_ROUTERS: tuple[Entry, ...] = (

@@ -17,16 +17,23 @@ team remembers the regulars. This package is that memory, in three parts:
   number). ``services.orders`` asks the book at placement whether the placing session's guest holds
   one; if so the dish rides the order as a $0 line and the credit is marked redeemed with the order
   id. Declining rests that exact case for ``DISMISS_COOLDOWN_DAYS``.
+- **The outreach** (P45, ``services.winback``): the book also keeps the win-back records — a draft
+  a manager wrote for a drifted regular, its approval and send, and the return it earned. The
+  promised dish is a credit minted in this same book (key ``winback:…``), so a returning guest's
+  offer applies itself through the very same placement path; there is no second credit system.
 
 **Privacy shape.** The full number never leaves this package: every surface gets ``phone_masked``
 (its last four digits) and names travel only to session-authenticated staff surfaces (the public
 live board's feed never carries them — its projection has no field for a name). Numbers are never
-written to the app log. ``marketing_opt_in`` is stored, defaults off, and nothing sends anything:
-the number exists for callbacks, history and recognition.
+written to the app log. ``marketing_opt_in`` is stored, defaults off; the number exists for
+callbacks, history and recognition, and — only when the guest opted in and a manager approves the
+exact text — for the win-back message (P45). Nothing else sends anything to anyone.
 """
 
 from __future__ import annotations
 
+import datetime as dt
+import json
 import logging
 import re
 import secrets
@@ -35,8 +42,9 @@ import threading
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
+from zoneinfo import ZoneInfo
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 
 from restaurantos.contracts.api import (
     ConsoleCustomer,
@@ -49,9 +57,10 @@ from restaurantos.contracts.api import (
     PendingCreditView,
     UsualItem,
 )
-from restaurantos.contracts.common import biz_from_ms
+from restaurantos.contracts.common import biz_from_ms, ms_from_dt
 from restaurantos.contracts.errors import BadRequest, NotFound
 from restaurantos.domain import customers as cu
+from restaurantos.domain import why as why_mod
 from restaurantos.services.container import Container, require
 from restaurantos.store import repo as store_repo
 from restaurantos.store import tables as t
@@ -59,7 +68,9 @@ from restaurantos.store import tables as t
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncConnection
 
+    from restaurantos.contracts.common import TenantClockSpec
     from restaurantos.contracts.ports import RepoPort, StorePort
+    from restaurantos.services import staff_identity as si
 
 log = logging.getLogger(__name__)
 
@@ -69,7 +80,8 @@ LAPSED_SHOWN = 10
 MEDIAN_WAIT_WINDOW_DAYS = 28  # the kitchen's typical wait stands on the trailing four weeks
 CUSTOMERS_NOTE = ("A guest appears here when they give a name and number at the kiosk — a visit is one of "
                   "their orders, and the usual is ranked from those orders. Phone orders are not linked "
-                  "in this version, and numbers are used for callbacks and recognition, never marketing.")
+                  "in this version. Numbers are used for callbacks and recognition; a win-back message "
+                  "goes only to a guest who opted in, and only when a manager approves the text.")
 
 _REASON_ORDER = {"incident": 0, "lapsed": 1, "milestone": 2}
 _REASON_TONE = {"incident": "bad", "lapsed": "warn", "milestone": "ok"}
@@ -106,6 +118,7 @@ class CustomerRecord:
     marketing_opt_in: bool
     created_ms: int
     updated_ms: int
+    marketing_asked: bool = False  # P45: the guest has been offered the choice at least once
 
 
 @dataclass(frozen=True, slots=True)
@@ -124,6 +137,41 @@ class Credit:
     suggestion_key: str
     approved_ms: int
     redeemed_order_id: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class Outreach:
+    """One win-back record (P45): a draft, the send a manager approved, and the return it earned.
+    ``sent_biz_ms`` is the tenant's business clock at the send — returns are matched against visit
+    times on that same clock, so a sandbox's paused calendar cannot fake or hide a return."""
+
+    outreach_id: str
+    phone_key: str
+    case_key: str
+    message_text: str
+    offer_item_code: str | None
+    source: str  # template | model
+    status: str  # draft | sent | returned
+    channel: str | None
+    simulated: bool
+    created_by: str | None
+    created_ms: int
+    approved_by: str | None
+    sent_ms: int | None
+    sent_biz_ms: int | None
+    credit_id: str | None
+    returned_order_id: str | None
+    returned_ms: int | None
+
+
+_OUTREACH_COLUMNS = ("outreach_id, phone_key, case_key, message_text, offer_item_code, source, status,"
+                     " channel, simulated, created_by, created_ms, approved_by, sent_ms, sent_biz_ms,"
+                     " credit_id, returned_order_id, returned_ms")
+
+
+def _outreach(row: tuple) -> Outreach:
+    return Outreach(row[0], row[1], row[2], row[3], row[4], row[5], row[6], row[7], bool(row[8]),
+                    row[9], row[10], row[11], row[12], row[13], row[14], row[15], row[16])
 
 
 _SCHEMA = """
@@ -167,7 +215,33 @@ CREATE TABLE IF NOT EXISTS goodwill_credits (
     redeemed_ms       INTEGER,
     PRIMARY KEY (tenant_id, credit_id)
 );
+CREATE TABLE IF NOT EXISTS winback_outreach (
+    tenant_id         TEXT NOT NULL,
+    outreach_id       TEXT NOT NULL,
+    phone_key         TEXT NOT NULL,
+    case_key          TEXT NOT NULL,
+    message_text      TEXT NOT NULL,
+    offer_item_code   TEXT,
+    source            TEXT NOT NULL DEFAULT 'template',
+    status            TEXT NOT NULL DEFAULT 'draft',
+    channel           TEXT,
+    simulated         INTEGER NOT NULL DEFAULT 0,
+    created_by        TEXT,
+    created_ms        INTEGER NOT NULL,
+    approved_by       TEXT,
+    sent_ms           INTEGER,
+    sent_biz_ms       INTEGER,
+    credit_id         TEXT,
+    returned_order_id TEXT,
+    returned_ms       INTEGER,
+    PRIMARY KEY (tenant_id, outreach_id)
+);
 """
+
+# P45: books written before the win-back pass have no ``marketing_asked`` column (the schema above is
+# CREATE IF NOT EXISTS, so it cannot add one). The store adds it on open when missing.
+_CUSTOMER_COLUMNS = ("phone_key, name, phone_display, marketing_opt_in, created_ms, updated_ms,"
+                     " marketing_asked")
 
 
 class CustomerStore:
@@ -177,14 +251,20 @@ class CustomerStore:
         path.parent.mkdir(parents=True, exist_ok=True)
         self._conn = sqlite3.connect(path, check_same_thread=False)
         self._conn.executescript(_SCHEMA)
+        columns = {row[1] for row in self._conn.execute("PRAGMA table_info(customers)")}
+        if "marketing_asked" not in columns:
+            self._conn.execute(
+                "ALTER TABLE customers ADD COLUMN marketing_asked INTEGER NOT NULL DEFAULT 0")
         self._conn.commit()
         self._lock = threading.Lock()
 
     # ----- identity -------------------------------------------------------------------------------------------
 
     def identify(self, tenant_id: str, phone_key: str, phone_display: str, name: str | None,
-                 session_id: str, now_ms: int) -> None:
-        """Upsert the guest and append the session link. A blank name never erases a known one."""
+                 session_id: str, now_ms: int, *, marketing_opt_in: bool | None = None) -> None:
+        """Upsert the guest and append the session link. A blank name never erases a known one. A
+        marketing answer, when the kiosk collected one, is stored and marks the choice as asked;
+        no answer leaves the stored preference exactly as it was."""
         with self._lock, self._conn:
             self._conn.execute(
                 "INSERT INTO customers (tenant_id, phone_key, name, phone_display, created_ms, updated_ms)"
@@ -193,6 +273,11 @@ class CustomerStore:
                 " name = COALESCE(excluded.name, customers.name), phone_display = excluded.phone_display,"
                 " updated_ms = excluded.updated_ms",
                 (tenant_id, phone_key, name, phone_display, now_ms, now_ms))
+            if marketing_opt_in is not None:
+                self._conn.execute(
+                    "UPDATE customers SET marketing_opt_in = ?, marketing_asked = 1, updated_ms = ?"
+                    " WHERE tenant_id = ? AND phone_key = ?",
+                    (1 if marketing_opt_in else 0, now_ms, tenant_id, phone_key))
             self._conn.execute(
                 "INSERT INTO session_links (tenant_id, session_id, phone_key, name, linked_ms)"
                 " VALUES (?, ?, ?, ?, ?)", (tenant_id, session_id, phone_key, name, now_ms))
@@ -200,16 +285,17 @@ class CustomerStore:
     def customer(self, tenant_id: str, phone_key: str) -> CustomerRecord | None:
         with self._lock:
             row = self._conn.execute(
-                "SELECT phone_key, name, phone_display, marketing_opt_in, created_ms, updated_ms"
+                f"SELECT {_CUSTOMER_COLUMNS}"  # noqa: S608 — only the module column-list constant is interpolated; values stay bound
                 " FROM customers WHERE tenant_id = ? AND phone_key = ?", (tenant_id, phone_key)).fetchone()
-        return None if row is None else CustomerRecord(row[0], row[1], row[2], bool(row[3]), row[4], row[5])
+        return None if row is None else CustomerRecord(row[0], row[1], row[2], bool(row[3]), row[4],
+                                                       row[5], bool(row[6]))
 
     def customers(self, tenant_id: str) -> list[CustomerRecord]:
         with self._lock:
             rows = self._conn.execute(
-                "SELECT phone_key, name, phone_display, marketing_opt_in, created_ms, updated_ms"
+                f"SELECT {_CUSTOMER_COLUMNS}"  # noqa: S608 — only the module column-list constant is interpolated; values stay bound
                 " FROM customers WHERE tenant_id = ? ORDER BY created_ms", (tenant_id,)).fetchall()
-        return [CustomerRecord(r[0], r[1], r[2], bool(r[3]), r[4], r[5]) for r in rows]
+        return [CustomerRecord(r[0], r[1], r[2], bool(r[3]), r[4], r[5], bool(r[6])) for r in rows]
 
     def links(self, tenant_id: str) -> list[SessionLink]:
         with self._lock:
@@ -262,24 +348,95 @@ class CustomerStore:
                 (tenant_id, key)).fetchone()
         return None if row is None else (row[0], row[1])
 
+    def mint_credit(self, tenant_id: str, phone_key: str, item_code: str, key: str,
+                    decided_by: str | None, now_ms: int) -> Credit:
+        """Mint one credit in the book — the single mint path. A goodwill approval (``record_decision``)
+        and an approved win-back send (P45, ``services.winback``) both land here, so a promised dish
+        is always the same kind of record and applies itself the same way at placement."""
+        credit = Credit(f"crd_{secrets.token_hex(4)}", phone_key, item_code, key, now_ms)
+        with self._lock, self._conn:
+            self._conn.execute(
+                "INSERT INTO goodwill_credits (tenant_id, credit_id, phone_key, item_code,"
+                " suggestion_key, approved_by, approved_ms) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (tenant_id, credit.credit_id, phone_key, item_code, key, decided_by, now_ms))
+        return credit
+
     def record_decision(self, tenant_id: str, key: str, phone_key: str, reason: str, *,
                         approve: bool, item_code: str | None, decided_by: str | None,
                         now_ms: int) -> Credit | None:
         """Record the manager's answer; approving also mints the credit and returns it."""
-        credit: Credit | None = None
         with self._lock, self._conn:
             self._conn.execute(
                 "INSERT OR REPLACE INTO goodwill_state (tenant_id, key, phone_key, reason, status,"
                 " item_code, decided_by, decided_ms) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
                 (tenant_id, key, phone_key, reason, "approved" if approve else "dismissed",
                  item_code, decided_by, now_ms))
-            if approve and item_code is not None:
-                credit = Credit(f"crd_{secrets.token_hex(4)}", phone_key, item_code, key, now_ms)
-                self._conn.execute(
-                    "INSERT INTO goodwill_credits (tenant_id, credit_id, phone_key, item_code,"
-                    " suggestion_key, approved_by, approved_ms) VALUES (?, ?, ?, ?, ?, ?, ?)",
-                    (tenant_id, credit.credit_id, phone_key, item_code, key, decided_by, now_ms))
-        return credit
+        if approve and item_code is not None:
+            return self.mint_credit(tenant_id, phone_key, item_code, key, decided_by, now_ms)
+        return None
+
+    # ----- win-back outreach (P45) ------------------------------------------------------------------------------
+
+    def create_outreach(self, tenant_id: str, phone_key: str, case_key: str, message_text: str,
+                        offer_item_code: str | None, source: str, created_by: str | None,
+                        now_ms: int) -> Outreach:
+        """Open a win-back draft. The text is a draft until a manager sends it — creating one
+        messages nobody and promises nothing (no credit exists until the send)."""
+        outreach = Outreach(outreach_id=f"wbo_{secrets.token_hex(4)}", phone_key=phone_key,
+                            case_key=case_key, message_text=message_text,
+                            offer_item_code=offer_item_code, source=source, status="draft",
+                            channel=None, simulated=False, created_by=created_by, created_ms=now_ms,
+                            approved_by=None, sent_ms=None, sent_biz_ms=None, credit_id=None,
+                            returned_order_id=None, returned_ms=None)
+        with self._lock, self._conn:
+            self._conn.execute(
+                "INSERT INTO winback_outreach (tenant_id, outreach_id, phone_key, case_key,"
+                " message_text, offer_item_code, source, status, created_by, created_ms)"
+                " VALUES (?, ?, ?, ?, ?, ?, ?, 'draft', ?, ?)",
+                (tenant_id, outreach.outreach_id, phone_key, case_key, message_text,
+                 offer_item_code, source, created_by, now_ms))
+        return outreach
+
+    def outreach(self, tenant_id: str) -> list[Outreach]:
+        """Every win-back record for the tenant, newest first."""
+        with self._lock:
+            rows = self._conn.execute(
+                f"SELECT {_OUTREACH_COLUMNS} FROM winback_outreach WHERE tenant_id = ?"  # noqa: S608 — only the module column-list constant is interpolated; values stay bound
+                " ORDER BY created_ms DESC, outreach_id", (tenant_id,)).fetchall()
+        return [_outreach(row) for row in rows]
+
+    def outreach_by_id(self, tenant_id: str, outreach_id: str) -> Outreach | None:
+        with self._lock:
+            row = self._conn.execute(
+                f"SELECT {_OUTREACH_COLUMNS} FROM winback_outreach"  # noqa: S608 — only the module column-list constant is interpolated; values stay bound
+                " WHERE tenant_id = ? AND outreach_id = ?", (tenant_id, outreach_id)).fetchone()
+        return None if row is None else _outreach(row)
+
+    def update_outreach_text(self, tenant_id: str, outreach_id: str, message_text: str) -> None:
+        """A manager's edit. Drafts only — the caller checks the status; a sent text is a record."""
+        with self._lock, self._conn:
+            self._conn.execute(
+                "UPDATE winback_outreach SET message_text = ? WHERE tenant_id = ? AND outreach_id = ?",
+                (message_text, tenant_id, outreach_id))
+
+    def mark_outreach_sent(self, tenant_id: str, outreach_id: str, *, channel: str, simulated: bool,
+                           approved_by: str | None, credit_id: str | None, now_ms: int,
+                           now_biz_ms: int) -> None:
+        with self._lock, self._conn:
+            self._conn.execute(
+                "UPDATE winback_outreach SET status = 'sent', channel = ?, simulated = ?,"
+                " approved_by = ?, sent_ms = ?, sent_biz_ms = ?, credit_id = ?"
+                " WHERE tenant_id = ? AND outreach_id = ?",
+                (channel, 1 if simulated else 0, approved_by, now_ms, now_biz_ms, credit_id,
+                 tenant_id, outreach_id))
+
+    def mark_outreach_returned(self, tenant_id: str, outreach_id: str, order_id: str,
+                               now_ms: int) -> None:
+        with self._lock, self._conn:
+            self._conn.execute(
+                "UPDATE winback_outreach SET status = 'returned', returned_order_id = ?,"
+                " returned_ms = ? WHERE tenant_id = ? AND outreach_id = ? AND status = 'sent'",
+                (order_id, now_ms, tenant_id, outreach_id))
 
 
 _stores: dict[Path, CustomerStore] = {}
@@ -295,6 +452,24 @@ def store_for(data_dir: Path) -> CustomerStore:
 
 
 # ----- attribution ------------------------------------------------------------------------------------------------
+
+
+def _real_ms_at_biz(spec: TenantClockSpec, biz_ms: int) -> int | None:
+    """The real epoch ms a business moment fell at, inverted from the tenant clock's anchor — or
+    None when the clock is paused (speed 0), where business time stands still and no inversion
+    exists. Used only to bound the shift-log read; the spans themselves convert forward."""
+    if spec.mode == "real":
+        return biz_ms
+    if spec.speed == 0:
+        return None
+    return spec.anchor_real_ms + (biz_ms - spec.anchor_biz_ms) // spec.speed
+
+
+def _slot_stations(defn: si.SlotDef) -> tuple[str, ...]:
+    """The stations one role slot covers (the staff routes' own reading of a def)."""
+    if defn.station_ids is not None:
+        return defn.station_ids
+    return (defn.station_id,) if defn.station_id else ()
 
 
 def _link_for_order(links: list[SessionLink], created_ms: int) -> SessionLink | None:
@@ -381,7 +556,7 @@ class CustomerService:
     # ----- identify (the kiosk) -----------------------------------------------------------------------------------
 
     async def identify(self, tenant_id: str, phone_raw: str, name: str | None,
-                       session_id: str) -> IdentifyResult:
+                       session_id: str, marketing_opt_in: bool | None = None) -> IdentifyResult:
         try:
             phone_key = normalize_phone(phone_raw)
         except ValueError:
@@ -389,18 +564,21 @@ class CustomerService:
                              code="bad_phone") from None
         clean_name = (name or "").strip()[:60] or None
         self.store.identify(tenant_id, phone_key, phone_raw.strip()[:32], clean_name, session_id,
-                            self._c.clock.now_real_ms())
+                            self._c.clock.now_real_ms(), marketing_opt_in=marketing_opt_in)
         async with self._store().read() as conn:
             histories = await self._histories(conn, tenant_id)
             names, prices = await self._menu(conn, tenant_id)
         history = histories.get(phone_key) or cu.CustomerHistory(phone_key=phone_key, name=clean_name)
         credit = self.store.pending_credit(tenant_id, phone_key)
+        record = self.store.customer(tenant_id, phone_key)
         return IdentifyResult(
             known=len(history.visits) > 0, name=history.name or clean_name,
             visits=len(history.visits),
             usual=[UsualItem(item_code=code, name=names.get(code, code), times_ordered=times)
                    for code, times, _qty in cu.usual_items(history)],
-            pending_credit=self._credit_view(credit, names, prices))
+            pending_credit=self._credit_view(credit, names, prices),
+            marketing_opt_in=bool(record and record.marketing_opt_in),
+            marketing_opt_in_asked=bool(record and record.marketing_asked))
 
     # ----- the counter's callout names ------------------------------------------------------------------------------
 
@@ -503,7 +681,7 @@ class CustomerService:
         return out
 
     def _suggestion_view(self, suggestion: cu.Suggestion, history: cu.CustomerHistory,
-                         names: dict[str, str]) -> GoodwillSuggestion:
+                         names: dict[str, str], why: str | None = None) -> GoodwillSuggestion:
         who = history.name or "A regular"
         visits_word = f"{suggestion.visits} visit" + ("s" if suggestion.visits != 1 else "")
         if suggestion.reason == "incident" and suggestion.incident == "cancelled":
@@ -531,7 +709,7 @@ class CustomerService:
         return GoodwillSuggestion(
             key=suggestion.key, reason=suggestion.reason,  # type: ignore[arg-type]
             tone=_REASON_TONE[suggestion.reason],  # type: ignore[arg-type]
-            title=title, detail=detail, customer_name=history.name,
+            title=title, detail=detail, why=why, customer_name=history.name,
             phone_masked=mask_phone(suggestion.phone_key),
             options=[GoodwillOption(
                 item_code=option.item_code, name=names.get(option.item_code, option.item_code),
@@ -540,14 +718,147 @@ class CustomerService:
                       f" ({_money(option.price_cents)} menu price)")
                 for option in suggestion.options])
 
-    async def goodwill_feed(self, tenant_id: str) -> GoodwillFeed:
+    async def goodwill_feed(self, tenant_id: str, staff_store: si.StaffStore | None = None,
+                            defs: list[si.SlotDef] = ()) -> GoodwillFeed:
         async with self._store().read() as conn:
             now_biz = await self._now_biz(conn, tenant_id)
             evaluated = await self._evaluate(conn, tenant_id, now_biz)
             names, _prices = await self._menu(conn, tenant_id)
+            standing = self._standing(tenant_id, evaluated)
+            whys = await self._incident_whys(conn, tenant_id, standing, staff_store, defs, now_biz)
         return GoodwillFeed(suggestions=[
-            self._suggestion_view(suggestion, history, names)
-            for suggestion, history in self._standing(tenant_id, evaluated)])
+            self._suggestion_view(suggestion, history, names, why=whys.get(suggestion.key))
+            for suggestion, history in standing])
+
+    # ----- goodwill: why the slow visit was slow (pass 15 hook) -----------------------------------------------------
+
+    async def _incident_whys(self, conn: AsyncConnection, tenant_id: str,
+                             standing: list[tuple[cu.Suggestion, cu.CustomerHistory]],
+                             staff_store: si.StaffStore | None, defs: list[si.SlotDef],
+                             now_biz: int) -> dict[str, str]:
+        """One why per standing slow incident, keyed by suggestion key. Only slow incidents get one:
+        a cancellation has no wait to explain, and a lapsed regular's drift has no evidenced single
+        cause in the record (pass 15's design). Empty when nothing standing is a slow incident, so
+        the common read pays nothing for the hook."""
+        slow = [(suggestion, history) for suggestion, history in standing
+                if suggestion.reason == "incident" and suggestion.incident == "slow"]
+        if not slow:
+            return {}
+        tenant = await self._repo().tenant(conn, tenant_id)
+        clock = self._c.clock.for_tenant(tenant.clock)
+        snapshot = await self._repo().menu_snapshot(conn, tenant_id)
+        station_names = {station.id: (station.names.en or station.id) for station in snapshot.stations}
+        station_slots = {station.id: station.parallel_slots for station in snapshot.stations}
+        item_names = {item.code: item.names.en or item.code for item in snapshot.items}
+        whys: dict[str, str] = {}
+        for suggestion, history in slow:
+            order_id = suggestion.key.rsplit(":", 1)[-1]
+            order = next((row for row in history.orders if row.id == order_id), None)
+            if order is None or order.ready_biz_ms is None:
+                continue  # no incident order in the record — nothing honest to stand a why on
+            whys[suggestion.key] = await self._incident_why(
+                conn, tenant_id, order, clock=clock, spec=tenant.clock, staff_store=staff_store,
+                defs=defs, station_names=station_names, station_slots=station_slots,
+                item_names=item_names, now_biz=now_biz)
+        return whys
+
+    async def _incident_why(self, conn: AsyncConnection, tenant_id: str, order: cu.CustOrder, *,
+                            clock, spec: TenantClockSpec, staff_store: si.StaffStore | None,
+                            defs: list[si.SlotDef], station_names: dict[str, str],
+                            station_slots: dict[str, int], item_names: dict[str, str],
+                            now_biz: int) -> str:
+        """``domain.why.wait_incident_why`` over the incident order's own record: its tickets' station
+        spans (created → bumped), the tickets those stations took in while it waited, the cooks the
+        shift log shows on them at incident close (claims are attendance — the timesheets' doctrine;
+        a station with no claim over the window reads as unstaffed, never as today's crew), the
+        room's order count against its same-weekday norm, and any of the order's dishes 86'd during
+        the wait. Nothing here reads the present for the past: every fact is stamped in the window."""
+        start, end = order.placed_biz_ms, order.ready_biz_ms
+        assert end is not None  # the caller only passes orders that got to ready
+        window_min = (end - start) / 60_000
+        tk, o, ev = t.tickets, t.orders, t.events
+
+        spans: dict[str, list[int]] = {}  # station -> [first created, last bumped] of this order
+        for station_id, created, bumped in await conn.execute(
+                select(tk.c.station_id, tk.c.created_biz_ms, tk.c.bumped_biz_ms)
+                .where(tk.c.tenant_id == tenant_id, tk.c.order_id == order.id)):
+            span = spans.setdefault(station_id, [int(created), int(created)])
+            span[0] = min(span[0], int(created))
+            span[1] = max(span[1], int(bumped) if bumped is not None else end)
+
+        load: dict[str, int] = {}  # tickets each of those stations took in during the window
+        if spans:
+            rows = await conn.execute(
+                select(tk.c.station_id, func.count()).select_from(
+                    tk.join(o, (tk.c.order_id == o.c.id) & (tk.c.tenant_id == o.c.tenant_id)))
+                .where(tk.c.tenant_id == tenant_id, tk.c.station_id.in_(sorted(spans)),
+                       tk.c.created_biz_ms >= start, tk.c.created_biz_ms <= end,
+                       o.c.status != "cancelled")
+                .group_by(tk.c.station_id))
+            load = {station_id: int(count) for station_id, count in rows}
+
+        cooks: dict[str, int] = {station_id: 0 for station_id in spans}
+        if staff_store is not None and spans:
+            slot_stations = {defn.slot_id: _slot_stations(defn) for defn in defs}
+            from_real = _real_ms_at_biz(spec, start - 2 * cu.DAY_MS)
+            to_real = _real_ms_at_biz(spec, end)
+            records = staff_store.shift_history(
+                tenant_id, from_real if from_real is not None else 0,
+                (to_real if to_real is not None else self._c.clock.now_real_ms()) + 1)
+            on_station: dict[str, set[str]] = {station_id: set() for station_id in spans}
+            for record in records:
+                claimed_biz = clock.biz_ms_at(record.claimed_ms)
+                released_biz = (clock.biz_ms_at(record.released_ms)
+                                if record.released_ms is not None else now_biz)
+                if claimed_biz > end or released_biz < start:
+                    continue  # the shift never touched the wait
+                for station_id in slot_stations.get(record.slot_id, ()):
+                    if station_id in on_station:
+                        on_station[station_id].add(record.staff_id)
+            cooks = {station_id: len(people) for station_id, people in on_station.items()}
+
+        placed = [int(placed_ms) for (placed_ms,) in await conn.execute(
+            select(o.c.placed_biz_ms).where(
+                o.c.tenant_id == tenant_id, o.c.status != "cancelled",
+                o.c.placed_biz_ms >= start - 56 * cu.DAY_MS, o.c.placed_biz_ms <= end))]
+        orders_in_window = sum(1 for placed_ms in placed if start <= placed_ms <= end)
+        zone = ZoneInfo(self._tz)
+        start_dt = dt.datetime.fromtimestamp(start / 1000, tz=zone)
+        pool = sorted({cu.day_of(placed_ms, self._tz) for placed_ms in placed
+                       if cu.day_of(placed_ms, self._tz) != start_dt.date()
+                       and cu.day_of(placed_ms, self._tz).weekday() == start_dt.weekday()})
+        typical_orders: int | None = None
+        if len(pool) >= 2:
+            per_day = []
+            for day in pool:
+                day_start = ms_from_dt(dt.datetime.combine(day, start_dt.time(), tzinfo=zone))
+                per_day.append(sum(1 for placed_ms in placed
+                                   if day_start <= placed_ms < day_start + (end - start)))
+            typical_orders = int(sum(per_day) / len(per_day) + 0.5)
+
+        eighty_sixed: list[str] = []
+        order_codes = {line.item_code for line in order.lines}
+        if order_codes:
+            seen: set[str] = set()
+            for (payload,) in await conn.execute(
+                    select(ev.c.payload).where(
+                        ev.c.tenant_id == tenant_id, ev.c.type == "menu.availability_changed",
+                        ev.c.biz_ms >= start, ev.c.biz_ms <= end).order_by(ev.c.seq)):
+                data = json.loads(payload) if isinstance(payload, str) else payload
+                code = data.get("item_code")
+                if data.get("available") is False and code in order_codes and code not in seen:
+                    seen.add(code)
+                    eighty_sixed.append(item_names.get(code, code))
+
+        legs = [why_mod.StationWindow(
+                    name=station_names.get(station_id, station_id),
+                    tickets=load.get(station_id, 0), cooks=cooks[station_id],
+                    slots=station_slots.get(station_id, 0),
+                    leg_min=(span[1] - span[0]) / 60_000)
+                for station_id, span in spans.items()]
+        return why_mod.wait_incident_why(
+            legs, window_min=window_min, orders_in_window=orders_in_window,
+            typical_orders=typical_orders, eighty_sixed=eighty_sixed)
 
     async def decide_goodwill(self, tenant_id: str, key: str, approve: bool, item_code: str | None,
                               decided_by: str | None) -> None:

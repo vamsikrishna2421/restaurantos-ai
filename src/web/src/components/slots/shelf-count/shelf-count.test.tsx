@@ -27,6 +27,7 @@ const COUNT: ShelfCount = {
     { ingredient_id: 'ING_EGG', concept: 'eggs', spark_count: 8, sam_count: 5, agreed: false, mean_conf_pct: 77,
       masks_svg: '', points: [] },
   ],
+  proposals: [],
 }
 
 interface Sent {
@@ -143,7 +144,7 @@ test('photo_counts_agree_check_and_confirm', async () => {
   fireEvent.click(screen.getByRole('button', { name: 'Confirm 2 counts' }))
   await within(dialog).findByText('Stock updated — the AI GM re-plans if needed')
   const confirm = sent.find((c) => c.path.endsWith('/confirm'))
-  expect(confirm?.body).toEqual({ counts: { ING_PANEER: 2, ING_EGG: 5 } })
+  expect(confirm?.body).toEqual({ counts: { ING_PANEER: 2, ING_EGG: 5 }, new_ingredients: [] })
   expect(dialog).toHaveTextContent('2,000 g on hand')
   expect(within(dialog).getByText('act')).toBeInTheDocument() // the new band
   expect(within(dialog).getByRole('status')).toHaveTextContent(
@@ -181,7 +182,8 @@ test('a_failed_confirm_keeps_the_numbers_and_tries_again', async () => {
   await screen.findByText('Stock updated — the AI GM re-plans if needed')
   expect(confirms).toBe(2)
   expect(sent.filter((c) => c.path.endsWith('/confirm')).map((c) => c.body)).toEqual(
-    [{ counts: { ING_PANEER: 2, ING_EGG: 7 } }, { counts: { ING_PANEER: 2, ING_EGG: 7 } }])
+    [{ counts: { ING_PANEER: 2, ING_EGG: 7 }, new_ingredients: [] },
+     { counts: { ING_PANEER: 2, ING_EGG: 7 }, new_ingredients: [] }])
 })
 
 test('a_count_that_no_longer_waits_offers_a_new_photo', async () => {

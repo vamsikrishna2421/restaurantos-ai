@@ -201,6 +201,16 @@ def test_analytics_without_history_stands_on_the_demand_prior(app):
     assert biryani["expected_tickets"] == check["expected_tickets"]
     assert biryani["capacity_tickets"] == check["capacity_tickets"] == 0  # nobody there: no hands, no capacity
     assert biryani["burn_curve"] == [] and biryani["dishes"] == []  # stock evidence stays off capacity cards
+    # pass 15: with nobody on the station the detail already carries the whole story, and there is no
+    # sales history to compare against — the card honestly carries no why line
+    assert biryani["why"] is None
+    # Curry tomorrow: one usual-job cook against the station's three slots is an evidenced driver
+    curry_card = next(card for card in body["cards"]
+                      if card["kind"] == "capacity" and "Curry" in card["title"]
+                      and "tomorrow" in card["title"] and "Dinner" in card["title"])
+    assert curry_card["why"] is not None
+    assert "Only 1 of the station's 3 cooking slots have a usual-job cook" in curry_card["why"]
+    assert "72 tickets, not 24" in curry_card["why"]
     curry = next(check for check in body["capacity"]
                  if check["station_id"] == "STN_CURRY" and check["date"] == "2026-11-08"
                  and check["daypart"] == "dinner")
@@ -240,6 +250,11 @@ def test_analytics_stock_card_when_the_shelf_empties_before_any_delivery(app):
     assert {dish["item_code"] for dish in card["dishes"]} == {"PNR_BM", "PALAK_PNR", "PNR_TIKKA"}
     names = {item.code: item.names.en for item in SEED.menu.items}
     assert all(dish["name"] == names[dish["item_code"]] for dish in card["dishes"])
+    # pass 15: the why names the dish doing most of the burning, with the forecast's own numbers —
+    # Paneer Butter Masala burns 5,700 of the 11,310 g the horizon forecasts (about 38 servings)
+    assert card["why"] is not None
+    assert card["why"].startswith("Most of the burn is Paneer Butter Masala")
+    assert "5700 of the 11310 g forecast" in card["why"] and "38 servings" in card["why"]
 
 
 # ----- analytics: the sales ladder -----------------------------------------------------------------------------------

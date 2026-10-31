@@ -57,6 +57,7 @@ import {
 } from './attention'
 import CustomersSection from './customers'
 import OrdersSection from './orders'
+import InventorySection from './inventory'
 import PeopleSection from './people'
 import RevenueSection from './revenue'
 import SettingsSection from './settings'
@@ -64,11 +65,12 @@ import SupportSection from './support'
 import TimesheetsSection from './timesheets'
 
 const LOW_STOCK_MAX = 6
-const SECTIONS = ['home', 'attention', 'orders', 'people', 'timesheets', 'revenue', 'analytics',
+const SECTIONS = ['home', 'attention', 'orders', 'people', 'inventory', 'timesheets', 'revenue', 'analytics',
   'customers', 'settings', 'support'] as const
 type Section = (typeof SECTIONS)[number]
 const SECTION_LABELS: Record<Section, string> = {
-  home: 'Home', attention: 'Attention', orders: 'Orders', people: 'People', timesheets: 'Timesheets',
+  home: 'Home', attention: 'Attention', orders: 'Orders', people: 'People', inventory: 'Inventory',
+  timesheets: 'Timesheets',
   revenue: 'Revenue', analytics: 'Analytics', customers: 'Customers', settings: 'Settings',
   support: 'Support',
 }
@@ -267,6 +269,18 @@ export default function ManagerSurface(props: SurfaceProps) {
     }
   }
 
+  // pass 13: a standing responsibility (Inventory Manager) is granted/taken back on top of the job
+  const toggleResponsibility = async (person: StaffPerson, grant: boolean) => {
+    if (!me) return
+    setBusy(`resp:${person.id}`)
+    try {
+      await staffApi.setResponsibility(me.token, person.id, 'inventory_manager', grant)
+      await refreshTeam()
+    } finally {
+      setBusy(null)
+    }
+  }
+
   const endShift = async () => {
     if (!me) return
     setBusy('me')
@@ -434,6 +448,14 @@ export default function ManagerSurface(props: SurfaceProps) {
                 headline={slots ? `${filled.length} of ${slots.length} jobs filled` : '—'}
                 caption={approvals > 0 ? `${approvals} waiting to be approved` : 'Team and job requests'}
                 onOpen={() => setSection('people')} />
+              <HomeTile label="Inventory"
+                tone={(data?.inventory ?? []).some((i) => i.forecast.band === 'act') ? 'bad'
+                  : (data?.inventory ?? []).some((i) => i.forecast.band !== 'ok') ? 'warn' : undefined}
+                headline={(data?.inventory ?? []).filter((i) => i.forecast.band !== 'ok').length > 0
+                  ? `${(data?.inventory ?? []).filter((i) => i.forecast.band !== 'ok').length} running low`
+                  : 'Stock healthy'}
+                caption="Closing check, opening stock & bills"
+                onOpen={() => setSection('inventory')} />
               <HomeTile label="Timesheets"
                 headline={`${filled.length} on shift now`}
                 caption="Who worked, and for how long"
@@ -487,6 +509,11 @@ export default function ManagerSurface(props: SurfaceProps) {
               {card.kind === 'capacity' && card.expected_tickets != null && card.capacity_tickets != null && (
                 <CapacityBars expected={card.expected_tickets} capacity={card.capacity_tickets} />
               )}
+              {card.why && (
+                <p className="mt-2">
+                  <span className="font-medium text-muted">Why: </span>{card.why}
+                </p>
+              )}
               <p className="mt-2 font-medium">
                 <span className="text-muted">Suggested: </span>{card.action}
               </p>
@@ -534,6 +561,11 @@ export default function ManagerSurface(props: SurfaceProps) {
               actions={<SeverityPill severity={severityOf(suggestion.tone)} />}
               className="motion-safe:animate-rise">
               <p>{suggestion.detail}</p>
+              {suggestion.why && (
+                <p className="mt-2">
+                  <span className="font-medium text-muted">Why: </span>{suggestion.why}
+                </p>
+              )}
               <p className="mt-1 text-sm text-muted">
                 {suggestion.customer_name ?? 'A regular'} · {suggestion.phone_masked}
               </p>
@@ -737,7 +769,11 @@ export default function ManagerSurface(props: SurfaceProps) {
       <TabPanel idPrefix="manager-sections" id="people" value={section}>
         <PeopleSection isManager={isManager} slots={slots} requests={requests} people={people} busy={busy}
           onDecide={(request, approve) => void decide(request, approve)}
-          onChangeDefault={(person, slotId) => void changeDefault(person, slotId)} />
+          onChangeDefault={(person, slotId) => void changeDefault(person, slotId)}
+          onToggleResponsibility={(person, grant) => void toggleResponsibility(person, grant)} />
+      </TabPanel>
+      <TabPanel idPrefix="manager-sections" id="inventory" value={section}>
+        <InventorySection />
       </TabPanel>
       <TabPanel idPrefix="manager-sections" id="timesheets" value={section}>
         <TimesheetsSection />
@@ -749,7 +785,7 @@ export default function ManagerSurface(props: SurfaceProps) {
         <AnalyticsSection analytics={analytics} error={analyticsError} />
       </TabPanel>
       <TabPanel idPrefix="manager-sections" id="customers" value={section}>
-        <CustomersSection />
+        <CustomersSection me={me} />
       </TabPanel>
       <TabPanel idPrefix="manager-sections" id="settings" value={section}>
         <SettingsSection />

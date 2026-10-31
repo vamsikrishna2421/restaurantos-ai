@@ -19,7 +19,7 @@ AUXILIARY = {"TenantClockPort", "TxPort", "SandboxPort", "RealtimeASRLike", "Dia
 CONTRACT_FIELDS = [  # CONTRACTS_RUNTIME §10.0, in order
     "settings", "guard", "meta", "clock", "ids", "rng", "chaos", "store", "repo", "bus", "hub", "asr_factory", "tts",
     "phrases", "stitcher", "orders", "kitchen", "inventory", "order_agent", "dialogue_factory", "planner", "policy",
-    "approvals", "ledger", "executor",
+    "approvals", "ledger", "executor", "messaging",
 ]
 
 

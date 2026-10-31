@@ -94,6 +94,12 @@ SPEC: dict[str, dict] = {
     "support_items": dict(
         cols="id kind title body reporter_id reporter_name reporter_role status created_ms:i updated_ms:i",
         pk=("id",), ix={(("tenant_id", "status"), False), (("created_ms",), False)}),
+    "closing_checks": dict(
+        cols="id biz_date completed_by_id completed_by_name completed_ms:i variances:j",
+        pk=("id",), ix={(("tenant_id", "biz_date"), False)}),
+    "supplier_receipts": dict(
+        cols="id supplier_name? lines:j total_cents:i? received_by simulated:b created_ms:i",
+        pk=("id",), ix={(("tenant_id", "created_ms"), False)}),
 }
 NO_TENANT_COLUMN = {"tenants", "feedback"}
 QUOTE_OFFSETS_ACTIVE_SQL = ("CREATE UNIQUE INDEX uq_quote_offsets_active ON quote_offsets (tenant_id, "

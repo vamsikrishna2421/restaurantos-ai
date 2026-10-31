@@ -12,10 +12,13 @@ import type {
   RushPhase,
   SpeakLang,
   SpendPool,
+  Unit,
 } from './common'
 import type { OrderStatus, TurnPath, TurnSpans } from './orders'
+import type { Forecast, Ingredient } from './inventory'
 import type { Incident, Plan, SituationReport } from './gm'
 import type { ComponentState, DegradedComponent, EventEnvelope, ScenarioName } from './events'
+import type { InventoryItemView } from './ws'
 
 export type Phase = 'build' | 'judging'
 
@@ -31,6 +34,8 @@ export type RushAction = 'start' | 'stop'
 
 export type StaffRoleKind = 'manager' | 'front_counter' | 'chef'
 
+export type Responsibility = 'inventory_manager'
+
 export type ForecastConfidence = 'steady' | 'early' | 'prior' | 'none'
 
 export type ConsoleCardKind = 'capacity' | 'stock'
@@ -42,6 +47,8 @@ export type SupportStatus = 'new' | 'in_progress' | 'done'
 export type GoodwillReason = 'incident' | 'lapsed' | 'milestone'
 
 export type GoodwillOptionKind = 'usual' | 'cheaper' | 'also_loved'
+
+export type WinbackStatus = 'none' | 'draft' | 'sent' | 'returned'
 
 export interface ErrorDetail {
   code: string
@@ -338,9 +345,17 @@ export interface ShelfCountItem {
   points: ShelfPoint[]
 }
 
+export interface ShelfProposal {
+  name: string
+  unit: Unit
+  count: number
+  concept: string
+}
+
 export interface ShelfCount {
   id: string
   items: ShelfCountItem[]
+  proposals: ShelfProposal[]
 }
 
 export interface DraftNames {
@@ -506,8 +521,22 @@ export interface ConsentRequest {
   text_version: string
 }
 
+export interface NewIngredientSpec {
+  name: string
+  unit: Unit
+  pack_size: number
+  par: number
+  reorder_point: number
+}
+
+export interface ShelfNewIngredient {
+  spec: NewIngredientSpec
+  count: number
+}
+
 export interface ShelfConfirmRequest {
   counts: Record<string, number>
+  new_ingredients: ShelfNewIngredient[]
 }
 
 export interface OnboardingPublishRequest {
@@ -529,6 +558,7 @@ export interface StaffPerson {
   name: string
   language: SpeakLang
   default_role: StaffDefaultRole | null
+  responsibilities: Responsibility[]
 }
 
 export interface CustomRoleSpec {
@@ -595,6 +625,12 @@ export interface RoleRequestDecision {
 export interface SetDefaultRequest {
   staff_id: string
   slot_id: string | null
+}
+
+export interface ResponsibilityUpdate {
+  staff_id: string
+  responsibility: Responsibility
+  grant: boolean
 }
 
 export interface ConsoleOrderLine {
@@ -721,6 +757,7 @@ export interface ConsoleCard {
   expected_tickets: number | null
   capacity_tickets: number | null
   dishes: CardDish[]
+  why: string | null
 }
 
 export interface ConsoleAnalytics {
@@ -847,6 +884,7 @@ export interface IdentifyRequest {
   phone: string
   name: string | null
   session_id: string
+  marketing_opt_in: boolean | null
 }
 
 export interface UsualItem {
@@ -867,6 +905,8 @@ export interface IdentifyResult {
   visits: number
   usual: UsualItem[]
   pending_credit: PendingCreditView | null
+  marketing_opt_in: boolean
+  marketing_opt_in_asked: boolean
 }
 
 export interface CustomerOrderName {
@@ -911,6 +951,7 @@ export interface GoodwillSuggestion {
   customer_name: string | null
   phone_masked: string
   options: GoodwillOption[]
+  why: string | null
 }
 
 export interface GoodwillFeed {
@@ -921,6 +962,71 @@ export interface GoodwillDecision {
   key: string
   approve: boolean
   item_code: string | null
+}
+
+export interface WinbackGuest {
+  key: string
+  name: string | null
+  phone_masked: string
+  visits: number
+  last_visit_biz: string
+  days_since_last: number
+  usual_item_code: string | null
+  usual_name: string | null
+  status: WinbackStatus
+  outreach_id: string | null
+  pending_credit: PendingCreditView | null
+}
+
+export interface WinbackOutreachView {
+  outreach_id: string
+  key: string
+  name: string | null
+  phone_masked: string
+  message_text: string
+  offer_item_code: string | null
+  offer_name: string | null
+  status: 'draft' | 'sent' | 'returned'
+  source: 'template' | 'model'
+  channel: string | null
+  simulated: boolean
+  sent_biz: string | null
+  returned_order_id: string | null
+}
+
+export interface WinbackSkipped {
+  key: string
+  reason: string
+}
+
+export interface WinbackView {
+  contactable: WinbackGuest[]
+  not_contactable_count: number
+  outreach: WinbackOutreachView[]
+  provider_note: string
+  note: string
+}
+
+export interface WinbackDraftRequest {
+  keys: string[]
+}
+
+export interface WinbackDraftResult {
+  drafts: WinbackOutreachView[]
+  skipped: WinbackSkipped[]
+}
+
+export interface WinbackEditRequest {
+  outreach_id: string
+  message_text: string
+}
+
+export interface WinbackSendRequest {
+  outreach_ids: string[]
+}
+
+export interface WinbackSendResult {
+  sent: WinbackOutreachView[]
 }
 
 export interface OnboardingDraftItem {
@@ -960,4 +1066,88 @@ export interface OnboardingGoLiveResult {
   name: string
   files: string[]
   status: 'live'
+}
+
+export interface InventorySetupView {
+  completed: boolean
+  items: InventoryItemView[]
+}
+
+export interface InventorySetupRequest {
+  counts: Record<string, number>
+}
+
+export interface ClosingCheckItem {
+  ingredient: Ingredient
+  forecast: Forecast
+  projected_free: number
+}
+
+export interface ClosingVariance {
+  ingredient_id: string
+  expected_qty: number
+  counted_qty: number
+}
+
+export interface ClosingCheckCompletion {
+  completed_by_id: string
+  completed_by_name: string
+  completed_at: string
+  variances: ClosingVariance[]
+}
+
+export interface ClosingCheckView {
+  biz_date: string
+  service_ends_at: string
+  items: ClosingCheckItem[]
+  completion: ClosingCheckCompletion | null
+}
+
+export interface ClosingCheckCompleteRequest {
+  counts: Record<string, number>
+}
+
+export interface BillDraftLine {
+  line_id: string
+  raw_name: string
+  qty: number
+  unit: string
+  price_cents: number | null
+  matched_ingredient_id: string | null
+  suggested_stock_qty: number
+}
+
+export interface BillDraft {
+  id: string
+  supplier_name: string | null
+  simulated: boolean
+  lines: BillDraftLine[]
+}
+
+export interface BillConfirmLine {
+  line_id: string
+  ingredient_id: string | null
+  create: NewIngredientSpec | null
+  stock_qty: number
+}
+
+export interface BillConfirmRequest {
+  lines: BillConfirmLine[]
+}
+
+export interface SupplierReceiptLine {
+  name: string
+  ingredient_id: string
+  qty: number
+  price_cents: number | null
+}
+
+export interface SupplierReceipt {
+  id: string
+  supplier_name: string | null
+  lines: SupplierReceiptLine[]
+  total_cents: number | null
+  received_by: string
+  simulated: boolean
+  created_at: string
 }

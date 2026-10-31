@@ -9,16 +9,18 @@ import { resetSessionForTests } from '../../stores/session'
 import { fail, json, stubFetch, SESSION, type Call } from '../../test/story-kit'
 import StaffSurface from '.'
 
-const LAKSHMI: StaffPerson = { id: 'STF_LAKSHMI', name: 'Lakshmi', language: 'te', default_role: null }
-const CARLOS: StaffPerson = { id: 'STF_CARLOS', name: 'Carlos', language: 'es', default_role: null }
+const LAKSHMI: StaffPerson = { id: 'STF_LAKSHMI', name: 'Lakshmi', language: 'te', default_role: null, responsibilities: [] }
+const CARLOS: StaffPerson = { id: 'STF_CARLOS', name: 'Carlos', language: 'es', default_role: null, responsibilities: [] }
 // pass 5: Sana's usual job is open this shift; Tara's is the slot Carlos already holds in SLOTS
 const SANA: StaffPerson = {
   id: 'STF_SANA', name: 'Sana', language: 'en',
   default_role: { slot_id: 'STN_BIRYANI#1', label: 'Biryani Chef 1', pending: false },
+  responsibilities: [],
 }
 const TARA: StaffPerson = {
   id: 'STF_TARA', name: 'Tara', language: 'en',
   default_role: { slot_id: 'STN_CURRY#1', label: 'Curry Chef 1', pending: false },
+  responsibilities: [],
 }
 const PEOPLE = [LAKSHMI, CARLOS, SANA, TARA]
 
@@ -67,7 +69,7 @@ function respond(call: Call): Response {
         pending: body.default_slot_id === 'manager',
       }
     }
-    const person = { id: 'STF_NEW', name: body.name, language: body.language, default_role: defaultRole }
+    const person = { id: 'STF_NEW', name: body.name, language: body.language, default_role: defaultRole, responsibilities: [] }
     return json(201, { token: 'tok_new', staff: person, expires_at: '2026-11-08T06:00:00.000Z' })
   }
   if (method === 'GET' && path === '/api/staff/roles') return json(200, SLOTS)

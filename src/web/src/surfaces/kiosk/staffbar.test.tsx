@@ -56,7 +56,7 @@ async function openKiosk() {
 test('a_staff_session_on_the_kiosk_shows_the_bar_and_end_shift_releases_and_routes', async () => {
   saveStaffSession({
     token: 'tok_maria',
-    staff: { id: 'STF_MARIA', name: 'Maria', language: 'es', default_role: null },
+    staff: { id: 'STF_MARIA', name: 'Maria', language: 'es', default_role: null, responsibilities: [] },
     claim: { slot_id: 'FRONT', label: 'Front Counter', kind: 'front_counter', station_id: null },
   })
   await openKiosk()

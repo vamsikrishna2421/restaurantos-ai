@@ -31,6 +31,7 @@ if TYPE_CHECKING:
         InventoryServicePort,
         KitchenServicePort,
         LedgerPort,
+        MessagingPort,
         MetaPort,
         OrderAgentPort,
         OrderServicePort,
@@ -84,6 +85,7 @@ class Container:
     approvals: ApprovalsPort | None = None  # P24
     ledger: LedgerPort | None = None  # P24
     executor: ExecutorPort | None = None  # P25
+    messaging: MessagingPort | None = None  # P45
 
 
 FIELD_NAMES: tuple[str, ...] = tuple(f.name for f in fields(Container))
