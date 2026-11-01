@@ -145,6 +145,12 @@ class SnapshotRepo:
     async def recipes(self, conn: Any, tid: str) -> Any:
         return self.s.recipes
 
+    async def recipe_reviews(self, conn: Any, tid: str) -> Any:
+        return []  # pass 16: the snapshot's kitchen has no draft lists waiting
+
+    async def approved_recipes(self, conn: Any, tid: str) -> Any:
+        return self.s.recipes  # pass 16: nothing is proposed in the snapshot, so every list counts
+
     async def suppliers(self, conn: Any, tid: str) -> list[Supplier]:
         return self.s.suppliers
 

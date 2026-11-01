@@ -9,6 +9,10 @@
  *   completing records who finished the check and when.
  * - **Scan a purchase bill**: a photo or PDF of a supplier bill becomes a draft stock-in — lines
  *   matched to the catalog or created new — and confirming files it as a supplier receipt.
+ * - **Recipe review** (pass 16): a dish's ingredient list the system drafted (at onboarding, from
+ *   general knowledge) waits here as a proposal. Until a chef or manager approves it — editing the
+ *   quantities first if needed — the dish is left out of stock deductions, forecasts and cautions.
+ *   Only ingredients and quantities are ever shown or stored; how a dish is made is never asked.
  *
  * Everything here rides the inventory API (`lib/inventory`); the server admits the manager, or the
  * person holding the Inventory Manager responsibility.
@@ -22,6 +26,9 @@ import type {
   ClosingCheckView,
   InventoryItemView,
   InventorySetupView,
+  RecipeDishReview,
+  RecipeLineEdit,
+  RecipeReviewsView,
   SupplierReceipt,
 } from '../../contracts/generated'
 import { formatCents, formatNumber } from '../../lib/format'
@@ -469,22 +476,181 @@ function BillScan({ stock, onReceived }: {
   )
 }
 
+// ----- the recipe review (pass 16) -----------------------------------------------------------------------------------
+
+interface DishLineDraft {
+  ingredient_id: string
+  qty: string
+}
+
+function DishReviewCard({ dish, stock, onApproved }: {
+  dish: RecipeDishReview
+  stock: InventorySetupView['items']
+  onApproved: (dish: RecipeDishReview) => void
+}) {
+  const [lines, setLines] = useState<DishLineDraft[]>(
+    dish.lines.map((line) => ({ ingredient_id: line.ingredient_id, qty: String(line.qty) })))
+  const [addTarget, setAddTarget] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [failed, setFailed] = useState<string | null>(null)
+  const byId = new Map(stock.map(({ ingredient }) => [ingredient.id, ingredient]))
+  const unused = stock.filter(({ ingredient }) => !lines.some((l) => l.ingredient_id === ingredient.id))
+
+  const approve = async () => {
+    const edits: RecipeLineEdit[] = []
+    for (const line of lines) {
+      const qty = Number(line.qty)
+      if (!Number.isInteger(qty) || qty < 1) {
+        setFailed('Each quantity needs to be a whole number of at least 1.')
+        return
+      }
+      edits.push({ ingredient_id: line.ingredient_id, qty })
+    }
+    if (edits.length === 0) {
+      setFailed('A dish needs at least one ingredient before it can be approved.')
+      return
+    }
+    // Unchanged from the draft → approve as proposed (no edits sent); changed → send the edits.
+    const unchanged = edits.length === dish.lines.length
+      && dish.lines.every((line) => edits.some((e) => e.ingredient_id === line.ingredient_id && e.qty === line.qty))
+    setBusy(true)
+    setFailed(null)
+    try {
+      onApproved(await inventoryApi.approveRecipe(dish.item_code, unchanged ? null : edits))
+    } catch {
+      setFailed('The approval could not be saved — try again.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <div className="flex flex-col gap-2.5 rounded-2xl bg-white/2 p-3.5 ring-1 ring-white/5">
+      <span className="flex flex-wrap items-center justify-between gap-2">
+        <span className="font-semibold">{dish.name}</span>
+        <Chip tone="warn">Draft — inferred</Chip>
+      </span>
+      <p className="text-sm text-muted">
+        We drafted this ingredient list from general knowledge. Check it against your recipe,
+        fix any quantity, then approve — until then this dish is left out of stock counts,
+        forecasts and low-stock warnings.
+      </p>
+      <ul className="flex flex-col gap-1.5">
+        {lines.map((line) => {
+          const ingredient = byId.get(line.ingredient_id)
+          return (
+            <li key={line.ingredient_id}
+              className="flex flex-wrap items-center justify-between gap-2 rounded-xl bg-panel-2 px-3 py-2 ring-1 ring-white/5">
+              <span className="min-w-0 flex-1 truncate font-medium">
+                {ingredient?.names.en ?? line.ingredient_id}
+              </span>
+              <span className="flex shrink-0 items-center gap-2">
+                <input type="number" min={1} inputMode="numeric"
+                  aria-label={`Quantity of ${ingredient?.names.en ?? line.ingredient_id} in ${dish.name}`}
+                  value={line.qty}
+                  onChange={(e) => setLines((prev) => prev.map((l) =>
+                    l.ingredient_id === line.ingredient_id ? { ...l, qty: e.target.value } : l))}
+                  className={`w-20 ${INPUT}`} />
+                <span className="text-sm text-muted">{ingredient?.unit ?? ''}</span>
+                <Button size="sm" variant="ghost"
+                  aria-label={`Remove ${ingredient?.names.en ?? line.ingredient_id} from ${dish.name}`}
+                  onClick={() => setLines((prev) => prev.filter((l) => l.ingredient_id !== line.ingredient_id))}>
+                  Remove
+                </Button>
+              </span>
+            </li>
+          )
+        })}
+      </ul>
+      {unused.length > 0 && (
+        <span className="flex flex-wrap items-center gap-2">
+          <select aria-label={`Add an ingredient to ${dish.name}`} value={addTarget}
+            onChange={(e) => setAddTarget(e.target.value)}
+            className="min-w-0 flex-1 rounded-lg border border-white/10 bg-panel-2 px-2.5 py-2 font-medium text-text outline-none focus:border-accent/60 focus:ring-4 focus:ring-accent/15">
+            <option value="">Add an ingredient…</option>
+            {unused.map(({ ingredient }) => (
+              <option key={ingredient.id} value={ingredient.id}>{ingredient.names.en}</option>
+            ))}
+          </select>
+          <Button size="sm" variant="secondary" disabled={addTarget === ''}
+            onClick={() => {
+              if (addTarget) setLines((prev) => [...prev, { ingredient_id: addTarget, qty: '1' }])
+              setAddTarget('')
+            }}>
+            Add
+          </Button>
+        </span>
+      )}
+      <div className="flex flex-wrap items-center gap-3">
+        <Button variant="primary" loading={busy} onClick={() => void approve()}>
+          Approve ingredient list
+        </Button>
+        {failed && <p role="alert" className="text-sm text-bad">{failed}</p>}
+      </div>
+    </div>
+  )
+}
+
+function RecipeReview({ review, stock, onChange }: {
+  review: RecipeReviewsView
+  stock: InventorySetupView['items']
+  onChange: (view: RecipeReviewsView) => void
+}) {
+  const [notes, setNotes] = useState<string[]>([])
+  return (
+    <Card title="Recipe review" tone={review.proposed_count > 0 ? 'warn' : undefined}
+      className="motion-safe:animate-rise"
+      actions={review.proposed_count > 0
+        ? <Chip tone="warn">{review.proposed_count} waiting</Chip>
+        : <Chip tone="ok">All approved</Chip>}>
+      <p className="mb-3 text-sm text-muted">
+        Your recipes stay your secret: we only ever keep the ingredients and quantities — never
+        how a dish is prepared. A list we drafted is never used until your chef or manager
+        approves it here.
+      </p>
+      {notes.map((note) => (
+        <p key={note} className="mb-2 text-sm text-ok">{note}</p>
+      ))}
+      {review.dishes.length === 0 ? (
+        <p className="text-muted">No dish is waiting on approval — every ingredient list in use was approved by your kitchen.</p>
+      ) : (
+        <div className="grid gap-3 lg:grid-cols-2">
+          {review.dishes.map((dish) => (
+            <DishReviewCard key={dish.item_code} dish={dish} stock={stock}
+              onApproved={(approved) => {
+                setNotes((prev) => [...prev,
+                  `${approved.name} approved by ${approved.approved_by_name ?? 'the manager'} — it now counts in stock and forecasts.`])
+                onChange({
+                  dishes: review.dishes.filter((d) => d.item_code !== approved.item_code),
+                  proposed_count: review.proposed_count - 1,
+                })
+              }} />
+          ))}
+        </div>
+      )}
+    </Card>
+  )
+}
+
 // ----- the section ---------------------------------------------------------------------------------------------------
 
 export default function InventorySection() {
   const [setup, setSetup] = useState<InventorySetupView | null>(null)
   const [check, setCheck] = useState<ClosingCheckView | null>(null)
   const [receipts, setReceipts] = useState<SupplierReceipt[] | null>(null)
+  const [review, setReview] = useState<RecipeReviewsView | null>(null)
   const [error, setError] = useState(false)
 
   const load = useCallback(async () => {
     try {
-      const [setupView, checkView, receiptRows] = await Promise.all([
+      const [setupView, checkView, receiptRows, reviewView] = await Promise.all([
         inventoryApi.setup(), inventoryApi.closingCheck(), inventoryApi.receipts(),
+        inventoryApi.proposedRecipes(),
       ])
       setSetup(setupView)
       setCheck(checkView)
       setReceipts(receiptRows)
+      setReview(reviewView)
       setError(false)
     } catch {
       setError(true)
@@ -495,12 +661,13 @@ export default function InventorySection() {
     void load()
   }, [load])
 
-  const loading = (setup === null || check === null || receipts === null) && !error
+  const loading = (setup === null || check === null || receipts === null || review === null) && !error
 
   return (
     <SectionState loading={loading} error={error}>
-      {setup && check && receipts && (
+      {setup && check && receipts && review && (
         <div className="flex flex-col gap-6">
+          <RecipeReview review={review} stock={setup.items} onChange={setReview} />
           <OpeningStock setup={setup} onSaved={(view) => { setSetup(view); void load() }} />
           <ClosingCheck check={check} onDone={setCheck} />
           <BillScan stock={setup.items}

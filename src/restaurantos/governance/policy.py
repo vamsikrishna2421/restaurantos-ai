@@ -391,7 +391,7 @@ async def _dish_problem(conn: AsyncConnection, repo: RepoPort, tenant_id: str, i
     if not p.available:
         return None
     stock = next((i for i in await repo.ingredients(conn, tenant_id) if i.id == ingredient_id), None)
-    largest = detectors.largest_serving(ingredient_id, await repo.recipes(conn, tenant_id))
+    largest = detectors.largest_serving(ingredient_id, await repo.approved_recipes(conn, tenant_id))
     if stock is None or stock.on_hand - stock.reserved < detectors.DEFAULT_POLICY.min_servings * largest:
         return "not enough free stock to un-86"
     return None

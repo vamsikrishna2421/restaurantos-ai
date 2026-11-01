@@ -54,9 +54,9 @@ export const FEED_CATEGORIES: readonly { id: FeedCategory; label: string }[] = [
   { id: 'operations', label: 'Operations' },
 ]
 
-/** A correlation card's category, from its kind: stock → Inventory, capacity → Staffing. */
+/** A correlation card's category, from its kind: stock and recipe drafts → Inventory, capacity → Staffing. */
 export function cardCategory(card: ConsoleCard): FeedCategory {
-  return card.kind === 'stock' ? 'inventory' : 'staffing'
+  return card.kind === 'stock' || card.kind === 'recipes' ? 'inventory' : 'staffing'
 }
 
 /**

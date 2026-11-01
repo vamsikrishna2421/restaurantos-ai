@@ -62,6 +62,17 @@ let setupDone = false
 let checkDone = false
 let calls: Call[] = []
 
+/** The pass-16 review queue: one drafted dish until it is approved. */
+const PROPOSED_DISH = {
+  item_code: 'PNR_BM', name: 'Paneer Butter Masala', status: 'proposed', provenance: 'inferred',
+  lines: [
+    { ingredient_id: 'ING_PANEER', ingredient_name: 'Paneer', unit: 'g', qty: 200 },
+    { ingredient_id: 'ING_EGG', ingredient_name: 'Egg', unit: 'ea', qty: 1 },
+  ],
+  approved_by_name: null, approved_at: null,
+}
+let proposedWaiting = false
+
 function respond(call: Call): Response {
   if (call.method === 'GET' && call.path === '/api/staff/roles') return json(200, SLOTS)
   if (call.method === 'GET' && call.path === '/api/staff') return json(200, PEOPLE)
@@ -99,6 +110,24 @@ function respond(call: Call): Response {
       },
     })
   }
+  if (call.method === 'GET' && call.path === '/api/inventory/recipes/proposed') {
+    return json(200, proposedWaiting
+      ? { dishes: [PROPOSED_DISH], proposed_count: 1 }
+      : { dishes: [], proposed_count: 0 })
+  }
+  if (call.method === 'POST' && call.path === '/api/inventory/recipes/PNR_BM/approve') {
+    proposedWaiting = false
+    const body = call.body as { lines?: { ingredient_id: string; qty: number }[] } | undefined
+    return json(200, {
+      ...PROPOSED_DISH, status: 'approved', approved_by_name: 'Lakshmi',
+      approved_at: '2026-11-08T03:15:00Z',
+      lines: (body?.lines ?? PROPOSED_DISH.lines).map((line) => ({
+        ...line,
+        ingredient_name: line.ingredient_id === 'ING_PANEER' ? 'Paneer' : 'Egg',
+        unit: line.ingredient_id === 'ING_PANEER' ? 'g' : 'ea',
+      })),
+    })
+  }
   if (call.method === 'GET' && call.path === '/api/supplier/receipts') return json(200, [])
   if (call.method === 'POST' && call.path === '/api/perception/bill') {
     return json(200, {
@@ -134,6 +163,7 @@ afterEach(() => {
   vi.unstubAllGlobals()
   setupDone = false
   checkDone = false
+  proposedWaiting = false
 })
 
 test('opening_stock_entry_saves_the_real_counts', async () => {
@@ -172,6 +202,28 @@ test('a_scanned_bill_drafts_then_receives_into_stock', async () => {
   const post = calls.find((c) => c.method === 'POST' && c.path.includes('/confirm'))
   const lines = (post?.body as { lines: { ingredient_id: string; stock_qty: number }[] }).lines
   expect(lines).toEqual([{ line_id: 'l1', ingredient_id: 'ING_PANEER', stock_qty: 2000, create: null }])
+})
+
+test('recipe_review_edits_then_approves_a_draft', async () => {
+  proposedWaiting = true
+  boot('inventory')
+  // the drafted dish waits in the review grid, flagged as inferred, out of the stock math
+  expect(await screen.findByText('Paneer Butter Masala')).toBeInTheDocument()
+  expect(screen.getByText('Draft — inferred')).toBeInTheDocument()
+  expect(screen.getByText('1 waiting')).toBeInTheDocument()
+  expect(screen.getByText(/left out of stock counts, forecasts and low-stock warnings/)).toBeInTheDocument()
+  // the reviewer corrects the paneer quantity, then approves: the edits ride the approve call
+  fireEvent.change(screen.getByLabelText('Quantity of Paneer in Paneer Butter Masala'),
+    { target: { value: '250' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Approve ingredient list' }))
+  expect(await screen.findByText(/Paneer Butter Masala approved by Lakshmi/)).toBeInTheDocument()
+  const post = calls.find((c) => c.method === 'POST' && c.path === '/api/inventory/recipes/PNR_BM/approve')
+  expect(post?.body).toEqual({
+    lines: [{ ingredient_id: 'ING_PANEER', qty: 250 }, { ingredient_id: 'ING_EGG', qty: 1 }],
+  })
+  // the dish leaves the queue; nothing is waiting any more
+  expect(screen.getByText('All approved')).toBeInTheDocument()
+  expect(screen.queryByText('Paneer Butter Masala')).not.toBeInTheDocument()
 })
 
 test('people_show_the_inventory_manager_next_to_the_job', async () => {

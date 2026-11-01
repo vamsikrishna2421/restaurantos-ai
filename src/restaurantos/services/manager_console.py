@@ -54,6 +54,7 @@ from restaurantos.contracts.api import (
     TimesheetShift,
 )
 from restaurantos.contracts.common import biz_from_ms, utc_from_ms
+from restaurantos.contracts.inventory import RecipeReview
 from restaurantos.contracts.menu import MenuItem
 from restaurantos.contracts.orders import Order
 from restaurantos.domain import console as cx
@@ -407,12 +408,39 @@ class ManagerConsole:
                                                expected_orders=forecast.orders_by_daypart.get(name, 0)))
                 return out
 
+            recipe_cards = self._recipe_review_cards(
+                await repo.recipe_reviews(conn, tenant_id), item_names)
+
             return ConsoleAnalytics(
                 window_days=SELLERS_DAYS, best_sellers=best, worst_sellers=worst, station_load=station_load,
                 forecast_date=tomorrow, forecast=daypart_list(forecast_tomorrow),
                 remaining_today=daypart_list(forecast_today, remaining_only=True, day=today),
                 confidence=forecast_tomorrow.confidence, basis=forecast_tomorrow.basis,
-                capacity=capacity, stock_watch=stock_watch, cards=[*cards, *stock_cards])
+                capacity=capacity, stock_watch=stock_watch, cards=[*cards, *stock_cards, *recipe_cards])
+
+    @staticmethod
+    def _recipe_review_cards(reviews: list[RecipeReview], item_names: dict[str, str]) -> list[ConsoleCard]:
+        """Pass 16: the standing flag for dishes whose ingredient lists are still unapproved drafts.
+
+        The lists were inferred, never confirmed by the kitchen, so their ingredients are excluded
+        from deductions, forecasts and the stock checks above — the card says so plainly and points
+        at the review, rather than letting the gap pass silently."""
+        proposed = [review for review in reviews if review.status == "proposed"]
+        if not proposed:
+            return []
+        names = [item_names.get(review.item_code, review.item_code) for review in proposed]
+        shown = ", ".join(names[:3]) + (f" and {len(names) - 3} more" if len(names) > 3 else "")
+        count = len(proposed)
+        return [ConsoleCard(
+            id="recipes:unapproved", kind="recipes", tone="warn",
+            title=("1 dish has an unapproved ingredient list" if count == 1
+                   else f"{count} dishes have unapproved ingredient lists"),
+            detail=(f"{shown}: the ingredient lists were drafted by the system from general knowledge"
+                    " and no chef has checked them yet. Until they are approved, those dishes'"
+                    " ingredients are not counted in stock deductions, forecasts or cautions."),
+            action=("Open Recipe review in the Inventory section, check each list with your chef,"
+                    " and approve it. Only ingredients and quantities are ever stored — never how"
+                    " a dish is made."))]
 
     async def _line_facts(self, conn: AsyncConnection, tenant_id: str, first_day: dt.date,
                           last_day: dt.date) -> list[cx.LineFact]:
@@ -520,7 +548,7 @@ class ManagerConsole:
         """Forecast burn against free stock over the horizon (the rest of today, then tomorrow)."""
         repo = self._repo()
         stock = await repo.ingredients(conn, tenant_id)
-        recipes = await repo.recipes(conn, tenant_id)
+        recipes = await repo.approved_recipes(conn, tenant_id)
         suppliers = await repo.suppliers(conn, tenant_id)
         item_names = {item.code: _name_of(item.names) for item in items}
         need_of: dict[str, dict[str, int]] = defaultdict(lambda: defaultdict(int))  # item -> ingredient -> qty

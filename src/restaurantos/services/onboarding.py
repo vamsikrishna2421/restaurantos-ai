@@ -506,13 +506,27 @@ def _dump(data: Any) -> str:
     return yaml.safe_dump(data, allow_unicode=True, sort_keys=False, width=100)
 
 
+# Pass 16: the starter quantity of the placeholder ingredient a serving uses, by dish kind. The
+# onboarded kitchen stocks one placeholder ingredient, so the inferred draft list is one line —
+# a fuller plate (a biryani, a thali) starts at 2 portions, everything else at the placeholder
+# fallback of 1. Deterministic on purpose: the draft's job is to be CHECKED by the chef in the
+# recipe review, never to be right — and it drives no stock math until it is approved there.
+_HEARTY = ("biryani", "pulao", "fried rice", "thali", "platter", "meals")
+
+
+def _starter_qty(name: str) -> int:
+    text = name.lower()
+    return 2 if any(kw in text for kw in _HEARTY) else 1
+
+
 def render_tenant_files(draft: OnboardingDraft, manager_name: str) -> dict[str, str]:
     """The nine seed files for the reviewed draft, keyed by file name (``TENANT_FILE_ORDER``).
 
     Deliberate defaults, all changeable later in Settings: hours 11:00–22:00, timezone America/New_York,
     no tax rate yet (``tax_bp: 0``), one placeholder stock ingredient (``ING_MAIN``) that every dish's
-    starter recipe uses, and one placeholder supplier. Dish names go into the te/ta/es fields untranslated
-    (see the module docstring)."""
+    starter recipe uses, and one placeholder supplier. Every starter recipe is marked ``proposed``
+    (pass 16): an inferred draft for the kitchen's recipe review, never a silent assumption. Dish names
+    go into the te/ta/es fields untranslated (see the module docstring)."""
     modifiers_yaml, has_sets = _modifiers_yaml()
     taken: set[str] = set()
     codes = {id(item): _item_code(item.name, taken) for item in draft.items}
@@ -552,7 +566,13 @@ def render_tenant_files(draft: OnboardingDraft, manager_name: str) -> dict[str, 
         "ingredients": [{"id": "ING_MAIN", "names": {"en": "Main stock"}, "unit": "portion", "allergens": [],
                          "par": 100, "reorder_point": 20, "pack_size": 10}],
     })
-    recipes_yaml = _dump({"recipes": {codes[id(item)]: {"ING_MAIN": 1} for item in draft.items}})
+    # Pass 16: every dish's starter list is an INFERRED DRAFT (``proposed``), never an assumption the
+    # kitchen silently runs on: it lands in the recipe review, drives no deduction, forecast or
+    # caution, and only counts once a chef or manager approves it there.
+    recipes_yaml = _dump({
+        "recipes": {codes[id(item)]: {"ING_MAIN": _starter_qty(item.name)} for item in draft.items},
+        "proposed": [codes[id(item)] for item in draft.items],
+    })
     suppliers_yaml = _dump({"suppliers": [{
         "id": "SUP_MAIN", "name": "Main supplier — set up in Settings", "kind": "delivery", "lead_min": 120,
         "cutoff_local": "17:00", "next_day_local": "09:00", "min_order_cents": 0,

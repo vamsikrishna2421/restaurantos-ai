@@ -26,6 +26,21 @@ const SHORT: readonly string[] = [
   'Your phone number is never stored: only a keyed hash and its last 4 digits, shown only in your own kitchen.',
   'Meta\'s contributor-tier model only writes synthetic test sentences for our evals: it never sees anything you say ' +
     'or type.',
+  'Your recipes stay yours: we draft ingredient lists from general knowledge, your chef approves them before ' +
+    'anything uses them, and we store ingredients and quantities only — never how a dish is cooked.',
+]
+
+/** Pass 16: the recipe promise, stated plainly — a restaurant's recipes are its trade secret, and this page
+ * says exactly what the system does and never does with them. */
+const RECIPES: readonly string[] = [
+  'When your kitchen is set up from your menu, we infer a draft ingredient list for each dish from general ' +
+    'knowledge — the ingredients a dish like that usually has, and how much of each a serving uses.',
+  'A draft is only a draft. Your chef or manager reviews it, can change any quantity or line, and must approve ' +
+    'it before anything uses it. Until a dish is approved, its list drives no stock deduction, no forecast and ' +
+    'no low-stock warning — and the manager\'s Attention feed says plainly how many dishes are still waiting.',
+  'We store ingredients and quantities only. That is all the system needs to count stock.',
+  'Your cooking process — how a dish is prepared, in what order, with what technique — is never asked for, ' +
+    'never stored and never shared. There is no field for it anywhere in the system. It stays your secret.',
 ]
 
 interface Row {
@@ -62,6 +77,10 @@ const RETENTION: readonly Row[] = [
     'them)' },
   { store: 'Phone numbers', holds: 'Never stored or logged: a keyed hash (HMAC) and the last 4 digits instead',
     kept: 'With the call record' },
+  { store: 'Ingredient lists', holds: 'For each dish: its ingredients and the quantity of each per serving, ' +
+    'whether the list was drafted by us or entered by the kitchen, and who approved it and when. Never ' +
+    'preparation steps, method or technique',
+    kept: 'Kept with the kitchen until it is reset or deleted' },
   { store: 'Shelf photos', holds: 'A photo a manager takes to count stock, with its EXIF, XMP and other metadata ' +
     'removed before it leaves the server', kept: 'Never stored: processed in memory and sent to Meta (Muse Spark and ' +
     'SAM 3.1); only its SHA-256 hash is kept, with the stock change a person confirmed' },
@@ -129,6 +148,9 @@ export default function PrivacySurface(_props: SurfaceProps) {
       <main className="flex flex-col gap-6 px-4 pb-8">
         <Card panel="privacy-short" title="In short">
           <ul className="flex list-disc flex-col gap-1.5 pl-5">{SHORT.map((s) => <li key={s}>{s}</li>)}</ul>
+        </Card>
+        <Card panel="recipes" title="Your recipes stay yours">
+          <ul className="flex list-disc flex-col gap-1.5 pl-5">{RECIPES.map((s) => <li key={s}>{s}</li>)}</ul>
         </Card>
         <Card panel="retention" title="What we keep, and for how long">
           <RowsTable label="Retention by store" head={['Store', 'What it holds', 'Kept for']} rows={RETENTION} />

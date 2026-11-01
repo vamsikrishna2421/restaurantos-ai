@@ -126,7 +126,7 @@ async def read_snapshot(conn: AsyncConnection, tenant_id: str, ingredient_id: st
         repo = cast("RepoPort", store_repo)
     return Snapshot(
         menu=await repo.menu_snapshot(conn, tenant_id), availability=await repo.availability(conn, tenant_id),
-        ingredients=await repo.ingredients(conn, tenant_id), recipes=await repo.recipes(conn, tenant_id),
+        ingredients=await repo.ingredients(conn, tenant_id), recipes=await repo.approved_recipes(conn, tenant_id),
         suppliers=await repo.suppliers(conn, tenant_id), staff=await repo.staff(conn, tenant_id),
         open_orders=await repo.open_orders(conn, tenant_id), tickets=await repo.open_tickets(conn, tenant_id),
         offsets=await repo.active_offsets(conn, tenant_id, now_biz_ms),

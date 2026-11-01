@@ -31,6 +31,8 @@ SPEC: dict[str, dict] = {
         cols="id names:j unit allergens:j on_hand:i reserved:i par:i reorder_point:i pack_size:i",
         pk=("tenant_id", "id")),
     "recipe_lines": dict(cols="item_code ingredient_id qty:i", pk=("tenant_id", "item_code", "ingredient_id")),
+    "recipe_reviews": dict(cols="item_code status provenance approved_by_id? approved_by_name? approved_ms:i?",
+                           pk=("tenant_id", "item_code")),
     "suppliers": dict(
         cols="id name kind lead_min:i cutoff_local next_day_local? min_order_cents:i catalog:j notes:j",
         pk=("tenant_id", "id")),

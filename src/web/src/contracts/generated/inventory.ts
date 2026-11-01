@@ -11,6 +11,10 @@ export type InventoryCause = 'reserve' | 'consume' | 'release' | 'adjust' | 'rec
 
 export type NoteSource = 'supplier_seed'
 
+export type RecipeStatus = 'proposed' | 'approved'
+
+export type RecipeProvenance = 'inferred' | 'seed' | 'chef_entered'
+
 export interface Ingredient {
   id: string
   names: Partial<Record<SpeakLang, string>>
@@ -27,6 +31,15 @@ export interface RecipeLine {
   item_code: string
   ingredient_id: string
   qty: number
+}
+
+export interface RecipeReview {
+  item_code: string
+  status: RecipeStatus
+  provenance: RecipeProvenance
+  approved_by_id: string | null
+  approved_by_name: string | null
+  approved_at: string | null
 }
 
 export interface Forecast {

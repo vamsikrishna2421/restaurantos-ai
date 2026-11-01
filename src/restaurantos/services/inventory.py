@@ -39,7 +39,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, get_args
 
 from pydantic import ValidationError
-from sqlalchemy import and_, func, select, update
+from sqlalchemy import and_, delete, func, select, update
 from sqlalchemy import insert as sa_insert
 
 from restaurantos.contracts import events as ev
@@ -49,6 +49,10 @@ from restaurantos.contracts.api import (
     ClosingCheckView,
     ClosingVariance,
     InventorySetupView,
+    RecipeDishReview,
+    RecipeLineEdit,
+    RecipeReviewLine,
+    RecipeReviewsView,
 )
 from restaurantos.contracts.common import DEFAULT_TZ, Band, Unit, biz_from_ms, ms_from_dt, utc_from_ms
 from restaurantos.contracts.errors import BadRequest, Conflict, Forbidden, NotFound
@@ -226,7 +230,7 @@ class InventoryReads:
         tenant = await repo.tenant(conn, tenant_id)
         now = self._clock.for_tenant(tenant.clock).now_biz_ms()
         stock = await repo.ingredients(conn, tenant_id)
-        recipes = await repo.recipes(conn, tenant_id)
+        recipes = await repo.approved_recipes(conn, tenant_id)
         suppliers = await repo.suppliers(conn, tenant_id)
         bands = await last_bands(conn, tenant_id)
         targets = _targets(ingredient_ids, item_codes, recipes)
@@ -406,7 +410,7 @@ class InventoryService(InventoryReads):
                      ).scalar_one_or_none()
             if lines is None:  # a sandbox reset or sweep removed it since the bump: its stock went with it
                 return set()
-            recipes = await self._repo().recipes(tx.conn, tenant_id)
+            recipes = await self._repo().approved_recipes(tx.conn, tenant_id)
             done = await booked(tx.conn, tenant_id, "consume", [ticket.id])
             deltas = _beyond(inventory.consume(map(TicketLine.model_validate, lines), recipes, ref_id=ticket.id), done)
             await apply_deltas(tx, tenant_id, deltas, actor, correlation_id=ticket.order_id)
@@ -425,7 +429,8 @@ class InventoryService(InventoryReads):
                 log.warning("inventory: order %s of %s is %s, not cancelled: nothing released", order_id, tenant_id,
                             status or "missing")
                 return set()
-            held = await order_holds(conn, tenant_id, order_id, await self._repo().recipes(conn, tenant_id))
+            held = await order_holds(conn, tenant_id, order_id,
+                                     await self._repo().approved_recipes(conn, tenant_id))
             # a cancelled order is never corrected, so release rows after its cancel are this handler's own
             cancelled_at = (await conn.execute(select(func.max(e.c.seq)).where(
                 e.c.tenant_id == tenant_id, e.c.type == "order.cancelled",
@@ -721,6 +726,104 @@ class InventoryService(InventoryReads):
         async with self._store().read() as conn:
             views = {v.ingredient.id: v for v in await self.views(conn, tenant_id)}
         return views[ingredient_id]
+
+
+    # ----- pass 16: recipe review — inferred lists are drafts until a person approves them ---------
+    #
+    # A restaurant's recipes are its trade secret: the system may draft a dish's ingredient list
+    # (onboarding does, from general knowledge), but the draft drives nothing — no deduction, no
+    # forecast, no caution — until a chef or manager approves it here. Approval is recorded on the
+    # dish's review row (who, when): the audit trail of the decision, like the closing check's
+    # sign-off. Only ingredients and quantities are ever handled; how a dish is made is never
+    # asked for and has no field to land in.
+
+    async def _dish_review(self, conn: AsyncConnection, tenant_id: str, item_code: str,
+                           ) -> RecipeDishReview | None:
+        """One dish's review view (its state plus its lines), or None when the dish is unknown."""
+        repo = self._repo()
+        review = next((r for r in await repo.recipe_reviews(conn, tenant_id)
+                       if r.item_code == item_code), None)
+        snapshot = await repo.menu_snapshot(conn, tenant_id)
+        item = next((i for i in snapshot.items if i.code == item_code), None)
+        if item is None or review is None:
+            return None
+        ingredients = {ing.id: ing for ing in await repo.ingredients(conn, tenant_id)}
+        lines = [RecipeReviewLine(
+            ingredient_id=line.ingredient_id,
+            ingredient_name=(ingredients[line.ingredient_id].names.get("en")
+                             if line.ingredient_id in ingredients else line.ingredient_id),
+            unit=ingredients[line.ingredient_id].unit if line.ingredient_id in ingredients else "ea",
+            qty=line.qty)
+            for line in await repo.recipes(conn, tenant_id) if line.item_code == item_code]
+        name = item.names.get("en") if isinstance(item.names, dict) else getattr(item.names, "en", item_code)
+        return RecipeDishReview(item_code=item_code, name=name or item_code, status=review.status,
+                                provenance=review.provenance, lines=lines,
+                                approved_by_name=review.approved_by_name,
+                                approved_at=review.approved_at)
+
+    async def recipe_reviews_view(self, tenant_id: str) -> RecipeReviewsView:
+        """REST: the dishes whose ingredient lists are still unapproved drafts, with their lines."""
+        async with self._store().read() as conn:
+            reviews = await self._repo().recipe_reviews(conn, tenant_id)
+            dishes = []
+            for review in reviews:
+                if review.status != "proposed":
+                    continue
+                if (dish := await self._dish_review(conn, tenant_id, review.item_code)) is not None:
+                    dishes.append(dish)
+            return RecipeReviewsView(dishes=dishes, proposed_count=len(dishes))
+
+    async def approve_recipe(self, tenant_id: str, item_code: str,
+                             lines: list[RecipeLineEdit] | None, *,
+                             by_id: str, by_name: str) -> RecipeDishReview:
+        """Approve one dish's ingredient list — with the reviewer's edited lines when given, the
+        draft as proposed otherwise. The approval (who, when) is written onto the dish's review
+        row, and from this moment the dish's lines join deduction, forecasts and cautions through
+        ``repo.approved_recipes``. 404 for a dish this kitchen does not serve; 409 when its list
+        is not awaiting approval; 400 for edited lines that are empty, repeat an ingredient, or
+        name one the kitchen does not stock."""
+        repo = self._repo()
+        async with self._store().read() as conn:
+            review = next((r for r in await repo.recipe_reviews(conn, tenant_id)
+                           if r.item_code == item_code), None)
+            snapshot = await repo.menu_snapshot(conn, tenant_id)
+            if not any(item.code == item_code for item in snapshot.items):
+                raise NotFound(f"no dish {item_code} on this kitchen's menu")
+            if review is None or review.status == "approved":
+                raise Conflict("this dish's ingredient list is not waiting for approval",
+                               details={"item_code": item_code, "reason": "not_proposed"})
+            known = {ing.id for ing in await repo.ingredients(conn, tenant_id)}
+        if lines is not None:
+            if not lines:
+                raise BadRequest("an approved list needs at least one ingredient",
+                                 details={"item_code": item_code, "reason": "empty_lines"})
+            seen: set[str] = set()
+            for line in lines:
+                if line.ingredient_id in seen:
+                    raise BadRequest(f"ingredient {line.ingredient_id} appears twice",
+                                     details={"ingredient_id": line.ingredient_id,
+                                              "reason": "duplicate_line"})
+                seen.add(line.ingredient_id)
+                if line.ingredient_id not in known:
+                    raise NotFound(f"unknown ingredient {line.ingredient_id!r}")
+        approved_ms = self._c.clock.now_real_ms()
+        rl, rr = t.recipe_lines, t.recipe_reviews
+        async with self._store().write() as tx:
+            if lines is not None:
+                await tx.conn.execute(delete(rl).where(rl.c.tenant_id == tenant_id,
+                                                       rl.c.item_code == item_code))
+                await tx.conn.execute(sa_insert(rl), [
+                    {"tenant_id": tenant_id, "item_code": item_code,
+                     "ingredient_id": line.ingredient_id, "qty": line.qty} for line in lines])
+            await tx.conn.execute(update(rr).where(rr.c.tenant_id == tenant_id,
+                                                   rr.c.item_code == item_code)
+                                  .values(status="approved", approved_by_id=by_id,
+                                          approved_by_name=by_name, approved_ms=approved_ms))
+        self._schedule(tenant_id, item_codes={item_code})
+        async with self._store().read() as conn:
+            dish = await self._dish_review(conn, tenant_id, item_code)
+        assert dish is not None  # the dish was validated above, in this same call
+        return dish
 
 
 # ----- registry entry points (CONTRACTS_API §7) -------------------------------------------------------------------
