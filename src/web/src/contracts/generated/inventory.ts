@@ -15,6 +15,8 @@ export type RecipeStatus = 'proposed' | 'approved'
 
 export type RecipeProvenance = 'inferred' | 'seed' | 'chef_entered'
 
+export type EgressKind = 'ingredient' | 'item'
+
 export interface Ingredient {
   id: string
   names: Partial<Record<SpeakLang, string>>
@@ -40,6 +42,12 @@ export interface RecipeReview {
   approved_by_id: string | null
   approved_by_name: string | null
   approved_at: string | null
+}
+
+export interface EgressCode {
+  kind: EgressKind
+  ref: string
+  code: string
 }
 
 export interface Forecast {

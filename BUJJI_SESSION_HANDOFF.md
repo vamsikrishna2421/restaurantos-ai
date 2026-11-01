@@ -1738,3 +1738,114 @@ design; (4) the privacy page states all of this plainly.
 - NOT deployed (the Fly server stays down on the owner's instruction) and the PR is left open.
 
 — Bujji, 2026-11-01
+
+## Pass 17 — Names never leave the building: pseudonymized model egress (branch `bujji/pass17`, stacked on `bujji/pass16` at its pushed head 8792fde; PR opened against `bujji/pass16` for review, NOT merged, NOT deployed)
+
+The owner's call, from the same Damo thread as pass 16 (2026-11-01): pass 16 keeps the model from
+inventing recipes; this pass keeps it from ever SEEING the real ones. When a back-office model call
+reasons about a kitchen, ingredient and dish names (and the internal ids that reveal them, like
+`ING_PANEER` / `PNR_TIKKA`) travel as per-tenant opaque codes (`ING_0147`, `ITEM_0231`); the
+code↔name key lives only in the tenant's own data; answers are turned back into names locally
+before anything is displayed or stored. Numbers and quantities still travel — the design hides
+WHAT, not HOW MUCH, and the privacy page says so plainly.
+
+### Call sites — covered
+
+- **GM planner** (`gm/planner.py`), both routes: the streamed Responses call and the Chat
+  fallback. The payload source is `gm/situation.py::planner_input(report)`, which is also where
+  forecast and shortage reasoning flows (the situation report carries forecasts, shortage
+  incidents and purchase/stock candidates). The planner tokenizes a COPY of the report at request
+  build (`_outward`); `run.report` itself stays real, so incident storage, digests and candidate
+  validation are untouched. On the way back, the validated plan, the streamed reasoning ticker
+  (per delta, preserving chunk boundaries) and the progressive cards are de-tokenized. One
+  deliberate exception: `_Answer.text` keeps the RAW model text — an existing invariant hashes it
+  (`response_sha256 == sha256(plan_text())`), and raw model output is provenance, not display.
+- **Win-back / goodwill drafts** (`services/winback.py::_draft_text`), live mode only: the guest's
+  usual dish travels as its ITEM code in the prompt; the returned draft is de-tokenized before it
+  is stored. The whole egress step sits inside the existing try, so any failure falls back to the
+  deterministic template — fail-closed, a draft never blocks on privacy plumbing. (Mock mode uses
+  the template and never calls a model.)
+
+### Call sites — excluded, and why
+
+- **Customer-facing ordering** (order agent, ASR transcription): the customer speaks dish names
+  themselves — their own words, out of scope by the owner's brief; untouched.
+- **Shelf-photo counting** (Muse Spark vision + SAM): visual recognition functionally requires
+  the name/concept text, the same category as the spoken dish name.
+- **Bill scan** (vision): the payload is the manager's own bill photo/PDF text plus a generic
+  prompt — no catalog names are sent; supplier matching is local in `read_bill`.
+- **Caution narration and caution "why"** (`gm/narration.py`, `domain/why.py`): deterministic
+  local code — there is no model call to cover.
+- **`evals/generate.py`**: offline harness over synthetic data. `Purpose.ASK / TRANSLATE /
+  SEARCH / IMAGE` have configured routes but no call sites in `src` (reserved).
+
+### Design choices (where the spec left room)
+
+- **One layer, not scattered edits**: `src/restaurantos/meta/egress.py`. `EgressMap` tokenizes
+  (internal ids first — exact-token, case-sensitive; then names — word-boundary, case-insensitive,
+  longest-first, across all catalog languages) and de-tokenizes (codes → English name).
+- **Mapping storage**: new `egress_codes` table (tenant, kind, ref, code; PK tenant+kind+ref,
+  unique tenant+code) — the ONLY place the mapping lives. Sandbox clones copy it with the rest of
+  the tenant config (`CONFIG_TABLES`), like `recipe_reviews`. Contract: `EgressCode` in
+  `contracts/inventory.py`; repo port gained `egress_codes` / `ensure_egress_codes` (assigned
+  inside the caller's write transaction — the planner's start-of-run tx, win-back's draft tx).
+- **Code format and assignment**: `ING_`/`ITEM_` + 4 digits (1000–9999), drawn deterministically
+  per tenant: `1000 + sha256("ros-egress:{tenant}:{kind}:{ref}")[:12] mod 9000`, probing +1
+  (wrapping) on collision. Deterministic ⇒ stable across calls and processes with no coordination;
+  per-tenant ⇒ the same name carries a different code in every other kitchen; existing codes are
+  NEVER renumbered when new refs join.
+- **Unknown codes**: a code this kitchen never issued is left in the text exactly as written —
+  visible, never a crash, never silently swapped for a wrong name.
+- **Boundaries**: supplier and staff names are NOT tokenized (counterparties and people the
+  manager acts on, not the kitchen's secret). Supplier NOTES pass verbatim inside their
+  untrusted-data fence — they are the suppliers' own words, and rewriting adversarial text would
+  break the fence integrity the security model depends on (an injection-corpus invariant).
+  Win-back keeps the guest's first name and the restaurant's name (recipient and sender, not menu
+  data). Menu aliases are not tokenized — they exist only on the excluded order path.
+
+### Privacy page
+
+New card **"The AI sees codes, not names"** beside pass 16's recipes card; a matching "In short"
+bullet; a retention row **"AI name codes"** ("Kept with the kitchen until it is reset or
+deleted"); the Meta processors row now reads "the GM's situation reports (ingredient and dish
+names replaced by codes)". The honest limit is in the card itself: "quantities and volumes do
+travel with the codes — the AI cannot reason about your stock without them. What never travels is
+what your ingredients and dishes are."
+
+### Tests and fixtures
+
+- New: `tests/meta/test_egress.py` (10 — assignment determinism/stability/per-tenant difference,
+  collision probing, tokenize/de-tokenize semantics incl. word boundaries, longest-name-wins,
+  unknown code stays visible, cross-tenant isolation, report tokenization with verbatim notes,
+  plan de-tokenization); `tests/gm/test_planner_egress.py` (2 — captured stream payload carries
+  codes and no catalog name/id outside the notes fence; a plan written in codes, plus one unissued
+  code, is stored and streamed in names); `tests/api/test_winback_routes.py` gains a live-draft
+  test asserting the outbound message carries the dish's ITEM code, never its name or menu code,
+  and the stored draft reads in names.
+- Shared model doubles learned the codes: `canonical_actions` (test_golden_canonical) and cp2's
+  `GMModel` and chaos's `the_plan` translate candidate targets back to refs via
+  `refs_by_code(tenant_id)` (a real model never needs to — it answers by candidate id). The
+  golden recorder's `stand_in` resolves the story tenant's map lazily from the story's own store.
+- Fixtures: the P23a GM stand-in was regenerated for the tokenized request
+  (`.venv/bin/python -m tests.fakes.gm`; new stream fixture `8d57e93c…`; the old real recording
+  `4bf7c83e…` stays as an orphan, per the fixtures README precedent). Golden fixtures re-blessed
+  (`--bless`): the GM stream fixture moved `c8a4a9f8…` → `05ec7049…`; the blessed LEDGER HEAD DID
+  NOT MOVE — de-tokenized plans land identically — and this entry is the BUILD_LOG note the bless
+  ritual asks for: the head stayed, only the GM request bytes changed, because the planner now
+  sends codes.
+- Python full suite, final run on this branch: **1623 passed, 5 skipped, 1 xfailed, 2 failed**.
+  The failures: the known environmental
+  `tests/test_conftest_network.py::test_localhost_tcp_needs_opt_in`, and
+  `tests/infra/test_secrets_script.py::test_workflows_hold_no_vendor_secrets`, which fails
+  identically on the untouched base (8792fde) run standalone — pre-existing, not this pass.
+  (One timing test, `tests/governance/test_executor.py::test_approval_executes_within_200ms_while_gm_stream_runs`,
+  failed once under full-suite CPU contention and passes standalone and in the final run.)
+  Web: **288/288 passed** (44 files), `tsc` clean, `scripts/gen_ts_contracts.py --check` clean,
+  `ruff check src tests scripts` clean.
+- Screenshots in `files/pass17-shots/` (goal files): the full privacy page and the egress card,
+  from a local mock-mode server running this branch. Tokenized-payload view: **none exists** — no
+  surface or log view displays egress payloads; the mapping is invisible by design, so nothing was
+  staged.
+- NOT deployed (the Fly server stays down on the owner's instruction) and the PR is left open.
+
+— Bujji, 2026-11-01

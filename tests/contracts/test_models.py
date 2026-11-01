@@ -133,6 +133,7 @@ SAMPLES: dict[type[Model], Model] = {
     inv.RecipeLine: inv.RecipeLine(item_code="PNR_BM", ingredient_id="ING_PANEER", qty=150),
     inv.RecipeReview: inv.RecipeReview(item_code="PNR_BM", status="approved", provenance="seed",
                                        approved_by_id="STF_LAKSHMI", approved_by_name="Lakshmi", approved_at=REAL),
+    inv.EgressCode: inv.EgressCode(kind="ingredient", ref="ING_PANEER", code="ING_0147"),
     inv.Forecast: inv.Forecast(
         ingredient_id="ING_PANEER", free=800, burn_per_h=1200, eta_min=40, eta_biz=BIZ + 40 * MIN, band="act",
         formula="free 800 g = 1,610 on hand − 810 reserved; burn 1,200 g/h (0.6×1,320 last 30 min + 0.4×1,021 prior)"),

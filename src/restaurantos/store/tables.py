@@ -110,6 +110,18 @@ recipe_reviews = Table(
     PrimaryKeyConstraint("tenant_id", "item_code", name="pk_recipe_reviews"),
 )
 
+# Egress pseudonyms (pass 17): one row per ingredient / menu item of a tenant, the opaque code a
+# back-office model call sees instead of its name (ING_0147 / ITEM_0231). The number is drawn from a
+# hash of (tenant, kind, ref), so the same name codes differently in every kitchen; rows are
+# assigned lazily at the first covered model call and never renumbered afterwards. This table is
+# the only place the code<->name mapping lives — it stays in the kitchen's own database.
+egress_codes = Table(
+    "egress_codes", metadata,
+    _tenant(), _s("kind"), _s("ref"), _s("code"),
+    PrimaryKeyConstraint("tenant_id", "kind", "ref", name="pk_egress_codes"),
+    UniqueConstraint("tenant_id", "code", name="uq_egress_codes_code"),
+)
+
 suppliers = Table(
     "suppliers", metadata,
     _tenant(), _s("id"), _s("name"), _s("kind"), _i("lead_min"), _s("cutoff_local"), _s("next_day_local", null=True),
