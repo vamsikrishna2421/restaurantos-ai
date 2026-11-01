@@ -131,6 +131,8 @@ SAMPLES: dict[type[Model], Model] = {
         id="ING_PANEER", names={"en": "Paneer", "te": "పనీర్", "ta": "பனீர்", "es": "paneer (queso fresco)"}, unit="g",
         allergens=["dairy"], on_hand=1610, reserved=480, par=6000, reorder_point=2000, pack_size=1000),
     inv.RecipeLine: inv.RecipeLine(item_code="PNR_BM", ingredient_id="ING_PANEER", qty=150),
+    inv.RecipeReview: inv.RecipeReview(item_code="PNR_BM", status="approved", provenance="seed",
+                                       approved_by_id="STF_LAKSHMI", approved_by_name="Lakshmi", approved_at=REAL),
     inv.Forecast: inv.Forecast(
         ingredient_id="ING_PANEER", free=800, burn_per_h=1200, eta_min=40, eta_biz=BIZ + 40 * MIN, band="act",
         formula="free 800 g = 1,610 on hand − 810 reserved; burn 1,200 g/h (0.6×1,320 last 30 min + 0.4×1,021 prior)"),

@@ -92,6 +92,9 @@ UNPROBED_PARAMS = {  # path parameters B's world has no id for, and why the walk
     "draft_id": "known gap: pass 13's pending bill drafts are per tenant (confirm looks the draft up under the "
                 "caller's tenant, so another tenant's id resolves to nothing), but B's story makes none (a draft "
                 "needs the perception bill scan, which story() does not fake), so confirm gets the generic probes only",
+    "item_code": "a dish's menu code, not a tenant-scoped id: pass 16's approve looks the dish up on the "
+                 "caller's own menu (an unknown code is a 404), so a code from B's menu names nothing in A's "
+                 "kitchen and the route gets the generic probes only",
     "item_id": "platform queue: a support item is the operators' (GlobalAdmin, /api/admin/*), never resolved under "
                "a tenant session — the gate refuses before the id is read, and the tenant-side support routes "
                "take no item id, so no id of B's can name one",

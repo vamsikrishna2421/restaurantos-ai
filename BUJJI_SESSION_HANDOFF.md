@@ -1714,11 +1714,20 @@ design; (4) the privacy page states all of this plainly.
   the seed kitchen's queue is empty and its math unchanged; the Attention card is asserted at the
   service level. Web: one new inventory-section test (edit → approve call → approver note) and the
   privacy table test extended for the new row and statements.
-- Python full suite: **1609 passed, 1 failed** — the failure only the known environmental
+- Python full suite, final run on this branch: **1617 passed, 6 skipped, 1 failed** — the
+  failure only the known environmental
   `tests/test_conftest_network.py::test_localhost_tcp_needs_opt_in` (fails identically on the
   untouched base). Web: **288/288 passed**, `tsc` clean, `scripts/gen_ts_contracts.py --check`
   clean, `ruff check src tests scripts` clean (the repo is not `ruff format`-clean at base; CI
   gates on `ruff check` only).
+- Fixups after the first full run (the run before them showed 8 failures, all this pass's):
+  the GM snapshot fakes (`tests/gm/test_situation.py`'s `SnapshotRepo`, and `RushRepo` through
+  it) grew `recipe_reviews` / `approved_recipes` — a port extension lands on its fakes, with the
+  snapshot's semantics (no drafts, every list counts); the cross-tenant walk's `UNPROBED_PARAMS`
+  gained `item_code` with its why (a menu code is not a tenant-scoped id — approve resolves it
+  on the caller's own menu, on the pass-13 `draft_id` precedent); and the contract mirrors
+  gained the `RecipeReview` sample (full, every nullable field set) and the `recipe_reviews`
+  table spec.
 - Screenshots in `files/pass16-shots/` (goal files): the review grid, the Attention card, the
   privacy section. All three are the real UI on a local mock-mode server running this branch: the
   tenant (Chettinad House, 5 dishes) was onboarded through the app's own onboarding flow, so its
