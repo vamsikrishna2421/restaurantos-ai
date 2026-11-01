@@ -206,7 +206,7 @@ test('switch_job_for_today_releases_without_ending_the_shift', async () => {
   expect(await screen.findByRole('heading', { name: /pick your job for this shift/ })).toBeInTheDocument()
   expect(calls.some((c) => c.method === 'POST' && c.path === '/api/staff/roles/release')).toBe(true)
   // still signed in as Carlos afterwards: taking the open job lands on its screen under his session
-  fireEvent.click(screen.getByRole('button', { name: /Biryani Chef 1/ }))
+  fireEvent.click(await screen.findByRole('button', { name: /Biryani Chef 1/ }))
   await waitFor(() => expect(window.location.pathname).toBe('/kds'))
   const saved = JSON.parse(window.localStorage.getItem('ros_staff') ?? 'null')
   expect(saved.staff.id).toBe('STF_CARLOS')
