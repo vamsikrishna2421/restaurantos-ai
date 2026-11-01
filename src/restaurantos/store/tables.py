@@ -97,6 +97,19 @@ recipe_lines = Table(
     PrimaryKeyConstraint("tenant_id", "item_code", "ingredient_id", name="pk_recipe_lines"),
 )
 
+# Recipe review state (pass 16): one row per dish whose ingredient list has a review state — every
+# dish of a materialized seed gets one (``approved``/``seed`` for the restaurant's own lists,
+# ``proposed``/``inferred`` for onboarding's drafts). A dish with NO row is treated as approved
+# (kitchens that predate the review workflow keep working untouched). The approval columns are the
+# audit record: who approved the list and when. Ingredients and quantities only — no column anywhere
+# holds a preparation step, by design.
+recipe_reviews = Table(
+    "recipe_reviews", metadata,
+    _tenant(), _s("item_code"), _s("status"), _s("provenance"),
+    _s("approved_by_id", null=True), _s("approved_by_name", null=True), _i("approved_ms", null=True),
+    PrimaryKeyConstraint("tenant_id", "item_code", name="pk_recipe_reviews"),
+)
+
 suppliers = Table(
     "suppliers", metadata,
     _tenant(), _s("id"), _s("name"), _s("kind"), _i("lead_min"), _s("cutoff_local"), _s("next_day_local", null=True),

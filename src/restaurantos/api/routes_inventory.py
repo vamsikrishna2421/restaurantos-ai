@@ -29,6 +29,9 @@ from restaurantos.contracts.api import (
     InventoryItemView,
     InventorySetupRequest,
     InventorySetupView,
+    RecipeApproveRequest,
+    RecipeDishReview,
+    RecipeReviewsView,
     StaffPerson,
 )
 from restaurantos.contracts.errors import BadRequest, Forbidden, NotWired
@@ -136,3 +139,23 @@ async def complete_closing_check(body: ClosingCheckCompleteRequest, caller: Inve
     by_name = caller.person.name if caller.person is not None else caller.actor
     return await inventory.complete_closing_check(caller.auth.tenant_id, body.counts,
                                                   actor=caller.actor, by_id=by_id, by_name=by_name)
+
+
+@router.get("/api/inventory/recipes/proposed", response_model=RecipeReviewsView)
+async def proposed_recipes(caller: InventoryAccess, inventory: InventoryDep) -> RecipeReviewsView:
+    """Pass 16: the recipe review queue — dishes whose ingredient lists are still inferred drafts
+    (from onboarding), with the draft lines. Nothing here drives stock math until approved."""
+    return await inventory.recipe_reviews_view(caller.auth.tenant_id)
+
+
+@router.post("/api/inventory/recipes/{item_code}/approve", response_model=RecipeDishReview)
+async def approve_recipe(item_code: str, body: RecipeApproveRequest, caller: InventoryAccess,
+                         inventory: InventoryDep) -> RecipeDishReview:
+    """Pass 16: approve a dish's ingredient list — the reviewer's edited lines when the body carries
+    them, the draft as proposed otherwise. The approval records who approved and when; from then on
+    the list counts in deductions, forecasts and cautions. 404 for a dish (or edited ingredient)
+    this kitchen does not have; 409 when the list is not awaiting approval."""
+    by_id = caller.person.id if caller.person is not None else caller.auth.approver_id
+    by_name = caller.person.name if caller.person is not None else caller.actor
+    return await inventory.approve_recipe(caller.auth.tenant_id, item_code, body.lines,
+                                          by_id=by_id, by_name=by_name)

@@ -57,7 +57,8 @@ DEFAULT_SCENARIO: dict[str, ScenarioName] = {"sandbox": "dinner_rush", "live": "
 SCENARIO_EVENTS = ("scenario.loaded", "sandbox.reset")
 
 # What a clone copies from its template, what a reset deletes, and what a reset keeps. Sweep deletes everything.
-CONFIG_TABLES = (t.stations, t.staff, t.modifiers, t.menu_items, t.ingredients, t.recipe_lines, t.suppliers)
+CONFIG_TABLES = (t.stations, t.staff, t.modifiers, t.menu_items, t.ingredients, t.recipe_lines,
+                 t.recipe_reviews, t.suppliers)
 STATE_TABLES = (*CONFIG_TABLES, t.orders, t.order_lines, t.tickets, t.purchase_orders, t.staff_notices, t.staff_tasks,
                 t.quote_offsets, t.incidents, t.plans, t.approvals, t.corrections, t.ledger, t.events,
                 t.closing_checks, t.supplier_receipts)

@@ -15,7 +15,7 @@ import type {
   Unit,
 } from './common'
 import type { OrderStatus, TurnPath, TurnSpans } from './orders'
-import type { Forecast, Ingredient } from './inventory'
+import type { Forecast, Ingredient, RecipeProvenance, RecipeStatus } from './inventory'
 import type { Incident, Plan, SituationReport } from './gm'
 import type { ComponentState, DegradedComponent, EventEnvelope, ScenarioName } from './events'
 import type { InventoryItemView } from './ws'
@@ -38,7 +38,7 @@ export type Responsibility = 'inventory_manager'
 
 export type ForecastConfidence = 'steady' | 'early' | 'prior' | 'none'
 
-export type ConsoleCardKind = 'capacity' | 'stock'
+export type ConsoleCardKind = 'capacity' | 'stock' | 'recipes'
 
 export type SupportKind = 'problem' | 'feature'
 
@@ -1150,4 +1150,35 @@ export interface SupplierReceipt {
   received_by: string
   simulated: boolean
   created_at: string
+}
+
+export interface RecipeReviewLine {
+  ingredient_id: string
+  ingredient_name: string
+  unit: Unit
+  qty: number
+}
+
+export interface RecipeDishReview {
+  item_code: string
+  name: string
+  status: RecipeStatus
+  provenance: RecipeProvenance
+  lines: RecipeReviewLine[]
+  approved_by_name: string | null
+  approved_at: string | null
+}
+
+export interface RecipeReviewsView {
+  dishes: RecipeDishReview[]
+  proposed_count: number
+}
+
+export interface RecipeLineEdit {
+  ingredient_id: string
+  qty: number
+}
+
+export interface RecipeApproveRequest {
+  lines: RecipeLineEdit[] | null
 }

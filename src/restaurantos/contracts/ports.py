@@ -47,7 +47,7 @@ if TYPE_CHECKING:
         PolicyLimits,
         TierDecision,
     )
-    from restaurantos.contracts.inventory import Ingredient, PurchaseOrder, RecipeLine, Supplier
+    from restaurantos.contracts.inventory import Ingredient, PurchaseOrder, RecipeLine, RecipeReview, Supplier
     from restaurantos.contracts.kitchen import QuoteOffset, Staff, StaffNotice, StaffTask, Ticket
     from restaurantos.contracts.ledger import LedgerKind, LedgerRow, VerifyReport
     from restaurantos.contracts.menu import Availability, MenuSnapshot
@@ -227,6 +227,12 @@ class RepoPort(Protocol):
     async def suppliers(self, conn: AsyncConnection, tid: str) -> list[Supplier]: ...
     async def ingredients(self, conn: AsyncConnection, tid: str) -> list[Ingredient]: ...
     async def recipes(self, conn: AsyncConnection, tid: str) -> list[RecipeLine]: ...
+
+    async def recipe_reviews(self, conn: AsyncConnection, tid: str) -> list[RecipeReview]:
+        """Each dish's ingredient-list review state (pass 16)."""
+
+    async def approved_recipes(self, conn: AsyncConnection, tid: str) -> list[RecipeLine]:
+        """The lines stock math may use: dishes awaiting recipe approval contribute nothing."""
 
     async def reservations_since(self, conn: AsyncConnection, tid: str, ingredient_id: str,
                                  since_biz_ms: int) -> list[tuple[int, int]]:

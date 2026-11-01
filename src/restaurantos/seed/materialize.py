@@ -45,7 +45,8 @@ log = logging.getLogger(__name__)
 GENESIS_HASH = "0" * 64  # ledger_head of an empty ledger (CONTRACTS_RUNTIME §9)
 SEED_ACTOR = "system"
 CONFIG_TABLES: tuple[Table, ...] = (
-    t.stations, t.staff, t.modifiers, t.menu_items, t.ingredients, t.recipe_lines, t.suppliers,
+    t.stations, t.staff, t.modifiers, t.menu_items, t.ingredients, t.recipe_lines, t.recipe_reviews,
+    t.suppliers,
 )
 STATE_TABLES: tuple[Table, ...] = (
     *CONFIG_TABLES, t.orders, t.order_lines, t.tickets, t.purchase_orders, t.staff_notices, t.staff_tasks,
@@ -176,6 +177,9 @@ def config_rows(seed: SeedData, tenant_id: str) -> list[tuple[Table, list[dict[s
                          "unavailable_source": None} for i, item in enumerate(menu.items)]),
         (t.ingredients, [{"tenant_id": tenant_id, **ing.model_dump(mode="json")} for ing in seed.ingredients]),
         (t.recipe_lines, [{"tenant_id": tenant_id, **line.model_dump()} for line in seed.recipes]),
+        (t.recipe_reviews, [{"tenant_id": tenant_id, "item_code": review.item_code, "status": review.status,
+                             "provenance": review.provenance, "approved_by_id": None, "approved_by_name": None,
+                             "approved_ms": None} for review in seed.recipe_reviews]),
         (t.suppliers, [{"tenant_id": tenant_id, **s.model_dump(mode="json", exclude={"notes"}), "notes": []}
                        for s in seed.suppliers]),
     ]

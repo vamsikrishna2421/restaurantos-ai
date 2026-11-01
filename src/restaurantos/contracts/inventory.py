@@ -54,6 +54,31 @@ class RecipeLine(Model):
     qty: int = Field(ge=1)  # per serving, in the ingredient's unit
 
 
+RecipeStatus = Literal["proposed", "approved"]
+RecipeProvenance = Literal["inferred", "seed", "chef_entered"]
+RECIPE_STATUSES: tuple[str, ...] = get_args(RecipeStatus)
+RECIPE_PROVENANCES: tuple[str, ...] = get_args(RecipeProvenance)
+
+
+class RecipeReview(Model):
+    """One dish's ingredient-list review state (pass 16): whether its lines may drive stock math yet,
+    and where they came from.
+
+    A restaurant's recipes are its trade secret, so the system never silently assumes them: a list the
+    system inferred (onboarding) starts ``proposed`` and stays out of deduction, forecasts and cautions
+    until a chef or manager approves it — the approval is recorded here (who, when). Lists the
+    restaurant itself supplied (its seed, or typed in by its own people) are ``approved`` from the
+    start. Only ingredients and quantities exist anywhere in this model — a dish's preparation, its
+    process, is never asked for, stored or shared, by design."""
+
+    item_code: str
+    status: RecipeStatus
+    provenance: RecipeProvenance
+    approved_by_id: str | None = None
+    approved_by_name: str | None = None
+    approved_at: UtcTime | None = None
+
+
 class Forecast(Model):
     ingredient_id: str
     free: int

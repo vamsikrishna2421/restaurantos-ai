@@ -407,7 +407,8 @@ class OrderService:
             await tx.append_event(tenant_id, "order.placed",
                                   ev.OrderPlacedPayload(order=order, ticket_ids=[tk.id for tk in tickets], quote=quote),
                                   GUEST_ACTOR, causation_id=ctx.trace_id, correlation_id=order.id)
-            reserve = inventory.reserve(lines, await repo.recipes(tx.conn, tenant_id), ref_id=order.id)
+            reserve = inventory.reserve(lines, await repo.approved_recipes(tx.conn, tenant_id),
+                                        ref_id=order.id)
             await self._move_stock(tx, tenant_id, reserve, SYSTEM_ACTOR)
         if comp_credit is not None:  # the order stands, so the credit is spent — in the book, not the ledger
             try:
@@ -492,7 +493,7 @@ class OrderService:
             subtotal, tax, total = pricing.totals(lines, menu.tax_bp)
             corrected = order.model_copy(update={"lines": lines, "subtotal_cents": subtotal, "tax_cents": tax,
                                                  "total_cents": total})
-            recipes = await repo.recipes(tx.conn, order.tenant_id)
+            recipes = await repo.approved_recipes(tx.conn, order.tenant_id)
             held = await order_holds(tx.conn, order.tenant_id, order.id, recipes)  # before the tickets change
             await self._write_correction(tx, corrected, new_line, kinds, by_role)
             await apply_correction(tx, corrected, menu, by_role)

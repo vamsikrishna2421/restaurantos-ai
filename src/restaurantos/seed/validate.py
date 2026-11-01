@@ -127,6 +127,10 @@ class IngredientsFile(_Reviewed):
 
 class RecipesFile(Model):
     recipes: dict[str, dict[str, int]]  # item code -> {ingredient id: qty per serving}
+    # Pass 16: item codes whose ingredient lists were INFERRED (onboarding's drafts). They land as
+    # proposed reviews — visible, editable, and out of every stock calculation until a chef or
+    # manager approves them. A tenant's own hand-written file names none: its lists are its own.
+    proposed: list[str] = Field(default_factory=list)
 
 
 class SuppliersFile(Model):
@@ -215,6 +219,9 @@ def check_seed(*, tenant: TenantFile, stations: StationsFile, staff: StaffFile, 
                 problems.append(f"recipe {code}: unknown ingredient {ingredient_id}")
             if qty < 1:
                 problems.append(f"recipe {code}: {ingredient_id} qty {qty} must be at least 1")
+    for code in recipes.proposed:
+        if code not in recipes.recipes:
+            problems.append(f"proposed recipe {code}: no recipe lines to review")
     for person in staff.staff:
         problems += [f"staff {person.id}: unknown station {s}" for s in person.station_ids if s not in station_ids]
     for supplier in suppliers.suppliers:

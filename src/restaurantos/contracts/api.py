@@ -35,7 +35,7 @@ from restaurantos.contracts.common import (
 )
 from restaurantos.contracts.events import ComponentState, DegradedComponent, EventEnvelope, ScenarioName
 from restaurantos.contracts.gm import Incident, Plan, SituationReport
-from restaurantos.contracts.inventory import Forecast, Ingredient
+from restaurantos.contracts.inventory import Forecast, Ingredient, RecipeProvenance, RecipeStatus
 from restaurantos.contracts.ledger import (  # noqa: F401 - approval payloads, re-exported
     ApproveDecideRequest,
     ApproveResult,
@@ -672,7 +672,7 @@ class ResponsibilityUpdate(Model):
 # the web renders them verbatim.
 
 ForecastConfidence = Literal["steady", "early", "prior", "none"]
-ConsoleCardKind = Literal["capacity", "stock"]
+ConsoleCardKind = Literal["capacity", "stock", "recipes"]
 
 
 class ConsoleOrderLine(Model):
@@ -1452,3 +1452,57 @@ class SupplierReceipt(Model):
     received_by: str
     simulated: bool = False
     created_at: UtcTime
+
+
+# ----- recipe review (pass 16) ----------------------------------------------------------------------------------
+#
+# A restaurant's recipes are its trade secret, so an ingredient list the system inferred is a draft,
+# never an assumption: it lands ``proposed`` and stays out of stock deductions, forecasts and
+# cautions until a chef or manager approves it here. The review surface shows ingredients and
+# quantities only — the data model has no field for how a dish is made, anywhere, by design.
+
+
+class RecipeReviewLine(Model):
+    """One line of a dish's ingredient list under review: the ingredient and how much of it one
+    serving uses, in the ingredient's unit. Quantities only — never a preparation step."""
+
+    ingredient_id: str
+    ingredient_name: str
+    unit: Unit
+    qty: int = Field(ge=1)
+
+
+class RecipeDishReview(Model):
+    """One dish's list under review: where the list came from, its lines, and — once approved — who
+    approved it and when (the audit record of the approval)."""
+
+    item_code: str
+    name: str
+    status: RecipeStatus
+    provenance: RecipeProvenance
+    lines: list[RecipeReviewLine] = Field(default_factory=list)
+    approved_by_name: str | None = None
+    approved_at: UtcTime | None = None
+
+
+class RecipeReviewsView(Model):
+    """The recipe review queue: every dish still waiting on approval, with its draft lines."""
+
+    dishes: list[RecipeDishReview] = Field(default_factory=list)
+    proposed_count: int = 0
+
+
+class RecipeLineEdit(Model):
+    """One line as the reviewer leaves it: an ingredient of this kitchen and its quantity per
+    serving. A line repeated for one ingredient is a 400, as is an empty list — approving a dish
+    with no ingredients would silently zero its stock math."""
+
+    ingredient_id: str
+    qty: int = Field(ge=1)
+
+
+class RecipeApproveRequest(Model):
+    """Approve a dish's ingredient list. ``lines`` carries the reviewer's edits (quantities changed,
+    lines added or removed); left null, the draft is approved exactly as proposed."""
+
+    lines: list[RecipeLineEdit] | None = None

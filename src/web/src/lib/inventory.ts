@@ -1,9 +1,10 @@
 /**
  * The inventory workflow API (pass 13): opening-stock entry, the nightly closing check, the
- * purchase-bill scan and the supplier receipts it files. The stock list itself stays the plain
- * `GET /api/inventory` the Settings editor already uses. Every call rides the tenant session; a
- * staff token is not needed here because the server also admits the Inventory Manager's token —
- * the console's session is the manager's.
+ * purchase-bill scan and the supplier receipts it files. Pass 16 adds the recipe review: the
+ * dishes whose ingredient lists are still inferred drafts, and approving them (with edits). The
+ * stock list itself stays the plain `GET /api/inventory` the Settings editor already uses. Every
+ * call rides the tenant session; a staff token is not needed here because the server also admits
+ * the Inventory Manager's token — the console's session is the manager's.
  */
 
 import type {
@@ -11,6 +12,9 @@ import type {
   BillDraft,
   ClosingCheckView,
   InventorySetupView,
+  RecipeDishReview,
+  RecipeLineEdit,
+  RecipeReviewsView,
   SupplierReceipt,
 } from '../contracts/generated'
 import { api } from './api'
@@ -45,5 +49,15 @@ export const inventoryApi = {
   /** The bills already scanned and received, newest first. */
   receipts(): Promise<SupplierReceipt[]> {
     return api<SupplierReceipt[]>('GET', '/api/supplier/receipts')
+  },
+  /** Pass 16: the dishes whose ingredient lists are still drafts awaiting approval, with lines. */
+  proposedRecipes(): Promise<RecipeReviewsView> {
+    return api<RecipeReviewsView>('GET', '/api/inventory/recipes/proposed')
+  },
+  /** Pass 16: approve a dish's list — the edited lines when the reviewer changed them, or none
+   *  (approve exactly as proposed). The server records who approved and when. */
+  approveRecipe(itemCode: string, lines: RecipeLineEdit[] | null): Promise<RecipeDishReview> {
+    return api<RecipeDishReview>('POST', `/api/inventory/recipes/${encodeURIComponent(itemCode)}/approve`,
+      lines === null ? {} : { lines })
   },
 }

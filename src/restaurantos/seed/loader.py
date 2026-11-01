@@ -37,7 +37,7 @@ from pydantic import ValidationError
 from restaurantos.config import REPO_ROOT
 from restaurantos.contracts.common import ALLERGENS, TEMPLATE_TENANT, Allergen, Model
 from restaurantos.contracts.hashing import digest
-from restaurantos.contracts.inventory import Ingredient, RecipeLine, Supplier
+from restaurantos.contracts.inventory import Ingredient, RecipeLine, RecipeReview, Supplier
 from restaurantos.contracts.kitchen import LocalizedLabel, Staff
 from restaurantos.contracts.menu import MenuItem, MenuSnapshot, Modifier
 from restaurantos.seed.validate import (
@@ -101,6 +101,7 @@ class SeedData(Model):
     modifier_sets: dict[str, list[str]]
     ingredients: list[Ingredient]  # on_hand = par, reserved = 0
     recipes: list[RecipeLine]
+    recipe_reviews: list[RecipeReview]  # pass 16: one per dish with lines; see _build
     suppliers: list[Supplier]  # notes empty: scenarios add them
     demand: DemandCurve
     seed_hash: str
@@ -320,6 +321,13 @@ def _build(blobs: Mapping[Path, bytes], seed_hash: str, tenant_id: str, validate
     stock = [Ingredient(**spec.model_dump(), on_hand=spec.par, reserved=0) for spec in ingredients.ingredients]
     lines = [RecipeLine(item_code=code, ingredient_id=ingredient_id, qty=qty)
              for code, per_item in recipes.recipes.items() for ingredient_id, qty in per_item.items()]
+    # Pass 16: the review state of each dish's list. The seed's own lists are the restaurant's known
+    # data (approved, provenance seed); a file that names a dish in ``proposed`` (onboarding's
+    # inferred drafts) lands it as a draft awaiting a chef's approval.
+    proposed = set(recipes.proposed)
+    reviews = [RecipeReview(item_code=code, status="proposed", provenance="inferred") if code in proposed
+               else RecipeReview(item_code=code, status="approved", provenance="seed")
+               for code in recipes.recipes]
     allergens = derive_allergens(lines, stock)
     items = [MenuItem(**spec.model_dump(exclude={"modifier_set"}), available=True,
                       allowed_modifiers=list(modifiers.sets[spec.modifier_set]), allergens=allergens.get(spec.code, []))
@@ -330,4 +338,5 @@ def _build(blobs: Mapping[Path, bytes], seed_hash: str, tenant_id: str, validate
         tax_bp=tenant.tax_bp,
     )
     return SeedData(tenant=tenant, menu=snapshot, staff=staff.staff, modifier_sets=modifiers.sets, ingredients=stock,
-                    recipes=lines, suppliers=suppliers.suppliers, demand=demand, seed_hash=seed_hash)
+                    recipes=lines, recipe_reviews=reviews, suppliers=suppliers.suppliers, demand=demand,
+                    seed_hash=seed_hash)

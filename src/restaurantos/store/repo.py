@@ -20,7 +20,14 @@ from sqlalchemy import and_, func, literal_column, select
 
 from restaurantos.contracts.common import DEFAULT_TZ, TenantClockSpec, TenantFlags, TenantInfo, biz_from_ms, utc_from_ms
 from restaurantos.contracts.errors import NotFound
-from restaurantos.contracts.inventory import Ingredient, RecipeLine, Supplier, SupplierItem, SupplierNote
+from restaurantos.contracts.inventory import (
+    Ingredient,
+    RecipeLine,
+    RecipeReview,
+    Supplier,
+    SupplierItem,
+    SupplierNote,
+)
 from restaurantos.contracts.kitchen import QuoteOffset, Staff, Station, Ticket, TicketLine
 from restaurantos.contracts.menu import Availability, MenuItem, MenuSnapshot, Modifier
 from restaurantos.contracts.orders import Order, OrderLine
@@ -106,7 +113,9 @@ async def menu_snapshot(conn: AsyncConnection, tid: str) -> MenuSnapshot:
     item_rows = await conn.execute(select(mi).where(mi.c.tenant_id == tid).order_by(mi.c.sort, _ROWID))
     modifier_rows = await conn.execute(select(mo).where(mo.c.tenant_id == tid).order_by(_ROWID))
     station_rows = await conn.execute(select(st).where(st.c.tenant_id == tid).order_by(st.c.sort, _ROWID))
-    allergens = derive_allergens(await recipes(conn, tid), await ingredients(conn, tid))
+    # Allergens are derived facts a guest is told: they come from approved lists only (pass 16) — an
+    # unapproved inferred draft never puts an allergen claim on the menu.
+    allergens = derive_allergens(await approved_recipes(conn, tid), await ingredients(conn, tid))
     items = [MenuItem(code=r.code, category=r.category, station_id=r.station_id, price_cents=r.price_cents,
                       is_veg=bool(r.is_veg), spice_level=r.spice_level, names=r.names, aliases=r.aliases,
                       allowed_modifiers=r.allowed_modifiers, prep_min=r.prep_min, photo=r.photo,
@@ -232,17 +241,41 @@ async def recipes(conn: AsyncConnection, tid: str) -> list[RecipeLine]:
     return [RecipeLine(item_code=r.item_code, ingredient_id=r.ingredient_id, qty=r.qty) for r in rows]
 
 
+async def recipe_reviews(conn: AsyncConnection, tid: str) -> list[RecipeReview]:
+    """Every dish's ingredient-list review state (pass 16), in seed order. A dish with lines but no
+    row predates the review workflow: callers treat it as approved (see ``approved_recipes``)."""
+    rr = t.recipe_reviews
+    rows = await conn.execute(select(rr).where(rr.c.tenant_id == tid).order_by(_ROWID))
+    return [RecipeReview(item_code=r.item_code, status=r.status, provenance=r.provenance,
+                         approved_by_id=r.approved_by_id, approved_by_name=r.approved_by_name,
+                         approved_at=_utc(r.approved_ms)) for r in rows]
+
+
+async def approved_recipes(conn: AsyncConnection, tid: str) -> list[RecipeLine]:
+    """The recipe lines stock math may use (pass 16): every line whose dish is not awaiting recipe
+    approval. This is THE filter — deduction, forecasts and cautions all read recipes through here,
+    so an inferred draft list is never silently counted; it only enters the math when a chef or
+    manager approves it (its review row flips to ``approved``)."""
+    proposed = {review.item_code for review in await recipe_reviews(conn, tid) if review.status == "proposed"}
+    if not proposed:
+        return await recipes(conn, tid)
+    return [line for line in await recipes(conn, tid) if line.item_code not in proposed]
+
+
 async def reservations_since(conn: AsyncConnection, tid: str, ingredient_id: str,
                              since_biz_ms: int) -> list[tuple[int, int]]:
     """``(placed_biz_ms, qty)``: one pair per non-cancelled order placed at or after ``since_biz_ms`` (business
     time) that uses the ingredient, ``qty`` summed over its active lines × recipe quantity; oldest first."""
-    o, ol, rl = t.orders, t.order_lines, t.recipe_lines
+    o, ol, rl, rr = t.orders, t.order_lines, t.recipe_lines, t.recipe_reviews
     qty = func.sum(ol.c.qty * rl.c.qty)
     joined = (o.join(ol, and_(ol.c.order_id == o.c.id, ol.c.tenant_id == o.c.tenant_id))
-              .join(rl, and_(rl.c.tenant_id == o.c.tenant_id, rl.c.item_code == ol.c.item_code)))
+              .join(rl, and_(rl.c.tenant_id == o.c.tenant_id, rl.c.item_code == ol.c.item_code))
+              # pass 16: a dish awaiting recipe approval reserves nothing — its list is a draft
+              .outerjoin(rr, and_(rr.c.tenant_id == o.c.tenant_id, rr.c.item_code == ol.c.item_code)))
     query = (select(o.c.placed_biz_ms, qty).select_from(joined)
              .where(o.c.tenant_id == tid, o.c.status != "cancelled", o.c.placed_biz_ms >= since_biz_ms,
-                    ol.c.status == "active", rl.c.ingredient_id == ingredient_id)
+                    ol.c.status == "active", rl.c.ingredient_id == ingredient_id,
+                    (rr.c.status.is_(None)) | (rr.c.status == "approved"))
              .group_by(o.c.id, o.c.placed_biz_ms, o.c.order_no).having(qty > 0)
              .order_by(o.c.placed_biz_ms, o.c.order_no))
     return [(int(placed), int(total)) for placed, total in await conn.execute(query)]

@@ -1649,3 +1649,83 @@ why is null.
   `scripts/gen_ts_contracts.py --check` clean, `ruff check src tests scripts` clean.
 
 — Bujji, 2026-10-31
+
+## Pass 16 — Recipes stay secret: inferred ingredient lists are drafts until the kitchen approves them (branch `bujji/pass16`, off e7a7533 = main 6460757 content; PR opened against main for review, NOT merged, NOT deployed)
+
+The owner's call, from his brother Damo's feedback (2026-11-01): restaurants guard their recipes as
+trade secrets, so the system must never silently assume a dish's ingredients from general knowledge.
+Four rules, all implemented: (1) an inferred dish ingredient list lands as a DRAFT — status
+`proposed`, provenance `inferred`; (2) a chef/manager approves it (or edits, then approves) before
+it drives inventory deduction, stock forecasts or cautions — unapproved dishes are flagged on the
+manager console Attention feed and excluded from stock math until approved; (3) the system stores
+INGREDIENTS + QUANTITIES ONLY — no process/method field exists anywhere in the data model, by
+design; (4) the privacy page states all of this plainly.
+
+### Design choices (where the spec left room)
+
+- **Review state is a per-dish row, not a flag on recipe lines**: new `recipe_reviews` table
+  (tenant, item_code, status, provenance, approved_by_id/name, approved_ms — the pass-13
+  closing-check sign-off pattern, so the approval IS the audit record; no new event type).
+  Provenance is one of `inferred` / `seed` / `chef_entered`; after approval the provenance stays
+  what it was — the approver and time land beside it.
+- **A dish with no review row counts as approved.** Pre-existing kitchens (and every sandbox
+  cloned from config before this pass) behave exactly as before with zero migration. Seed/sample
+  recipes are the restaurant's own known data, so the loader writes them explicit rows:
+  `approved` / `seed`.
+- **One filter helper**: `repo.approved_recipes()` is the only list stock math may consume.
+  Switched to it: order reservation + `order_holds` corrections (`services/orders.py`), forecast
+  priors and reservation overlays + consume/release (`services/inventory.py`), the closing check
+  (`services/manager_console.py`), the GM situation snapshot, the governance largest-serving
+  check, `repo.reservations_since` (SQL-side filter) and `menu_snapshot` allergens. Deliberately
+  NOT switched: `judge/rush.py` (an eval harness over a judged menu) and `seed/scenario.py`
+  (seed-level synthetic history).
+- **Endpoints live in the inventory family**, gated by pass 13's `InventoryAccess` (manager
+  session or the Inventory Manager's token): `GET /api/inventory/recipes/proposed`,
+  `POST /api/inventory/recipes/{item_code}/approve` with an optional `{lines}` edit body.
+  Approving an unknown dish is a 404, an already-approved dish a 409, empty/duplicated edited
+  lines a 400, an unstocked ingredient a 404. Placement note: the spec suggested
+  `/api/manager/...`; the inventory family was chosen because the gate, the service and the
+  pass-13 review surfaces already live there, and the manager console links straight to it.
+- **Manager approval stands in for chef approval**: the role model has no distinct chef persona
+  with its own sign-in (cooks hold station jobs; the manager and the Inventory Manager hold the
+  inventory gate). The copy says "your chef or manager" throughout.
+- **Onboarding**: `recipes.yaml` gains a `proposed: [item codes]` list (loader-validated: a
+  proposed code with no lines is a seed error). Every onboarded dish is marked — the starter
+  quantities come from a small deterministic name-based mapping (a hearty plate — biryani, thali —
+  starts at 2 portions of the placeholder ingredient, everything else at the placeholder fallback
+  of 1). Verified before building: there is NO model-backed inference path for menu drafts in
+  either mode — onboarding is rules-only — so the spec's live-mode conditional does not trigger;
+  if a model drafter is ever added, its output lands in this same proposed state by construction.
+- **Attention card**: `ManagerConsole.analytics_view` appends a `recipes`-kind card ("N dishes
+  have unapproved ingredient lists", warn tone, names up to three dishes, points at Recipe review
+  in Inventory) whenever any dish is proposed; the web maps the kind to the Inventory filter.
+- **Review surface**: a Recipe review card grid at the top of the manager Inventory section —
+  one card per waiting dish, editable quantity inputs, remove/add ingredient lines (from the
+  kitchen's stock list), Approve button; unchanged lists approve as proposed (no body), edited
+  lists send their lines. The privacy page gains an "In short" bullet, a dedicated "Your recipes
+  stay yours" card, and an "Ingredient lists" retention row.
+
+### Verification
+
+- New tests: `tests/api/test_recipe_review_routes.py` (7) — a proposed dish reserves nothing and
+  forecasts no burn (coconut, used by Chicken Chettinad alone, is the clean signal), approval
+  restores both and is audited on the row, edit-then-approve stores the edited quantities, bad
+  input is 404/409/400/422, onboarding output starts proposed (file, seed and materialized rows),
+  the seed kitchen's queue is empty and its math unchanged; the Attention card is asserted at the
+  service level. Web: one new inventory-section test (edit → approve call → approver note) and the
+  privacy table test extended for the new row and statements.
+- Python full suite: **1609 passed, 1 failed** — the failure only the known environmental
+  `tests/test_conftest_network.py::test_localhost_tcp_needs_opt_in` (fails identically on the
+  untouched base). Web: **288/288 passed**, `tsc` clean, `scripts/gen_ts_contracts.py --check`
+  clean, `ruff check src tests scripts` clean (the repo is not `ruff format`-clean at base; CI
+  gates on `ruff check` only).
+- Screenshots in `files/pass16-shots/` (goal files): the review grid, the Attention card, the
+  privacy section. All three are the real UI on a local mock-mode server running this branch: the
+  tenant (Chettinad House, 5 dishes) was onboarded through the app's own onboarding flow, so its
+  proposed state is the genuine article, and the manager signed in through the staff flow.
+  Screenshot-driving note for next time: the dev venv's editable install points at the OLD
+  worktree — a local server for a worktree build needs `PYTHONPATH=<worktree>/src`, or it
+  silently serves the other tree's code.
+- NOT deployed (the Fly server stays down on the owner's instruction) and the PR is left open.
+
+— Bujji, 2026-11-01
