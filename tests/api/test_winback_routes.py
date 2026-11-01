@@ -8,6 +8,7 @@ the real app on the fakes, on the customers tests' anchor (business clock paused
 from __future__ import annotations
 
 import datetime as dt
+import re
 from zoneinfo import ZoneInfo
 
 import pytest
@@ -16,7 +17,7 @@ from sqlalchemy import insert
 
 from restaurantos.api.registry import Entry
 from restaurantos.app import create_app
-from restaurantos.config import AIMode
+from restaurantos.config import AIMode, Purpose
 from restaurantos.contracts import ids
 from restaurantos.contracts.common import ms_from_dt
 from restaurantos.security import auth
@@ -301,6 +302,41 @@ def test_guest_who_opts_out_after_drafting_cannot_be_sent_to(app):
     assert body["outreach"][0]["status"] == "draft"
     assert [row["name"] for row in body["contactable"]] == ["Asha"]
     assert body["not_contactable_count"] == 2
+
+
+def test_live_draft_sends_the_dish_code_never_its_name(monkeypatch):
+    """Pass 17: the win-back model call carries the usual dish's egress code — never its name, never
+    its internal code — and the stored draft names the dish again, because the service translates
+    the model's answer back before storing it. The fake model answers with whatever code it was
+    given, like a model that only ever saw codes would."""
+    seen: dict[str, str] = {}
+
+    def write_draft(call):
+        user = call.kwargs["messages"][1]["content"]
+        seen["user"] = user
+        code = re.search(r"ITEM_\d{4}", user)
+        assert code is not None, f"no egress code in the win-back prompt: {user}"
+        return f"Hi Asha, it's Spice Route. Your usual {code.group(0)} is on the house when you return."
+
+    isolated_registry(monkeypatch, REQUIRED_ROUTERS=(Entry("api.routes_staff", "P41", "CP4"),
+                                                     Entry("api.routes_manager", "P42", "CP4"),
+                                                     Entry("api.routes_customers", "P43", "CP4")))
+    previous = ids.current()
+    c = make_test_container(settings=make_test_settings(ai_mode=AIMode.LIVE),
+                            script={Purpose.GM: [write_draft]})
+    client = TestClient(create_app(container=c))
+    with client:
+        client.portal.call(seed_tenant, c, TID, PAUSED)
+        sign_in(client, c)
+        seed_book(client, c)
+        headers = manager_headers(client)
+        key = view(client)["contactable"][0]["key"]  # Asha, whose usual is Paneer Butter Masala
+        drafted = draft(client, headers, [key]).json()["drafts"][0]
+    ids.install(previous)
+    assert drafted["source"] == "model"
+    assert "Paneer Butter Masala" not in seen["user"] and "PNR_BM" not in seen["user"]
+    assert drafted["message_text"] == ("Hi Asha, it's Spice Route. Your usual Paneer Butter Masala "
+                                       "is on the house when you return.")
 
 
 def test_live_mode_without_a_provider_refuses_the_send_plainly(live_app):

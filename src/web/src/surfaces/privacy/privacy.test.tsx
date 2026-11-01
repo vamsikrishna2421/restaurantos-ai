@@ -34,7 +34,7 @@ test('privacy_retention_table', () => {
   const kept = new Map(rows('Retention by store'))
   expect([...kept.keys()]).toEqual(['Transcripts', 'Events', 'Sandbox kitchens', 'The public live kitchen',
     'Nightly backups', 'Host volume snapshots', 'Off-host backups', 'Logs', 'Call recordings', 'Consented clips',
-    'Call records', 'Phone numbers', 'Ingredient lists', 'Shelf photos', 'Your browser'])
+    'Call records', 'Phone numbers', 'Ingredient lists', 'AI name codes', 'Shelf photos', 'Your browser'])
   // backups keep the live and demo kitchens' transcripts past the database's 7 days
   expect(kept.get('Transcripts')).toBe('7 days in the database (24 hours in a sandbox kitchen), deleted at the next ' +
     '04:00 ET cleanup; for the live and demo kitchens, also in up to 3 nightly backup copies and, on Fly.io, in the ' +
@@ -60,6 +60,14 @@ test('privacy_retention_table', () => {
   expect(screen.getByText(/Your recipes stay yours: we draft ingredient lists from general knowledge/))
     .toBeInTheDocument()
   expect(screen.getByText(/Your cooking process — how a dish is prepared/)).toBeInTheDocument()
+  // pass 17: the names promise — the AI reasons over codes, the key stays in the kitchen's own data,
+  // and the page says plainly that quantities still travel
+  expect(kept.get('AI name codes')).toBe('Kept with the kitchen until it is reset or deleted')
+  expect(screen.getByText(/it never sees your ingredient or dish names/)).toBeInTheDocument()
+  expect(screen.getByText(/The AI sees codes, not names/)).toBeInTheDocument()
+  expect(screen.getByText(/quantities and volumes do travel with the codes/)).toBeInTheDocument()
+  expect(screen.getByText(/the same ingredient carries a different code in every other restaurant/))
+    .toBeInTheDocument()
   // shelf photos (P38) are never stored: only their hash stays, with the stock change a person confirmed
   expect(kept.get('Shelf photos')).toBe('Never stored: processed in memory and sent to Meta (Muse Spark and SAM ' +
     '3.1); only its SHA-256 hash is kept, with the stock change a person confirmed')

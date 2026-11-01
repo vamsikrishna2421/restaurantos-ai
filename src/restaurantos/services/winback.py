@@ -14,7 +14,9 @@ feature:
 - **The message** is a draft until a manager sends it. In mock mode it is a deterministic template
   standing on the guest's facts (name, usual dish, days away); in live mode the model writes it
   through the existing Meta port (purpose ``gm``), and any failure falls back to the template — a
-  draft is a starting point either way, and the manager can edit every word before sending.
+  draft is a starting point either way, and the manager can edit every word before sending. Since
+  pass 17 the live call carries the usual dish's egress code, never its name (dish names are the
+  kitchen's secret too), and the model's draft is translated back before it is stored.
 - **The offer** is the standing lapsed-goodwill promise — their usual on the house. Sending mints
   that dish as a credit in the customers book through the book's one mint path (key ``winback:…``),
   so the returning guest's offer applies itself at placement exactly like a goodwill approval.
@@ -50,6 +52,7 @@ from restaurantos.contracts.api import (
 from restaurantos.contracts.common import CallCtx, biz_from_ms
 from restaurantos.contracts.errors import BadRequest, NotFound
 from restaurantos.domain import customers as cu
+from restaurantos.meta.egress import EgressMap
 from restaurantos.services.container import Container
 from restaurantos.services.customers import CustomerService, Outreach, mask_phone
 from restaurantos.services.messaging import UnavailableMessaging, adapter_for
@@ -218,6 +221,18 @@ class WinbackService:
         if self._c.settings.ai_mode is not AIMode.LIVE:
             return fallback, "template"
         try:
+            # Pass 17: the model sees the usual dish's egress code, never its name — dish names are
+            # the kitchen's secret, like its recipes. The guest's first name and the restaurant's
+            # name stay: they are the message's recipient and sender, not menu data. The draft is
+            # translated back before it is stored, so the guest reads the dish's real name. Any
+            # failure here (mapping included) falls back to the template, like a failed model call.
+            repo = self._customers._repo()
+            async with self._customers._store().write() as tx:
+                ingredients = await repo.ingredients(tx.conn, tenant_id)
+                snapshot = await repo.menu_snapshot(tx.conn, tenant_id)
+                codes = await repo.ensure_egress_codes(tx.conn, tenant_id, ingredients, snapshot.items)
+            egress = EgressMap(codes, ingredients, snapshot.items)
+            usual_code = egress.code_for("item", usual[0][0]) if usual else None
             ctx = CallCtx(tenant_id=tenant_id, session_id="winback", trace_id=f"winback:{case_key(history)}",
                           data_class="customer", spend_scope=tenant_id)
             text, _record = await self._c.meta.chat_text(
@@ -230,8 +245,8 @@ class WinbackService:
                     {"role": "user", "content":
                      f"Restaurant: {tenant.name}. Guest first name: {history.name or 'a regular'}. "
                      f"Days since their last visit: {days_away}. Their usual dish: "
-                     f"{usual_name or 'their favourite'}."}])
-            text = text.strip()[:1000]
+                     f"{usual_code or 'their favourite'}."}])
+            text = egress.detokenize(text).strip()[:1000]
             return (text, "model") if text else (fallback, "template")
         except Exception:
             log.warning("win-back model draft failed; using the template", exc_info=True)

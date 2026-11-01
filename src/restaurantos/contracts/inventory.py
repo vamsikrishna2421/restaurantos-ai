@@ -79,6 +79,28 @@ class RecipeReview(Model):
     approved_at: UtcTime | None = None
 
 
+EgressKind = Literal["ingredient", "item"]
+EGRESS_KINDS: tuple[str, ...] = get_args(EgressKind)
+
+
+class EgressCode(Model):
+    """One pseudonym for model egress (pass 17): the opaque code a back-office model call sees in
+    place of one ingredient or dish of one kitchen.
+
+    A restaurant's ingredient and dish names are its trade secret (pass 16 covers the lists
+    themselves), so when the AI reasons about a kitchen — the GM's situation reports, a win-back
+    draft — it sees codes and numbers, never names: ``ING_0147`` for an ingredient, ``ITEM_0231``
+    for a dish. The number is drawn from a hash of the tenant id, the kind and the internal ref, so
+    the same name carries a different code in every kitchen and no global dictionary exists. This
+    row is the ONLY place the code↔name mapping lives, in the kitchen's own data; answers are
+    translated back locally before anyone sees them. Quantities still travel with the codes — the
+    AI needs them to reason about stock — so this hides WHAT, never HOW MUCH."""
+
+    kind: EgressKind
+    ref: str  # the internal ingredient id or menu item code the pseudonym stands for
+    code: str  # the opaque code itself, e.g. ING_0147 / ITEM_0231
+
+
 class Forecast(Model):
     ingredient_id: str
     free: int

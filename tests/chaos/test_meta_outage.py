@@ -37,6 +37,7 @@ from tests.integration.test_golden_canonical import (
     TE_EN,
     _fresh,  # noqa: F401 - autouse: rush by hand, no BACKGROUND
     canonical_actions,
+    refs_by_code,
     report_in,
     story,
 )
@@ -123,9 +124,10 @@ def stalls_mid_stream(request: httpx.Request, body: dict[str, Any]) -> httpx.Res
     return httpx.Response(200, headers={"content-type": "text/event-stream"}, stream=_Stalls(events))
 
 
-def the_plan(body: dict[str, Any]) -> str:
-    """The GM's answer on Chat: the canonical plan for the report in the request."""
-    return plan_text(canned_plan(canonical_actions(report_in(body["messages"][-1]["content"]))))
+def the_plan(body: dict[str, Any], code_map: dict[str, str] | None = None) -> str:
+    """The GM's answer on Chat: the canonical plan for the report in the request. Pass 17: the
+    report arrives tokenized, so the plan is resolved through the tenant's ``code_map``."""
+    return plan_text(canned_plan(canonical_actions(report_in(body["messages"][-1]["content"]), code_map)))
 
 
 def lines(result: dict[str, Any]) -> list[tuple[str, int, list[str]]]:
@@ -207,12 +209,15 @@ def test_gm_stream_and_chat_overloaded_fall_back_to_the_playbook() -> None:
 
 def test_gm_stream_that_goes_quiet_falls_back_to_chat() -> None:
     up = Upstream()
-    up.answers = {(RESPONSES, None): stalls_mid_stream, (CHAT, None): chat(the_plan)}
+    code_map: dict[str, str] = {}  # pass 17: filled with the story tenant's codes once it exists
+    up.answers = {(RESPONSES, None): stalls_mid_stream,
+                  (CHAT, None): chat(lambda body: the_plan(body, code_map))}
     records: list[Any] = []
     with story(meta=meta_on(up)) as s:
         s.c.guard.subscribe(records.append)
         s.c.planner.timing = QUIET  # the idle timer runs on the loop's real clock: 0.3 s instead of 12 s
         s.start()
+        code_map.update(refs_by_code(s.tid))
         s.rush_to("await_order")
         s.kiosk({"type": "text", "text": TE_EN}, {"type": "confirm", "yes": True})
         plans = s.plans()

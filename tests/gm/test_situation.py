@@ -132,6 +132,7 @@ class SnapshotRepo:
 
     def __init__(self, snapshot: Snapshot) -> None:
         self.s = snapshot
+        self._egress_rows: list[Any] = []  # pass 17: this fake's own egress mapping store
 
     async def menu_snapshot(self, conn: Any, tid: str) -> Any:
         return self.s.menu
@@ -150,6 +151,20 @@ class SnapshotRepo:
 
     async def approved_recipes(self, conn: Any, tid: str) -> Any:
         return self.s.recipes  # pass 16: nothing is proposed in the snapshot, so every list counts
+
+    async def egress_codes(self, conn: Any, tid: str) -> Any:
+        return list(self._egress_rows)
+
+    async def ensure_egress_codes(self, conn: Any, tid: str, ingredients: Any, items: Any) -> Any:
+        # pass 17: the same deterministic assignment as the store, kept on the fake (its snapshot
+        # kitchen has no egress rows until a planner run assigns them)
+        from restaurantos.meta.egress import new_assignments
+
+        fresh = new_assignments(tid, self._egress_rows,
+                                {"ingredient": [i.id for i in ingredients],
+                                 "item": [i.code for i in items]})
+        self._egress_rows = [*self._egress_rows, *fresh]
+        return list(self._egress_rows)
 
     async def suppliers(self, conn: Any, tid: str) -> list[Supplier]:
         return self.s.suppliers
