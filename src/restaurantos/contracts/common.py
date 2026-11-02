@@ -27,7 +27,7 @@ class Model(BaseModel):
 Lang = Literal["en", "te", "ta", "es", "hi", "te-en", "ta-en", "es-en", "hi-en", "other"]
 SpeakLang = Literal["en", "te", "ta", "es"]
 AsrLanguage = Literal["English", "Telugu", "Tamil", "Spanish", "Hindi"]
-Channel = Literal["phone", "kiosk", "counter", "typed", "sim"]
+Channel = Literal["phone", "kiosk", "counter", "typed", "sim", "external"]
 # public_dataset: real speech from a public, licensed corpus (e.g. FLEURS). Not synthetic, so contributor models
 # never see it.
 DataClass = Literal["synthetic", "customer", "judge", "staff", "founder_voice", "public_dataset"]

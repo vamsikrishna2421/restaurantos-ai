@@ -322,3 +322,30 @@ supplier_receipts = Table(
     _i("total_cents", null=True), _s("received_by"), _b("simulated"), _i("created_ms"),
     Index("ix_supplier_receipts_tenant_created", "tenant_id", "created_ms"),
 )
+
+# External orders (pass 18): one row per order delivered from an outside system (a POS, an online
+# ordering page) through the generic ingestion pipe. The order itself is a normal ``orders`` row —
+# this row is its provenance: where it came from, the id the outside system knows it by (the dedupe
+# key, unique per tenant + source), the customer it names, and the lines that could not be mapped to
+# the menu (kept here, never on a ticket, never in stock math). ``placed_ms`` is when the customer
+# ordered THERE (real time); the ledger order carries the kitchen's own business time.
+external_orders = Table(
+    "external_orders", metadata,
+    _tenant(), _s("order_id"), _s("source"), _s("external_order_id"), _s("channel", null=True),
+    _s("customer_name", null=True), _s("customer_phone", null=True),
+    _i("placed_ms", null=True), _i("received_ms"), _j("unmapped"),
+    PrimaryKeyConstraint("tenant_id", "order_id", name="pk_external_orders"),
+    UniqueConstraint("tenant_id", "source", "external_order_id", name="uq_external_orders_dedupe"),
+    Index("ix_external_orders_tenant_received", "tenant_id", "received_ms"),
+)
+
+# Ingestion tokens (pass 18): the restaurant's secret for the external-order pipe — one active
+# token per tenant, stored only as its SHA-256 hash (the token is a high-entropy random value,
+# shown once at creation). The token names the tenant: a delivery can only land in the kitchen
+# whose token carried it. Like the support queue it survives a sandbox reset (it is the
+# restaurant's credential, not shift state) and is never cloned from a template.
+ingestion_tokens = Table(
+    "ingestion_tokens", metadata,
+    _tenant(), _s("token_hash"), _i("created_ms"),
+    PrimaryKeyConstraint("tenant_id", name="pk_ingestion_tokens"),
+)

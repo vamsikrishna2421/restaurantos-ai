@@ -672,7 +672,7 @@ class ResponsibilityUpdate(Model):
 # the web renders them verbatim.
 
 ForecastConfidence = Literal["steady", "early", "prior", "none"]
-ConsoleCardKind = Literal["capacity", "stock", "recipes"]
+ConsoleCardKind = Literal["capacity", "stock", "recipes", "ingestion"]
 
 
 class ConsoleOrderLine(Model):
@@ -702,6 +702,8 @@ class ConsoleOrder(Model):
     total_cents: int
     stations: list[str] = Field(default_factory=list)
     lines: list[ConsoleOrderLine] = Field(default_factory=list)
+    source: str | None = None  # pass 18: an ingested order's origin ("Toast · online"); null for the
+    # restaurant's own orders, whose channel already says where they came from
 
 
 class ConsoleOrders(Model):
@@ -1506,3 +1508,133 @@ class RecipeApproveRequest(Model):
     lines added or removed); left null, the draft is approved exactly as proposed."""
 
     lines: list[RecipeLineEdit] | None = None
+
+
+# ----- external order ingestion (P46, pass 18) ----------------------------------------------------------------
+#
+# Orders placed OUTSIDE this app — a POS, an online ordering page, a marketplace — arrive through one
+# generic pipe and land as first-class orders in the same ledger as kiosk and phone orders: same
+# tickets, same stock reservations (approved recipe lists only, pass 16), same forecasts, cautions and
+# analytics. The pipe is deliberately vendor-free: any system that can send the JSON below (or the CSV
+# of the same shape) plugs in; a vendor's own API client, when partner access exists, is a thin caller
+# of this endpoint, not a separate integration. Nothing ever writes back to the outside system.
+#
+# Delivery is authenticated by the restaurant's own ingestion token (a per-tenant secret, created and
+# rotated by a manager in Settings; only its hash is stored). The token names the tenant — an order
+# can only ever land in the kitchen whose token carried it. Re-delivering the same order is a no-op:
+# dedupe is on (tenant, source, external_order_id), so a partner retrying a webhook can never create
+# a duplicate order or a second stock deduction.
+
+
+class IngestItemIn(Model):
+    """One line of an external order: the dish by its menu code when the sender knows it, else by its
+    exact menu name. ``unit_price_cents`` is what the outside system charged; the ledger always prices
+    from the restaurant's own menu, so a stale outside price never rewrites the books."""
+
+    item_code: str | None = Field(default=None, max_length=64)
+    item_name: str | None = Field(default=None, max_length=120)
+    qty: int = Field(ge=1, le=200)
+    unit_price_cents: int | None = Field(default=None, ge=0)
+
+
+class ExternalOrderIn(Model):
+    """One external order as any outside system sends it. ``placed_at`` is when the customer ordered
+    THERE; the ledger stamps its own business time when the order lands (forecasts and the kitchen
+    board key off the moment the kitchen receives it), and ``placed_at`` is kept on the ingestion
+    record. ``total_cents`` is the sender's total, accepted as information only — the order's totals
+    are recomputed from the menu for the lines that map."""
+
+    external_order_id: str = Field(min_length=1, max_length=120)
+    source: str = Field(min_length=1, max_length=60)
+    channel: str | None = Field(default=None, max_length=40)
+    placed_at: AwareDatetime | None = None
+    customer_name: str | None = Field(default=None, max_length=80)
+    customer_phone: str | None = Field(default=None, max_length=32)
+    items: list[IngestItemIn] = Field(min_length=1, max_length=100)
+    total_cents: int | None = Field(default=None, ge=0)
+
+
+class IngestedLineView(Model):
+    """One mapped line of an ingested order, priced from the restaurant's menu."""
+
+    item_code: str
+    name: str
+    qty: int
+    unit_price_cents: int
+
+
+class UnmappedLineView(Model):
+    """One line that could not join the order: the label the sender used and why it stayed out
+    (``not_on_menu`` — no code or exact-name match; ``unavailable`` — the dish is 86'd today).
+    An unmapped line never blocks the order, never reaches a ticket and never deducts stock."""
+
+    label: str
+    qty: int
+    unit_price_cents: int | None = None
+    reason: Literal["not_on_menu", "unavailable"]
+
+
+class ExternalOrderResult(Model):
+    """The answer to one delivery: the ledger order it became (``duplicate`` when this delivery was
+    already on the books — the same order, returned, nothing written twice)."""
+
+    order_id: str
+    order_no: int
+    status: Literal["placed", "duplicate"]
+    source: str
+    external_order_id: str
+    channel: str | None = None
+    mapped: list[IngestedLineView] = Field(default_factory=list)
+    unmapped: list[UnmappedLineView] = Field(default_factory=list)
+    total_cents: int
+
+
+class ExternalOrderView(Model):
+    """One ingested order as the restaurant reads it back: its origin, the customer it names, the
+    lines that could not be mapped, and the ledger order's standing. The phone is masked — the
+    manager needs to recognise the guest, not dial them from this screen."""
+
+    order_id: str
+    order_no: int
+    order_status: OrderStatus
+    source: str
+    channel: str | None = None
+    external_order_id: str
+    customer_name: str | None = None
+    customer_phone_masked: str | None = None
+    placed_at: UtcTime | None = None
+    received_at: UtcTime
+    unmapped: list[UnmappedLineView] = Field(default_factory=list)
+    total_cents: int
+
+
+class CsvImportRowError(Model):
+    """One CSV line-group that could not be imported, with the reason in plain words."""
+
+    external_order_id: str
+    reason: str
+
+
+class CsvImportResult(Model):
+    """A CSV import's outcome: what landed, what was already on the books, and what failed."""
+
+    imported: int = 0
+    duplicates: int = 0
+    failed: list[CsvImportRowError] = Field(default_factory=list)
+    results: list[ExternalOrderResult] = Field(default_factory=list)
+
+
+class IngestionTokenView(Model):
+    """Whether this kitchen has an ingestion token, and since when. The token itself is never
+    readable back — it is shown once, when it is created."""
+
+    configured: bool
+    created_at: UtcTime | None = None
+
+
+class IngestionTokenCreated(Model):
+    """A freshly created ingestion token — the one and only time its value is shown. The restaurant
+    pastes it into the outside system; rotating replaces it and the old value stops working at once."""
+
+    token: str
+    created_at: UtcTime

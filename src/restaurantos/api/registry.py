@@ -98,6 +98,7 @@ REQUIRED_ROUTERS: tuple[Entry, ...] = (
     Entry("api.routes_manager", "P42", "CP4"),
     Entry("api.routes_customers", "P43", "CP4"),
     Entry("api.routes_operator", "P44", "CP5"),
+    Entry("api.routes_ingestion", "P46", "CP5"),
 )
 
 OPTIONAL_ROUTERS: tuple[Entry, ...] = (

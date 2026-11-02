@@ -7,7 +7,7 @@ export type SpeakLang = 'en' | 'te' | 'ta' | 'es'
 
 export type AsrLanguage = 'English' | 'Telugu' | 'Tamil' | 'Spanish' | 'Hindi'
 
-export type Channel = 'phone' | 'kiosk' | 'counter' | 'typed' | 'sim'
+export type Channel = 'phone' | 'kiosk' | 'counter' | 'typed' | 'sim' | 'external'
 
 export type DataClass = 'synthetic' | 'customer' | 'judge' | 'staff' | 'founder_voice' | 'public_dataset'
 

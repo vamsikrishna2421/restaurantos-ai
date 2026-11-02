@@ -38,7 +38,8 @@ from restaurantos.contracts.orders import Cart, Intent, Order, Quote, RejectedOp
 
 EventType = Literal[
     "session.started", "caption.partial", "turn.text", "turn.completed", "cart.updated", "order.placed",
-    "order.updated", "order.cancelled", "order.corrected", "ticket.created", "ticket.updated", "kitchen.load",
+    "order.updated", "order.cancelled", "order.corrected", "order.ingested", "ticket.created", "ticket.updated",
+    "kitchen.load",
     "notice.updated", "task.updated", "menu.availability_changed", "menu.alternatives_changed",
     "quote.offset_changed", "inventory.changed", "inventory.forecast", "inventory.band_changed",
     "inventory.adjusted", "po.updated", "incident.opened", "incident.updated", "plan.started",
@@ -140,6 +141,21 @@ class OrderCorrectedPayload(Model):
     line_no: int
     kind: CorrectionKind
     by_role: Role
+
+
+class OrderIngestedPayload(Model):
+    """Pass 18: the audit record of one external-order delivery. ``outcome`` is ``received`` (every line
+    mapped), ``partial`` (some lines could not be mapped to the menu — their labels ride along; they are
+    dish names an outside system sent, never guest details) or ``deduped`` (the same delivery arrived
+    again and changed nothing). Customer name and phone never appear here (CONTRACTS §5): they live
+    only on the ingestion row the manager reads."""
+
+    order_id: str
+    source: str
+    external_order_id: str
+    outcome: Literal["received", "partial", "deduped"]
+    mapped_lines: int
+    unmapped: list[str] = Field(default_factory=list)
 
 
 # ----- kitchen ----------------------------------------------------------------------------------------------------
@@ -383,6 +399,7 @@ EVENT_SPECS: dict[str, tuple[bool, type[Model]]] = {
     "order.updated": (True, OrderUpdatedPayload),
     "order.cancelled": (True, OrderCancelledPayload),
     "order.corrected": (True, OrderCorrectedPayload),
+    "order.ingested": (True, OrderIngestedPayload),
     "ticket.created": (True, TicketCreatedPayload),
     "ticket.updated": (True, TicketUpdatedPayload),
     "kitchen.load": (False, KitchenLoadPayload),

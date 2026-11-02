@@ -27,7 +27,8 @@ SID, CART_ID, ORD, PLN, INC = ("vs_01JC0000000000000000000001", "crt_01JC0000000
 # The catalog of CONTRACTS §5, P = persisted, E = ephemeral; slash rows are separate types.
 CATALOG = {
     "session.started": "P", "caption.partial": "E", "turn.text": "E", "turn.completed": "P", "cart.updated": "P",
-    "order.placed": "P", "order.updated": "P", "order.cancelled": "P", "order.corrected": "P", "ticket.created": "P",
+    "order.placed": "P", "order.updated": "P", "order.cancelled": "P", "order.corrected": "P",
+    "order.ingested": "P", "ticket.created": "P",
     "ticket.updated": "P", "kitchen.load": "E", "notice.updated": "P", "task.updated": "P",
     "menu.availability_changed": "P", "menu.alternatives_changed": "P", "quote.offset_changed": "P",
     "inventory.changed": "P", "inventory.forecast": "E", "inventory.band_changed": "P", "inventory.adjusted": "P",
@@ -77,6 +78,8 @@ SAMPLES: dict[str, dict[str, Any]] = {
     "order.updated": {"order_id": ORD, "status": "ready", "by_role": "cook"},
     "order.cancelled": {"order_id": ORD, "reason": "guest left", "by_role": "manager"},
     "order.corrected": {"order_id": ORD, "line_no": 1, "kind": "modifiers", "by_role": "cook"},
+    "order.ingested": {"order_id": ORD, "source": "toast", "external_order_id": "T-1042",
+                       "outcome": "partial", "mapped_lines": 1, "unmapped": ["Mystery Special"]},
     "ticket.created": {"ticket": TICKET},
     "ticket.updated": {"ticket": TICKET, "action": "bump"},
     "kitchen.load": {"loads": [StationLoad(station_id="STN_CURRY", queue_min=12, open_tickets=5, offset_min=5)]},
@@ -155,7 +158,7 @@ def field_names(model: type[BaseModel], seen: set[type[BaseModel]] | None = None
 
 def test_every_event_type_has_payload_model():
     assert set(events.EVENT_TYPES) == set(CATALOG) == set(events.EVENT_SPECS) == set(SAMPLES)
-    assert len(events.EVENT_TYPES) == len(set(events.EVENT_TYPES)) == 44
+    assert len(events.EVENT_TYPES) == len(set(events.EVENT_TYPES)) == 45
     for event_type, (persisted, model) in events.EVENT_SPECS.items():
         assert persisted is (CATALOG[event_type] == "P"), event_type
         assert issubclass(model, BaseModel) and model.model_config.get("extra") == "forbid", event_type

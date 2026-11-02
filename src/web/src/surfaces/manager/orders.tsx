@@ -23,6 +23,7 @@ function OrderRow({ order, live }: { order: ConsoleOrder; live?: boolean }) {
         <span className="font-semibold tabular-nums">{formatCents(order.total_cents)}</span>
       </div>
       <div className="mt-2 flex flex-wrap items-center gap-1.5">
+        {order.source && <Chip tone="ai">From {order.source}</Chip>}
         {order.stations.map((station) => <Chip key={station}>{station}</Chip>)}
         {live && order.age_min !== null && <Chip tone="warn">{order.age_min} min</Chip>}
         <Chip tone={order.status === 'cancelled' ? 'bad' : order.status === 'ready' ? 'ok' : undefined}>

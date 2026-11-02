@@ -192,7 +192,7 @@ export function langAttr(lang: Lang | null | undefined): string | undefined {
 export const ACTIVE_MS = 120_000
 
 const CHANNEL_NAMES: Readonly<Record<Channel, string>> = {
-  phone: 'Phone', kiosk: 'Kiosk', counter: 'Counter', typed: 'Typed', sim: 'Simulated',
+  phone: 'Phone', kiosk: 'Kiosk', counter: 'Counter', typed: 'Typed', sim: 'Simulated', external: 'External',
 }
 
 export interface SessionRow {

@@ -6,7 +6,7 @@
  * ledger or any other session record, so no caller digit and nothing from the ledger can appear here.
  */
 
-import { Ban, CookingPot, FlaskConical, Keyboard, Phone, Radio, Store, Tablet, TriangleAlert } from 'lucide-react'
+import { Ban, CookingPot, FlaskConical, Globe, Keyboard, Phone, Radio, Store, Tablet, TriangleAlert } from 'lucide-react'
 import { useMemo } from 'react'
 import { SampleBadge, SimClock, WallClock } from '../../components/badges'
 import { cx } from '../../components/ui'
@@ -105,7 +105,7 @@ function Board({ data }: { data: TenantData }) {
 const CHANNELS: Readonly<Record<Channel, { label: string; Icon: typeof Phone }>> = {
   phone: { label: 'Phone', Icon: Phone }, kiosk: { label: 'Kiosk', Icon: Tablet },
   counter: { label: 'Counter', Icon: Store }, typed: { label: 'Typed', Icon: Keyboard },
-  sim: { label: 'Simulated', Icon: FlaskConical },
+  sim: { label: 'Simulated', Icon: FlaskConical }, external: { label: 'External', Icon: Globe },
 }
 
 function OrderCard({ order, menu }: { order: PublicOrder; menu: MenuSnapshot }) {
