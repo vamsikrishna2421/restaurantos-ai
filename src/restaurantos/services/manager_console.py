@@ -196,14 +196,14 @@ class ManagerConsole:
 
     def _console_order(self, order: Order, station_names: list[str], item_names: dict[str, str],
                        station_of: dict[str, str], station_names_by_id: dict[str, str],
-                       now_biz_ms: int) -> ConsoleOrder:
+                       now_biz_ms: int, source: str | None = None) -> ConsoleOrder:
         placed_ms = round(order.placed_biz.timestamp() * 1000)
         return ConsoleOrder(
             id=order.id, order_no=order.order_no, status=order.status, channel=order.channel,
             placed_biz=order.placed_biz,
             age_min=max(0, (now_biz_ms - placed_ms) // cx.MINUTE_MS)
             if order.status in cx.OPEN_STATUSES else None,
-            total_cents=order.total_cents, stations=station_names,
+            total_cents=order.total_cents, stations=station_names, source=source,
             lines=[ConsoleOrderLine(
                 line_no=line.line_no, item_code=line.item_code,
                 name=item_names.get(line.item_code, line.item_code), qty=line.qty,
@@ -241,10 +241,16 @@ class ManagerConsole:
                 history = [order_from_rows(row, by_order[row["id"]], self._tz) for row in rows]
             station_names = await self._station_names(
                 conn, tenant_id, [order.id for order in open_orders] + [order.id for order in history])
+            # Pass 18: an ingested order carries where it came from ("Toast · online").
+            eo = t.external_orders
+            ext_rows = (await conn.execute(select(eo.c.order_id, eo.c.source, eo.c.channel).where(
+                eo.c.tenant_id == tenant_id))).all()
+            sources = {order_id: (source if not channel else f"{source} · {channel}")
+                       for order_id, source, channel in ext_rows}
 
             def build(order: Order) -> ConsoleOrder:
                 return self._console_order(order, station_names.get(order.id, []), item_names, station_of,
-                                           station_names_by_id, now_biz)
+                                           station_names_by_id, now_biz, source=sources.get(order.id))
 
             return ConsoleOrders(
                 day=target, open=[build(order) for order in open_orders],
@@ -410,13 +416,42 @@ class ManagerConsole:
 
             recipe_cards = self._recipe_review_cards(
                 await repo.recipe_reviews(conn, tenant_id), item_names)
+            ingestion_cards = await self._ingestion_cards(conn, tenant_id)
 
             return ConsoleAnalytics(
                 window_days=SELLERS_DAYS, best_sellers=best, worst_sellers=worst, station_load=station_load,
                 forecast_date=tomorrow, forecast=daypart_list(forecast_tomorrow),
                 remaining_today=daypart_list(forecast_today, remaining_only=True, day=today),
                 confidence=forecast_tomorrow.confidence, basis=forecast_tomorrow.basis,
-                capacity=capacity, stock_watch=stock_watch, cards=[*cards, *stock_cards, *recipe_cards])
+                capacity=capacity, stock_watch=stock_watch,
+                cards=[*cards, *stock_cards, *recipe_cards, *ingestion_cards])
+
+    async def _ingestion_cards(self, conn: AsyncConnection, tenant_id: str) -> list[ConsoleCard]:
+        """Pass 18: the standing flag for outside orders whose lines matched nothing on the menu.
+
+        Those lines were never cooked and never deducted — the order itself stands — but a dish an
+        outside system keeps sending under a name this menu does not carry is a mapping fix away
+        from selling properly, so it stays on the feed until the names line up."""
+        eo = t.external_orders
+        rows = (await conn.execute(select(eo.c.source, eo.c.unmapped).where(
+            eo.c.tenant_id == tenant_id))).all()
+        affected = [(source, unmapped) for source, unmapped in rows if unmapped]
+        if not affected:
+            return []
+        labels = [u["label"] for _source, unmapped in affected for u in unmapped]
+        sources = sorted({source for source, _unmapped in affected})
+        shown = ", ".join(labels[:3]) + (f" and {len(labels) - 3} more" if len(labels) > 3 else "")
+        count = len(affected)
+        return [ConsoleCard(
+            id="ingestion:unmapped", kind="ingestion", tone="warn",
+            title=("1 outside order had dishes that are not on your menu" if count == 1
+                   else f"{count} outside orders had dishes that are not on your menu"),
+            detail=(f"{shown} — sent by {', '.join(sources)} — matched no dish here, so those lines "
+                    "were not cooked and no stock was counted for them. The rest of each order "
+                    "went through as usual."),
+            action=("Check the names your outside systems send against your menu: a dish sells "
+                    "through the pipe when its code or its exact menu name matches. The orders "
+                    "themselves are under Orders, marked with where they came from."))]
 
     @staticmethod
     def _recipe_review_cards(reviews: list[RecipeReview], item_names: dict[str, str]) -> list[ConsoleCard]:

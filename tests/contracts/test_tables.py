@@ -103,6 +103,12 @@ SPEC: dict[str, dict] = {
     "supplier_receipts": dict(
         cols="id supplier_name? lines:j total_cents:i? received_by simulated:b created_ms:i",
         pk=("id",), ix={(("tenant_id", "created_ms"), False)}),
+    "external_orders": dict(
+        cols="order_id source external_order_id channel? customer_name? customer_phone? placed_ms:i? "
+             "received_ms:i unmapped:j",
+        pk=("tenant_id", "order_id"), uq={("tenant_id", "source", "external_order_id")},
+        ix={(("tenant_id", "received_ms"), False)}),
+    "ingestion_tokens": dict(cols="token_hash created_ms:i", pk=("tenant_id",)),
 }
 NO_TENANT_COLUMN = {"tenants", "feedback"}
 QUOTE_OFFSETS_ACTIVE_SQL = ("CREATE UNIQUE INDEX uq_quote_offsets_active ON quote_offsets (tenant_id, "

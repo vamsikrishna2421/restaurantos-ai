@@ -8,7 +8,13 @@
 
 import { useCallback, useEffect, useState } from 'react'
 import { Button, Card, Chip } from '../../components/ui'
-import type { ConsoleSettings, InventoryItemView } from '../../contracts/generated'
+import type {
+  ConsoleSettings,
+  ExternalOrderView,
+  IngestionTokenCreated,
+  IngestionTokenView,
+  InventoryItemView,
+} from '../../contracts/generated'
 import { api } from '../../lib/api'
 import { formatCents } from '../../lib/format'
 import { managerApi } from '../../lib/manager'
@@ -91,6 +97,113 @@ function StockEditor({ items, onSaved }: {
         )
       })}
     </ul>
+  )
+}
+
+/**
+ * Outside orders (pass 18): the restaurant's ingestion token and what arrived through it.
+ * The token is the door for orders placed elsewhere (a POS, an online ordering page): the outside
+ * system sends them to POST /api/ingest/orders with this token, and they join the same kitchen
+ * queue as every other order. The value is shown once, when created — only its hash is kept — so
+ * rotating is also how a lost token is replaced. Fails soft: on an older server the card hides.
+ */
+function IngestionCard() {
+  const [status, setStatus] = useState<IngestionTokenView | null>(null)
+  const [arrivals, setArrivals] = useState<ExternalOrderView[] | null>(null)
+  const [created, setCreated] = useState<IngestionTokenCreated | null>(null)
+  const [busy, setBusy] = useState(false)
+  const [hidden, setHidden] = useState(false)
+
+  const load = useCallback(async () => {
+    try {
+      const [token, recent] = await Promise.all([
+        api<IngestionTokenView>('GET', '/api/ingest/token'),
+        api<ExternalOrderView[]>('GET', '/api/ingest/orders'),
+      ])
+      setStatus(token)
+      setArrivals(recent)
+    } catch {
+      setHidden(true)
+    }
+  }, [])
+
+  useEffect(() => {
+    void load()
+  }, [load])
+
+  if (hidden || status === null || arrivals === null) return null
+
+  const rotate = async () => {
+    setBusy(true)
+    try {
+      const fresh = await api<IngestionTokenCreated>('POST', '/api/ingest/token/rotate')
+      setCreated(fresh)
+      setStatus({ configured: true, created_at: fresh.created_at })
+    } catch {
+      setHidden(true)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <Card title="Outside orders" className="motion-safe:animate-rise">
+      <p className="text-sm text-muted">
+        Orders placed outside this app — a point-of-sale system, an online ordering page — can be
+        sent here and join the same kitchen queue, stock counts and reports as every other order.
+        The outside system posts them to <span className="font-mono text-text">POST /api/ingest/orders</span> with
+        this restaurant’s ingestion token. Nothing is ever sent back the other way.
+      </p>
+      <div className="mt-3 flex flex-wrap items-center gap-2">
+        {status.configured
+          ? <Chip tone="ok">Token set up</Chip>
+          : <Chip tone="warn">No token yet</Chip>}
+        <Button size="sm" variant="primary" loading={busy} onClick={() => void rotate()}>
+          {status.configured ? 'Rotate token' : 'Create token'}
+        </Button>
+        {status.configured && (
+          <span className="text-sm text-muted">Rotating replaces the old token at once.</span>
+        )}
+      </div>
+      {created && (
+        <div role="status" className="mt-3 rounded-xl bg-white/2 px-3 py-2.5 ring-1 ring-white/5">
+          <p className="text-sm font-semibold">Your new ingestion token — shown only this once:</p>
+          <p className="mt-1 break-all font-mono text-sm text-text">{created.token}</p>
+          <p className="mt-1 text-sm text-muted">
+            Paste it into the outside system now. If it is lost, rotate again — the old one stops working.
+          </p>
+        </div>
+      )}
+      {arrivals.length > 0 && (
+        <ul className="mt-4 flex flex-col gap-1.5">
+          {arrivals.slice(0, 8).map((order) => (
+            <li key={order.order_id}
+              className="flex flex-wrap items-center justify-between gap-3 rounded-xl bg-white/2 px-3 py-2 ring-1 ring-white/5">
+              <span className="min-w-0">
+                <span className="font-medium">
+                  #{order.order_no} · {order.source}{order.channel ? ` · ${order.channel}` : ''}
+                </span>
+                <span className="block truncate text-sm text-muted">
+                  Their order {order.external_order_id}
+                  {order.customer_name ? ` · ${order.customer_name}` : ''}
+                  {order.customer_phone_masked ? ` · ${order.customer_phone_masked}` : ''}
+                </span>
+                {order.unmapped.length > 0 && (
+                  <span className="mt-1 flex flex-wrap gap-1.5">
+                    {order.unmapped.map((line) => (
+                      <Chip key={line.label} tone="warn">
+                        {line.label} — {line.reason === 'unavailable' ? '86’d that day' : 'not on your menu'}
+                      </Chip>
+                    ))}
+                  </span>
+                )}
+              </span>
+              <span className="shrink-0 font-semibold tabular-nums">{formatCents(order.total_cents)}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </Card>
   )
 }
 
@@ -182,6 +295,8 @@ export default function SettingsSection() {
             <StockEditor items={stock} onSaved={(view) => setStock((items) =>
               (items ?? []).map((item) => (item.ingredient.id === view.ingredient.id ? view : item)))} />
           </Card>
+
+          <IngestionCard />
         </div>
       )}
     </SectionState>

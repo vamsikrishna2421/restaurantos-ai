@@ -18,6 +18,7 @@ export type EventType =
   | 'order.updated'
   | 'order.cancelled'
   | 'order.corrected'
+  | 'order.ingested'
   | 'ticket.created'
   | 'ticket.updated'
   | 'kitchen.load'
@@ -143,6 +144,15 @@ export interface OrderCorrectedPayload {
   line_no: number
   kind: CorrectionKind
   by_role: Role
+}
+
+export interface OrderIngestedPayload {
+  order_id: string
+  source: string
+  external_order_id: string
+  outcome: 'received' | 'partial' | 'deduped'
+  mapped_lines: number
+  unmapped: string[]
 }
 
 export interface TicketCreatedPayload {
@@ -378,6 +388,7 @@ export type EventPayloads = {
     'order.updated': OrderUpdatedPayload
     'order.cancelled': OrderCancelledPayload
     'order.corrected': OrderCorrectedPayload
+    'order.ingested': OrderIngestedPayload
     'ticket.created': TicketCreatedPayload
     'ticket.updated': TicketUpdatedPayload
     'kitchen.load': KitchenLoadPayload
@@ -424,6 +435,7 @@ export const PERSISTED_EVENT_TYPES = [
   'order.updated',
   'order.cancelled',
   'order.corrected',
+  'order.ingested',
   'ticket.created',
   'ticket.updated',
   'notice.updated',

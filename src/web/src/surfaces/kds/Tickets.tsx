@@ -5,7 +5,7 @@
  * Bump. A bumped ticket waits in the rail with a 10 s Undo (real time), then Recall.
  */
 
-import { Check, CookingPot, FlaskConical, Keyboard, Phone, Play, RotateCcw, Store, Tablet, Undo2 } from 'lucide-react'
+import { Check, CookingPot, FlaskConical, Globe, Keyboard, Phone, Play, RotateCcw, Store, Tablet, Undo2 } from 'lucide-react'
 import { useNow } from '../../components/badges'
 import { Badge, Button, Card, cx, TONE_SOFT, type Tone } from '../../components/ui'
 import type { Channel, MenuSnapshot, SpeakLang, Ticket } from '../../contracts/generated'
@@ -20,6 +20,7 @@ const CHANNELS: Readonly<Record<Channel, { label: string; Icon: typeof Phone }>>
   counter: { label: 'Counter', Icon: Store },
   typed: { label: 'Typed', Icon: Keyboard },
   sim: { label: 'Simulated', Icon: FlaskConical },
+  external: { label: 'External', Icon: Globe },
 }
 
 const FLAG = 'px-2.5 py-1 text-sm'

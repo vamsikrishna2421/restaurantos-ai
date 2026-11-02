@@ -32,6 +32,7 @@ import type {
   LedgerAppendedPayload,
   Order,
   OrderCorrectedPayload,
+  OrderIngestedPayload,
   Plan,
   PlanFallbackPayload,
   PlanStartedPayload,
@@ -65,6 +66,8 @@ export interface TenantExtras {
   fallbacks: Record<string, PlanFallbackPayload>
   offsets: QuoteOffset[]
   corrections: CorrectionRecord[]
+  /** Outside orders as they arrived (`order.ingested`, pass 18), latest outcome per order. */
+  ingestions: OrderIngestedPayload[]
   rush: RushStatePayload | null
 }
 
@@ -74,6 +77,7 @@ export const SESSIONS_MAX = 100
 export const TURNS_MAX = 200
 export const LEDGER_MAX = 500
 export const CORRECTIONS_MAX = 100
+export const INGESTIONS_MAX = 100
 
 type Reducer<K extends PersistedEventType> = (d: TenantData, p: EventPayloads[K], env: EventEnvelope) => TenantData
 export type PersistedReducers = { [K in PersistedEventType]: Reducer<K> }
@@ -88,7 +92,7 @@ export function isPersistedType(type: string): type is PersistedEventType {
 export function emptyExtras(): TenantExtras {
   return {
     carts: {}, sessions: {}, turns: [], pos: [], approvals: [], ledger: [], planStarts: {}, fallbacks: {},
-    offsets: [], corrections: [], rush: null,
+    offsets: [], corrections: [], ingestions: [], rush: null,
   }
 }
 
@@ -207,6 +211,11 @@ export const PERSISTED_REDUCERS: PersistedReducers = {
       : patch(d.orders_open, (o) => o.id === p.order_id, (o) => ({ ...o, status: p.status })),
   }),
   'order.cancelled': (d, p) => ({ ...d, orders_open: d.orders_open.filter((o) => o.id !== p.order_id) }),
+  // the order itself lands through `order.placed`; this keeps the arrival (and its dedupe echo)
+  // visible to live views, latest outcome per order
+  'order.ingested': (d, p) => ({
+    ...d, ingestions: cap(upsert(d.ingestions, p, (i) => i.order_id), INGESTIONS_MAX),
+  }),
   'order.corrected': (d, p, env) => ({
     ...d,
     corrections: cap(upsert(d.corrections, { ...p, seq: env.seq ?? -1 }, (c) => c.seq), CORRECTIONS_MAX),

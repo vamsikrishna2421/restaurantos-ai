@@ -18,7 +18,7 @@ import { ALL } from './model'
 const LIVE_MS = 120_000
 const KEEP = 8
 const WHO: Readonly<Record<Channel, string>> = {
-  phone: 'Phone', kiosk: 'Kiosk', counter: 'Counter', typed: 'Typed', sim: 'Simulated',
+  phone: 'Phone', kiosk: 'Kiosk', counter: 'Counter', typed: 'Typed', sim: 'Simulated', external: 'External',
 }
 
 interface Heard {

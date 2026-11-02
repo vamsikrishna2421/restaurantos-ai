@@ -38,7 +38,7 @@ export type Responsibility = 'inventory_manager'
 
 export type ForecastConfidence = 'steady' | 'early' | 'prior' | 'none'
 
-export type ConsoleCardKind = 'capacity' | 'stock' | 'recipes'
+export type ConsoleCardKind = 'capacity' | 'stock' | 'recipes' | 'ingestion'
 
 export type SupportKind = 'problem' | 'feature'
 
@@ -654,6 +654,7 @@ export interface ConsoleOrder {
   total_cents: number
   stations: string[]
   lines: ConsoleOrderLine[]
+  source: string | null
 }
 
 export interface ConsoleOrders {
@@ -1181,4 +1182,85 @@ export interface RecipeLineEdit {
 
 export interface RecipeApproveRequest {
   lines: RecipeLineEdit[] | null
+}
+
+export interface IngestItemIn {
+  item_code: string | null
+  item_name: string | null
+  qty: number
+  unit_price_cents: number | null
+}
+
+export interface ExternalOrderIn {
+  external_order_id: string
+  source: string
+  channel: string | null
+  placed_at: string | null
+  customer_name: string | null
+  customer_phone: string | null
+  items: IngestItemIn[]
+  total_cents: number | null
+}
+
+export interface IngestedLineView {
+  item_code: string
+  name: string
+  qty: number
+  unit_price_cents: number
+}
+
+export interface UnmappedLineView {
+  label: string
+  qty: number
+  unit_price_cents: number | null
+  reason: 'not_on_menu' | 'unavailable'
+}
+
+export interface ExternalOrderResult {
+  order_id: string
+  order_no: number
+  status: 'placed' | 'duplicate'
+  source: string
+  external_order_id: string
+  channel: string | null
+  mapped: IngestedLineView[]
+  unmapped: UnmappedLineView[]
+  total_cents: number
+}
+
+export interface ExternalOrderView {
+  order_id: string
+  order_no: number
+  order_status: OrderStatus
+  source: string
+  channel: string | null
+  external_order_id: string
+  customer_name: string | null
+  customer_phone_masked: string | null
+  placed_at: string | null
+  received_at: string
+  unmapped: UnmappedLineView[]
+  total_cents: number
+}
+
+export interface CsvImportRowError {
+  external_order_id: string
+  reason: string
+}
+
+export interface CsvImportResult {
+  imported: number
+  duplicates: number
+  failed: CsvImportRowError[]
+  results: ExternalOrderResult[]
+}
+
+export interface IngestionTokenView {
+  configured: boolean
+  created_at: string | null
+}
+
+export interface IngestionTokenCreated {
+  token: string
+  created_at: string
 }

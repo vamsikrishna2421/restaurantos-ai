@@ -43,6 +43,8 @@ const SAMPLES: { [K in PersistedEventType]: EventPayloads[K] } = {
     quote: { minutes: 25, ready_biz: BIZ, explain: 'CURRY queue 12 + prep 10 + pack 3 → 25 min',
       components: { station_id: 'STN_CURRY', queue_min: 12, prep_min: 10, pack_min: 3, offset_min: 0 } } },
   'order.updated': { order_id: 'ord_1', status: 'ready', by_role: 'system' },
+  'order.ingested': { order_id: 'ord_2', source: 'toast', external_order_id: 'T-1001',
+    outcome: 'partial', mapped_lines: 1, unmapped: ['Mystery Special'] },
   'order.cancelled': { order_id: 'ord_1', reason: 'guest left', by_role: 'manager' },
   'order.corrected': { order_id: 'ord_1', line_no: 1, kind: 'remove', by_role: 'cook' },
   'ticket.created': { ticket: ticket('tkt_2', 'ord_2') },

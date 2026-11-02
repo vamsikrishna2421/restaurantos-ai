@@ -1739,6 +1739,7 @@ design; (4) the privacy page states all of this plainly.
 
 — Bujji, 2026-11-01
 
+
 ## Pass 17 — Names never leave the building: pseudonymized model egress (branch `bujji/pass17`, stacked on `bujji/pass16` at its pushed head 8792fde; PR opened against `bujji/pass16` for review, NOT merged, NOT deployed)
 
 The owner's call, from the same Damo thread as pass 16 (2026-11-01): pass 16 keeps the model from
@@ -1849,3 +1850,107 @@ what your ingredients and dishes are."
 - NOT deployed (the Fly server stays down on the owner's instruction) and the PR is left open.
 
 — Bujji, 2026-11-01
+## Pass 18 — Outside orders, one ledger: generic external-order ingestion (branch `bujji/pass18`, based on `main` at feb3952 — passes 16+17 merged; PR opened against `main` for review, NOT merged, NOT deployed)
+
+The owner's call (2026-11-01), the last of the three pre-submission passes: orders that were placed
+somewhere else — a point-of-sale system, an online ordering page, a delivery marketplace — land as
+first-class orders in the SAME ledger as kiosk/phone orders. One-way by design: ingestion alone
+already gives complete stock, forecast and analytics truth, so nothing is ever written back to any
+outside system, and no vendor client ships (Toast/Square plug in later as thin adapters that emit
+the generic shape below, when partner access is approved). The partner-facing doc is
+`docs/external-orders.md`.
+
+### The pipe (`services/ingestion.py`, `api/routes_ingestion.py`, router tag P46)
+
+- **Endpoint**: `POST /api/ingest/orders` with a documented generic JSON shape —
+  `{source, external_order_id, channel?, placed_at?, customer_name?, customer_phone?, items[]}`,
+  each item `{item_code | item_name, qty, unit_price_cents?}`. The ledger always prices from the
+  restaurant's own menu; a sender's `unit_price_cents` is reference only, so a stale outside price
+  never rewrites the books. The order books at the moment it arrives, in the restaurant's business
+  time; the sender's `placed_at` is kept on the record.
+- **Auth**: one ingestion token per tenant (`ros_ingest_` + 32 url-safe bytes), created/rotated by
+  the manager in Settings. Only its SHA-256 hash is stored (`ingestion_tokens`, a KEPT table — it
+  survives sandbox resets and is never cloned); the value is shown exactly once, at creation.
+  Requests carry it as `X-Ingestion-Token` or `Authorization: Bearer`. The token names the tenant:
+  an order sent with restaurant A's token can only land in restaurant A. Missing token →
+  `401 ingestion_token_required`; unknown → `401 bad_ingestion_token`. The auth dependency runs
+  as the FIRST route parameter, so the cross-tenant walks hold (anonymous 401; a session naming
+  another tenant 403 `wrong_tenant`).
+- **Dedupe key**: `(tenant, source, external_order_id)` — a unique constraint on the new
+  `external_orders` table, checked again inside the ingest transaction. A redelivery returns the
+  existing order with `200` + `status: "duplicate"`: no second order, no second stock deduction.
+  Callers may retry freely.
+- **CSV**: `POST /api/ingest/orders/csv` takes the same shape as a raw CSV body — one row per
+  order LINE, grouped by `(source, external_order_id)`, columns
+  `external_order_id,source,channel,placed_at,customer_name,customer_phone,item_code,item_name,qty,unit_price_cents`.
+  Each distinct order reports its own outcome (`placed`/`duplicate`/`error` + reason), so one bad
+  row never sinks the file; re-importing the same file dedupes to a no-op. **Manual entry** is
+  covered by these two inputs (any tool that can POST or any spreadsheet export) — no separate
+  manual-entry surface was built, deliberately.
+- **Placement** reuses the order pipeline end-for-end: `OrderService._insert` + quote +
+  `kitchen.create_tickets` + `inventory.reserve(..., repo.approved_recipes(...))` — pass 16's
+  approved-recipes filter, so an ingested order deducts exactly like a kiosk order and flows into
+  forecasts, cautions, revenue and best sellers unchanged. Channel is the new `"external"` literal;
+  the console labels the source as `"<source> · <channel>"`. An order whose lines are ALL
+  unmapped is still recorded (zero lines, no tickets, no `order.placed`) so the arrival is never
+  lost.
+
+### Mapping rules
+
+Code first (exact), then exact name — case-folded, across every name the menu carries for the item
+in every language, romanizations included. A line that matches nothing is `not_on_menu`; a line
+that matches an item the kitchen had 86'd that day is `unavailable`. Unmapped lines never crash
+ingestion and never deduct stock: they are stored on the ingestion record, flagged on the order
+(`unmapped_items`), listed in Settings → Outside orders with the reason, and raised as one
+Attention card (kind `ingestion`, Operations category) naming up to three labels and their
+sources. The rest of the order cooks as usual.
+
+### Audit and privacy
+
+Every delivery appends the new persisted event `order.ingested` {order_id, source,
+external_order_id, outcome: received|partial|deduped, mapped_lines, unmapped labels} — **no
+customer name or phone in the payload, ever** (CONTRACTS §5). Customer name/phone live only on
+the `external_orders` row; reads mask the phone to its last four digits. Placed orders also carry
+the usual `order.placed`, actor `ingestion`. The web store reduces `order.ingested` into a capped
+per-order arrivals list (`ingestions`) for live views.
+
+### Surfaces
+
+- **Settings → Outside orders** (new card, fails soft on older servers): what the pipe is, token
+  status, Create/Rotate with the show-once value, and the recent arrivals with unmapped lines
+  flagged by reason.
+- **Orders**: a violet `From <source> · <channel>` chip on any order that arrived through the pipe.
+- **Attention**: the unmapped-lines card (Operations filter).
+- **KDS / Live / Monitor**: the `external` channel label ("External", Globe icon on tickets).
+- Reads for managers: `GET /api/ingest/orders` (recent arrivals), `GET /api/ingest/token`,
+  `POST /api/ingest/token/rotate` (ManagerAuth).
+
+### Tests and fixtures
+
+- New: `tests/api/test_ingestion_routes.py` (8 — happy path with tickets + approved-recipe stock
+  reservation + audit events + no PII in payloads; redelivery is a no-op with no double deduction;
+  unmapped and 86'd lines flagged and never deducted; an all-unmapped order recorded without
+  tickets; per-tenant token isolation and per-tenant dedupe; auth rejections incl. rotation
+  killing the old token; CSV grouping/dedupe/error reporting; console reads — source label,
+  revenue, best sellers, the Attention card). Web: `surfaces/manager/ingestion.test.tsx` (2 —
+  Settings arrivals + show-once token creation; the Orders source chip) and a reducer sample for
+  `order.ingested`. Contract mirrors updated: table SPEC (+`external_orders`, `ingestion_tokens`),
+  event CATALOG/SAMPLES (+`order.ingested`, count 44→45), registry EXPECTED_MODULES (+P46 router).
+  The full cross-tenant security walks pass over the new routes unchanged.
+- Python full suite, final completed run on this branch: **1631 passed, 5 skipped, 1 xfailed,
+  2 failed** — the two allowed failures only: the environmental
+  `tests/test_conftest_network.py::test_localhost_tcp_needs_opt_in` and the pre-existing
+  `tests/infra/test_secrets_script.py::test_workflows_hold_no_vendor_secrets` (fails identically
+  on the untouched base). (Two further full runs under load each also tripped the known
+  `tests/governance/test_executor.py::test_approval_executes_within_200ms_while_gm_stream_runs`
+  timing flake — the same one pass 17 recorded; it passes standalone and as its whole file.)
+  Web: **290/290 passed** (45 files), `tsc` clean, `scripts/gen_ts_contracts.py --check` clean,
+  `ruff check src tests scripts` clean.
+- Screenshots in `files/pass18-shots/` (goal files, tablet 1180×820, local dev server, mock AI):
+  Settings with the Outside orders card and a flagged arrival, the Orders board with the
+  `From toast · online` chips, and the Attention feed's unmapped-lines card — seeded by really
+  ingesting two orders through the API into the screenshot sandbox (that live run also caught and
+  fixed a field-name drift: the wire shape is `item_code`/`item_name`, as documented).
+- NOT deployed (the Fly server stays down on the owner's instruction) and the PR is left open.
+
+— Bujji, 2026-11-02
