@@ -74,9 +74,14 @@ class GMModel:
 
     def __call__(self, call: Any) -> list[Any]:
         self.report = json.loads(next(ln for ln in call.kwargs["input"].splitlines() if ln.startswith("{")))
+        # pass 17: the report arrives tokenized — translate candidate targets back to refs first
+        from tests.integration.test_golden_canonical import refs_by_code
+
+        code_map = refs_by_code(call.ctx.tenant_id)
         found: dict[tuple[str, str], dict[str, Any]] = {}
         for cand in self.report["candidates"]:
-            key = (cand["action_type"], cand["target"])
+            target = ",".join(code_map.get(part, part) for part in cand["target"].split(","))
+            key = (cand["action_type"], target)
             best = found.get(key)
             fewer = best is not None and cand["params"].get("packs", 0) < best["params"].get("packs", 0)
             if best is None or (key[0] == "create_purchase_order" and fewer):

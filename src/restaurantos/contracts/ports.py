@@ -47,10 +47,17 @@ if TYPE_CHECKING:
         PolicyLimits,
         TierDecision,
     )
-    from restaurantos.contracts.inventory import Ingredient, PurchaseOrder, RecipeLine, RecipeReview, Supplier
+    from restaurantos.contracts.inventory import (
+        EgressCode,
+        Ingredient,
+        PurchaseOrder,
+        RecipeLine,
+        RecipeReview,
+        Supplier,
+    )
     from restaurantos.contracts.kitchen import QuoteOffset, Staff, StaffNotice, StaffTask, Ticket
     from restaurantos.contracts.ledger import LedgerKind, LedgerRow, VerifyReport
-    from restaurantos.contracts.menu import Availability, MenuSnapshot
+    from restaurantos.contracts.menu import Availability, MenuItem, MenuSnapshot
     from restaurantos.contracts.orders import (
         Cart,
         CartOp,
@@ -233,6 +240,13 @@ class RepoPort(Protocol):
 
     async def approved_recipes(self, conn: AsyncConnection, tid: str) -> list[RecipeLine]:
         """The lines stock math may use: dishes awaiting recipe approval contribute nothing."""
+
+    async def egress_codes(self, conn: AsyncConnection, tid: str) -> list[EgressCode]:
+        """The tenant's egress pseudonyms (pass 17): the codes back-office model calls see."""
+
+    async def ensure_egress_codes(self, conn: AsyncConnection, tid: str, ingredients: list[Ingredient],
+                                  items: list[MenuItem]) -> list[EgressCode]:
+        """Assign and store codes for any catalog ref that has none; return the full mapping."""
 
     async def reservations_since(self, conn: AsyncConnection, tid: str, ingredient_id: str,
                                  since_biz_ms: int) -> list[tuple[int, int]]:

@@ -28,6 +28,8 @@ const SHORT: readonly string[] = [
     'or type.',
   'Your recipes stay yours: we draft ingredient lists from general knowledge, your chef approves them before ' +
     'anything uses them, and we store ingredients and quantities only — never how a dish is cooked.',
+  'When the AI helps run your kitchen, it never sees your ingredient or dish names: it works with code ' +
+    'labels and numbers instead, and the key that matches codes to names never leaves your kitchen\'s own data.',
 ]
 
 /** Pass 16: the recipe promise, stated plainly — a restaurant's recipes are its trade secret, and this page
@@ -41,6 +43,20 @@ const RECIPES: readonly string[] = [
   'We store ingredients and quantities only. That is all the system needs to count stock.',
   'Your cooking process — how a dish is prepared, in what order, with what technique — is never asked for, ' +
     'never stored and never shared. There is no field for it anywhere in the system. It stays your secret.',
+]
+
+/** Pass 17: the names promise — back-office AI reasoning runs on per-kitchen codes, and the key never
+ * leaves the kitchen's own data. The honest limit is stated in the card itself: quantities travel. */
+const EGRESS: readonly string[] = [
+  'To plan around a shortage, or to draft a message to a regular, the AI needs your numbers — how much ' +
+    'of something is left, how fast it is selling, how many servings a dish takes. It does not need names.',
+  'So every ingredient and dish carries a code that means nothing outside your kitchen (like ING_0147 or ' +
+    'ITEM_0231). The AI sees the codes and the quantities; its answers are turned back into real names on ' +
+    'your own system before anyone here reads them.',
+  'The key that matches codes to names is stored only in your kitchen\'s own data, and the codes are yours ' +
+    'alone: the same ingredient carries a different code in every other restaurant.',
+  'Honestly: quantities and volumes do travel with the codes — the AI cannot reason about your stock ' +
+    'without them. What never travels is what your ingredients and dishes are.',
 ]
 
 interface Row {
@@ -81,6 +97,9 @@ const RETENTION: readonly Row[] = [
     'whether the list was drafted by us or entered by the kitchen, and who approved it and when. Never ' +
     'preparation steps, method or technique',
     kept: 'Kept with the kitchen until it is reset or deleted' },
+  { store: 'AI name codes', holds: 'The key matching each ingredient and dish to the code the AI sees in ' +
+    'its place — the only place that key exists',
+    kept: 'Kept with the kitchen until it is reset or deleted' },
   { store: 'Shelf photos', holds: 'A photo a manager takes to count stock, with its EXIF, XMP and other metadata ' +
     'removed before it leaves the server', kept: 'Never stored: processed in memory and sent to Meta (Muse Spark and ' +
     'SAM 3.1); only its SHA-256 hash is kept, with the stock change a person confirmed' },
@@ -91,8 +110,8 @@ const RETENTION: readonly Row[] = [
 ]
 
 const PROCESSORS: readonly Row[] = [
-  { store: 'Meta (Muse models)', holds: 'Speech to transcribe, order text to understand, the GM\'s situation reports, ' +
-    'and shelf photos to count stock (Muse Spark and SAM 3.1)',
+  { store: 'Meta (Muse models)', holds: 'Speech to transcribe, order text to understand, the GM\'s situation reports ' +
+    '(ingredient and dish names replaced by codes), and shelf photos to count stock (Muse Spark and SAM 3.1)',
     kept: 'Standard models with storage off (store: false); files we upload are deleted after use, and a sweeper ' +
       'removes any older than an hour' },
   { store: 'ElevenLabs', holds: 'The text of each spoken reply, to turn it into a voice',
@@ -151,6 +170,9 @@ export default function PrivacySurface(_props: SurfaceProps) {
         </Card>
         <Card panel="recipes" title="Your recipes stay yours">
           <ul className="flex list-disc flex-col gap-1.5 pl-5">{RECIPES.map((s) => <li key={s}>{s}</li>)}</ul>
+        </Card>
+        <Card panel="egress" title="The AI sees codes, not names">
+          <ul className="flex list-disc flex-col gap-1.5 pl-5">{EGRESS.map((s) => <li key={s}>{s}</li>)}</ul>
         </Card>
         <Card panel="retention" title="What we keep, and for how long">
           <RowsTable label="Retention by store" head={['Store', 'What it holds', 'Kept for']} rows={RETENTION} />

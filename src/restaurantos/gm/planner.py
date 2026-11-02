@@ -51,6 +51,7 @@ from restaurantos.gm.trigger import REUSED_DRAFT
 from restaurantos.governance import approvals
 from restaurantos.governance.digest import decision_digest
 from restaurantos.governance.policy import po_spent_today_cents
+from restaurantos.meta.egress import EgressMap
 from restaurantos.meta.errors import BudgetExceeded
 from restaurantos.services.container import require
 from restaurantos.store import tables as t
@@ -91,6 +92,7 @@ class _Run:
     spent_usd: float = 0.0
     blocked: str | None = None  # why the AI may not run
     ctx: CallCtx | None = None
+    egress: EgressMap | None = None  # pass 17: the tenant's name pseudonyms for this run's model calls
     baseline: Plan | None = None
     ai_plan_id: str | None = None
     ai_plan_no: int = 0
@@ -172,6 +174,12 @@ class GMPlanner:
                        fallbacks.narration_lines(report), t0,
                        PolicyContext(tainted=report.tainted, po_spent_today_cents=spent),
                        fallbacks.worst_call_usd(c.settings, report))
+            # pass 17: the run's egress pseudonyms, assigned and stored in the tenant's own rows
+            # inside this same transaction, so the model calls below never carry a name.
+            ingredients = await repo.ingredients(tx.conn, tenant.id)
+            menu = await repo.menu_snapshot(tx.conn, tenant.id)
+            codes = await repo.ensure_egress_codes(tx.conn, tenant.id, ingredients, menu.items)
+            run.egress = EgressMap(codes, ingredients, menu.items)
             run.blocked = await self._blocked(tx.conn, run, tenant, now_real)
             values: dict[str, Any] = {} if run.blocked else {"ai_runs": incident.ai_runs + 1}
             if not speculative:
@@ -233,12 +241,19 @@ class GMPlanner:
 
     # ----- 2. the model -----------------------------------------------------------------------------------------
 
+    def _outward(self, run: _Run) -> SituationReport:
+        """The report as the model may see it (pass 17): ingredient and dish names tokenized to
+        their egress codes. ``run.report`` itself stays real — it is what the incident stores,
+        what the digests cover and what validation matches candidates against."""
+        return run.egress.tokenize_report(run.report) if run.egress is not None else run.report
+
     async def _ask(self, run: _Run) -> _Answer | str:
         """The streamed plan, else the Chat fallback's; a string says why neither gave one."""
         c, result = self._c, None
         try:
             c.chaos.check(run.tid, "meta")
-            stream = c.meta.responses_stream(purpose=Purpose.GM, ctx=run.ctx, **plan_stream.stream_request(run.report))
+            stream = c.meta.responses_stream(purpose=Purpose.GM, ctx=run.ctx,
+                                             **plan_stream.stream_request(self._outward(run)))
             result = await plan_stream.consume(stream, self.timing, on_reasoning=lambda text: self._ticker(run, text),
                                                on_action=lambda raw: self._card(run, raw))
         except ChaosDown:
@@ -252,8 +267,12 @@ class GMPlanner:
         else:
             run.spent_usd += result.record.cost_usd if result.record is not None else run.worst_usd
             try:
-                return _Answer(run.stage, PlanLLM.model_validate_json(result.text), result.text, result.record,
-                               result.reasoning)
+                plan_llm = PlanLLM.model_validate_json(result.text)
+                reasoning = result.reasoning
+                if run.egress is not None:  # pass 17: names back before anything is composed or shown
+                    plan_llm = run.egress.detokenize_plan(plan_llm)
+                    reasoning = run.egress.detokenize(reasoning)
+                return _Answer(run.stage, plan_llm, result.text, result.record, reasoning)
             except ValidationError:
                 why = "the streamed plan did not validate"
         if result is None:
@@ -272,9 +291,12 @@ class GMPlanner:
         try:
             c.chaos.check(run.tid, "meta")
             parsed, record = await asyncio.wait_for(c.meta.chat_json(
-                purpose=Purpose.GM, ctx=run.ctx, **plan_stream.chat_request(run.report, wait)), wait)
+                purpose=Purpose.GM, ctx=run.ctx, **plan_stream.chat_request(self._outward(run), wait)), wait)
             run.spent_usd += record.cost_usd
-            return _Answer("chat_fallback", PlanLLM.model_validate(parsed), json.dumps(parsed, ensure_ascii=False),
+            plan_llm = PlanLLM.model_validate(parsed)
+            if run.egress is not None:  # pass 17: as in _ask, names back before composition
+                plan_llm = run.egress.detokenize_plan(plan_llm)
+            return _Answer("chat_fallback", plan_llm, json.dumps(parsed, ensure_ascii=False),
                            record, "")
         except TimeoutError:
             return fallbacks.unavailable(f"the Chat fallback took over {wait:g} s")
@@ -284,10 +306,16 @@ class GMPlanner:
             return fallbacks.unavailable(f"the Chat fallback failed ({fallbacks.error_label(exc)})")
 
     def _ticker(self, run: _Run, text: str) -> None:
+        if run.egress is not None:  # pass 17: the live ticker names dishes again, never codes
+            text = run.egress.detokenize(text)
         run.reasoning.append(text)
         self._ephemeral(run.tid, "plan.reasoning_delta", {"plan_id": run.ai_plan_id, "text": text})
 
     def _card(self, run: _Run, raw: dict[str, Any]) -> None:
+        if run.egress is not None:  # pass 17: a progressive card's rationale names dishes again
+            raw = {**raw, **{key: run.egress.detokenize(raw[key])
+                             for key in ("rationale", "message", "message_en")
+                             if isinstance(raw.get(key), str)}}
         try:
             step = plan_stream.card(raw, run.report, run.cards, require(self._c, "policy"), run.policy_ctx)
         except Exception:  # a card is a preview: it never stops the stream

@@ -16,11 +16,12 @@ from collections import defaultdict
 from typing import TYPE_CHECKING, Any, Literal
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import and_, func, literal_column, select
+from sqlalchemy import and_, func, insert, literal_column, select
 
 from restaurantos.contracts.common import DEFAULT_TZ, TenantClockSpec, TenantFlags, TenantInfo, biz_from_ms, utc_from_ms
 from restaurantos.contracts.errors import NotFound
 from restaurantos.contracts.inventory import (
+    EgressCode,
     Ingredient,
     RecipeLine,
     RecipeReview,
@@ -260,6 +261,30 @@ async def approved_recipes(conn: AsyncConnection, tid: str) -> list[RecipeLine]:
     if not proposed:
         return await recipes(conn, tid)
     return [line for line in await recipes(conn, tid) if line.item_code not in proposed]
+
+
+async def egress_codes(conn: AsyncConnection, tid: str) -> list[EgressCode]:
+    """The tenant's egress pseudonyms (pass 17), in assignment order."""
+    ec = t.egress_codes
+    rows = await conn.execute(select(ec).where(ec.c.tenant_id == tid).order_by(_ROWID))
+    return [EgressCode(kind=r.kind, ref=r.ref, code=r.code) for r in rows]
+
+
+async def ensure_egress_codes(conn: AsyncConnection, tid: str, ingredients: list[Ingredient],
+                              items: list[MenuItem]) -> list[EgressCode]:
+    """Every catalog ref has a code: the ones already assigned plus the ones this call assigns and
+    stores (pass 17). Runs inside the caller's write transaction (the planner's start, the
+    win-back draft), so a first covered model call leaves the full mapping in the tenant's own
+    rows and later calls reuse it unchanged."""
+    from restaurantos.meta.egress import new_assignments  # deferred: meta.egress reads contracts only
+
+    existing = await egress_codes(conn, tid)
+    fresh = new_assignments(tid, existing,
+                            {"ingredient": [i.id for i in ingredients], "item": [i.code for i in items]})
+    if fresh:
+        await conn.execute(insert(t.egress_codes),
+                           [{"tenant_id": tid, "kind": r.kind, "ref": r.ref, "code": r.code} for r in fresh])
+    return [*existing, *fresh]
 
 
 async def reservations_since(conn: AsyncConnection, tid: str, ingredient_id: str,

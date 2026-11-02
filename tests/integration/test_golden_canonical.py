@@ -98,12 +98,34 @@ def report_in(planner_input: str) -> dict[str, Any]:
     return json.loads(next(ln for ln in planner_input.splitlines() if ln.startswith("{")))
 
 
-def canonical_actions(report: dict[str, Any]) -> list[tuple[str, str | None, str | None, str]]:
+def refs_by_code(tenant_id: str) -> dict[str, str]:
+    """Pass 17: the seed catalog's egress code -> internal ref for one tenant, drawn exactly as the
+    planner's start-of-run assignment draws them (``meta.egress.new_assignments``). The doubles
+    below play the model: since pass 17 the report they read carries codes in its targets, so they
+    translate the codes back to refs before resolving ``CHOICE`` — a real model never needs to,
+    it answers by candidate id alone."""
+    from restaurantos.meta.egress import new_assignments
+    from restaurantos.seed.loader import load_seed
+
+    seed = load_seed()
+    rows = new_assignments(tenant_id, [], {"ingredient": [i.id for i in seed.ingredients],
+                                           "item": [i.code for i in seed.menu.items]})
+    return {row.code: row.ref for row in rows}
+
+
+def canonical_actions(report: dict[str, Any], code_map: dict[str, str] | None = None,
+                      ) -> list[tuple[str, str | None, str | None, str]]:
     """``CHOICE`` resolved to the report's candidate ids (the PO is the Patel candidate with the fewest packs: the
-    note's 3), with the drafts and rationales of ``DINNER_RUSH_ACTIONS``."""
+    note's 3), with the drafts and rationales of ``DINNER_RUSH_ACTIONS``. ``code_map`` (pass 17)
+    translates a tokenized report's candidate targets back to the refs ``CHOICE`` is written in."""
+    def ref(target: str) -> str:
+        if not code_map:
+            return target
+        return ",".join(code_map.get(part, part) for part in target.split(","))
+
     best: dict[tuple[str, str], dict[str, Any]] = {}
     for cand in report["candidates"]:
-        key = (cand["action_type"], cand["target"])
+        key = (cand["action_type"], ref(cand["target"]))
         if key not in best or cand["params"].get("packs", 0) < best[key]["params"].get("packs", 0):
             best[key] = cand
     return [(best[key]["id"], *rest) for key, (_, *rest) in zip(CHOICE, DINNER_RUSH_ACTIONS, strict=True)]
@@ -111,7 +133,8 @@ def canonical_actions(report: dict[str, Any]) -> list[tuple[str, str | None, str
 
 def gm_model(call: Any) -> list[Any]:
     """The GM model on ``GMFakeMeta``: the canonical plan, streamed."""
-    return plan_events(canned_plan(canonical_actions(report_in(call.kwargs["input"]))))
+    return plan_events(canned_plan(canonical_actions(report_in(call.kwargs["input"]),
+                                                     refs_by_code(call.ctx.tenant_id))))
 
 
 def canned_meta(settings: Any, guard: SpendGuard, clock: FakeClock) -> GMFakeMeta:
@@ -355,7 +378,12 @@ def write_fixtures() -> list[Path]:
     def recorder(settings: Any, guard: SpendGuard, clock: FakeClock) -> MetaClient:
         offline = make_test_settings(data_dir=settings.data_dir, ai_mode=AIMode.RECORD, ai_cache_dir=GOLDEN_AI,
                                      live_tag=STAND_IN, model_api_key=SecretStr("hand-authored-not-a-key"))
-        return MetaClient(offline, guard, transport=httpx.MockTransport(lambda request: stand_in(request, written)))
+        # pass 17: the stand-in resolves the canonical plan from a tokenized report, so it needs the
+        # story tenant's code map — read lazily from the story's own store (the sandbox exists by
+        # the time the GM call arrives; the seeded IdGen makes the tenant the same on every run)
+        code_map = lambda: refs_by_code(_story_tenant_id(offline.data_dir))  # noqa: E731
+        return MetaClient(offline, guard, transport=httpx.MockTransport(
+            lambda request: stand_in(request, written, code_map())))
 
     with story(meta=recorder, order_agent=None) as s:
         canonical_story(s, "ok")
@@ -369,14 +397,23 @@ def write_fixtures() -> list[Path]:
     return written
 
 
-def stand_in(request: httpx.Request, written: list[Path]) -> httpx.Response:
+def _story_tenant_id(data_dir: Path) -> str:
+    """The sandbox tenant a story's store holds (pass 17: its egress codes key the stand-in's plan)."""
+    import sqlite3
+
+    with sqlite3.connect(data_dir / "ros.db") as conn:
+        (tid,) = conn.execute("SELECT id FROM tenants WHERE kind = 'sandbox'").fetchone()
+    return tid
+
+
+def stand_in(request: httpx.Request, written: list[Path], code_map: dict[str, str] | None = None) -> httpx.Response:
     """The model, offline: P13's canned te-en parse on Chat Completions; on Responses, the canonical plan for the report
     it is sent, streamed as P23a's stand-in streams it."""
     body = json.loads(request.content)
     endpoint = "responses_stream" if request.url.path.endswith("/responses") else "chat"
     written.append(GOLDEN_AI / endpoint / f"{request_hash(endpoint, body)}.json")
     if endpoint == "responses_stream":
-        events = sse_events(canned_plan(canonical_actions(report_in(body["input"]))))
+        events = sse_events(canned_plan(canonical_actions(report_in(body["input"]), code_map)))
         events[-1]["response"]["metadata"] = {"fixture": STAND_IN}
         sse = "".join(f"data: {json.dumps(event, ensure_ascii=False)}\n\n" for event in events) + "data: [DONE]\n\n"
         return httpx.Response(200, content=sse.encode(), headers={"content-type": "text/event-stream"})
